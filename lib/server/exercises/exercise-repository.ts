@@ -988,7 +988,7 @@ function selectRoundRobinExerciseResourceRecords(
 
 function clampExerciseResourceSearchMaxReturned(maxReturned?: number) {
   return Math.min(
-    Math.max(maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection, 1),
+    Math.max(maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection, 1),
     EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED,
   );
 }

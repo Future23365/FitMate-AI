@@ -62,8 +62,22 @@ describe("Agent model-visible contract gate", () => {
     const findings = samples.flatMap((sample) =>
       validateAgentModelVisibleSummaryContract(sample).findings,
     );
+    const searchModelSummaries = samples
+      .filter((sample) => sample.id.startsWith("searchExerciseResources.") && sample.kind === "tool_result_summary")
+      .map((sample) => JSON.stringify(sample.value));
 
     expect(findings).toEqual([]);
+    expect(searchModelSummaries.length).toBeGreaterThan(0);
+    for (const summaryJson of searchModelSummaries) {
+      expect(summaryJson).toContain("candidateGroups");
+      expect(summaryJson).not.toContain("\"groups\"");
+      expect(summaryJson).not.toContain("allowedSections");
+      expect(summaryJson).not.toContain("allowedSectionsRelation");
+      expect(summaryJson).not.toContain("sectionSummary");
+      expect(summaryJson).not.toContain("availableSections");
+      expect(summaryJson).not.toContain("missingSections");
+      expect(summaryJson).not.toContain("groupSemantics");
+    }
   });
 
   it("fails for renamed readiness fields instead of only matching historical field names", () => {
@@ -164,6 +178,7 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
           filterSemantics: [],
           totalMatches: 0,
           returnedCount: 0,
+          candidateCountPerSection: 8,
           maxReturned: 5,
           truncated: false,
           excludedCount: 0,
@@ -218,6 +233,7 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
           }],
           totalMatches: 1,
           returnedCount: 1,
+          candidateCountPerSection: 8,
           maxReturned: 5,
           truncated: false,
           excludedCount: 0,

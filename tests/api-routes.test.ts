@@ -324,7 +324,7 @@ describe("API route boundaries", () => {
     expect(exerciseRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       exerciseNames: ["俯卧撑"],
       suitability: "training",
-      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
     }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstModelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
@@ -907,7 +907,7 @@ function createExerciseSearchResult(input: Record<string, any>) {
     zeroMatchMuscles: [],
     totalMatches: exercises.length,
     returnedCount: exercises.length,
-    maxReturned: input.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
+    maxReturned: input.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
     truncated: false,
     excludedCount: input.excludeExerciseIds?.length ?? 0,
     exercises,

@@ -35,6 +35,14 @@ describe("LangChain Agent runtime config", () => {
     expect(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames).not.toContain("readFixture");
   });
 
+  it("centralizes searchExerciseResources candidate count limits", () => {
+    expect(agentRuntimeConfig.tools.searchExerciseResources).toMatchObject({
+      timeoutMs: 2_000,
+      defaultCandidateCountPerSection: 8,
+      maxCandidateCountPerSection: 24,
+    });
+  });
+
   it("keeps LangChain run budgets synchronized with graph recursion semantics", () => {
     expect(agentRuntimeConfig.langChain.runBudget).toMatchObject({
       maxModelCalls: 21,

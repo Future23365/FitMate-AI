@@ -19,7 +19,7 @@ describe("searchExerciseResources LangChain tool", () => {
     vi.doUnmock(repositoryPath);
   });
 
-  it("returns section-scoped exercise facts with model/user/trace projections", async () => {
+  it("returns candidate exercise facts with model/user/trace projections", async () => {
     const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
         query: input,
@@ -44,7 +44,7 @@ describe("searchExerciseResources LangChain tool", () => {
       muscles: ["胸部"],
       equipment: "no_equipment",
       suitability: "training",
-      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
       sort: "name_asc",
     }));
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.not.objectContaining({
@@ -57,57 +57,63 @@ describe("searchExerciseResources LangChain tool", () => {
       userProjection: {
         status: "succeeded",
         suitabilities: ["training"],
+        candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
         totalMatches: 1,
         returnedCount: 1,
       },
       traceSummary: {
         status: "succeeded",
         suitabilities: ["training"],
+        candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
         totalMatches: 1,
         returnedCount: 1,
-        groups: {
-          training: {
+        candidateGroups: [
+          expect.objectContaining({
+            suitability: "training",
             zeroMatchMuscles: [],
-          },
-        },
+          }),
+        ],
       },
     });
     expect(modelMessage).toMatchObject({
       status: "succeeded",
-      factLevel: "section_scoped_exercise_facts",
-      suitabilities: ["training"],
+      factLevel: "candidate",
       query: {
+        suitabilities: ["training"],
         muscles: ["胸部"],
         equipment: "no_equipment",
+        candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
         sort: "name_asc",
       },
       returnedCount: 1,
-      availableSections: ["training"],
-      sectionSummary: { warmup: 0, training: 1, stretch: 0 },
-      missingSections: ["warmup", "stretch"],
-      groups: {
-        training: {
+      truncated: false,
+      candidateGroups: [
+        {
+          suitability: "training",
           returnedCount: 1,
+          truncated: false,
           zeroMatchMuscles: [],
           exercises: [
             {
               exerciseId: "Pushups",
               nameZh: "俯卧撑",
-              allowedSections: ["training"],
+              imageUrl: "/push-up.png",
             },
           ],
         },
-      },
-      groupSemantics: {
-        groupKey: "groups.<section>",
-      },
+      ],
     });
     expect(modelMessage).not.toHaveProperty("totalMatches");
     expect(modelMessage).not.toHaveProperty("maxReturned");
-    expect(modelMessage).not.toHaveProperty("truncated");
-    expect(modelMessage.groups.training).not.toHaveProperty("totalMatches");
-    expect(modelMessage.groups.training).not.toHaveProperty("maxReturned");
-    expect(modelMessage.groups.training).not.toHaveProperty("truncated");
+    expect(modelMessage).not.toHaveProperty("groups");
+    expect(modelMessage).not.toHaveProperty("availableSections");
+    expect(modelMessage).not.toHaveProperty("sectionSummary");
+    expect(modelMessage).not.toHaveProperty("missingSections");
+    expect(modelMessage).not.toHaveProperty("groupSemantics");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("totalMatches");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("maxReturned");
+    expect(modelMessage.candidateGroups[0].exercises[0]).not.toHaveProperty("allowedSections");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("allowedSectionsRelation");
     expect(modelMessage).not.toHaveProperty("fulfillment");
     expect(modelMessage).not.toHaveProperty("satisfied");
     expect(modelMessage).not.toHaveProperty("supportSectionCompletionBoundary");
@@ -123,8 +129,37 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelJson).not.toContain("instructionsZh");
     expect(modelJson).not.toContain("embedding");
     expect(modelJson).not.toContain("缺少 warmup 或 stretch");
+    expect(modelJson).not.toContain("allowedSections");
+    expect(modelJson).not.toContain("allowedSectionsRelation");
     expect(modelJson).not.toContain("结构化收口工具");
     expect(modelJson).not.toContain("continue_tool_call");
+  });
+
+  it("uses explicit candidateCountPerSection as the repository candidate budget", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [createExerciseSummary()],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部"],
+        candidateCountPerSection: 10,
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      maxReturned: 10,
+    }));
+    expect(modelMessage.query.candidateCountPerSection).toBe(10);
+    expect(modelMessage).not.toHaveProperty("maxReturned");
   });
 
   it("projects zeroMatchMuscles in model, user and trace summaries without exposing handler internals", async () => {
@@ -152,36 +187,40 @@ describe("searchExerciseResources LangChain tool", () => {
     );
     const modelMessage = JSON.parse(result.modelMessage);
 
-    expect(modelMessage.groups.training.zeroMatchMuscles).toEqual(["肩部"]);
-    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("当前 section");
-    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("诊断事实");
-    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("解释、澄清或调整查询");
-    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("不表示动作库永久缺失");
-    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("必须继续补查每个肌群");
+    const trainingGroup = findCandidateGroup(modelMessage, "training");
+
+    expect(trainingGroup.zeroMatchMuscles).toEqual(["肩部"]);
+    expect(trainingGroup.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
+      "Pushups",
+      "InvertedRow",
+    ]);
     expect(result.record.userProjection).toMatchObject({
-      groups: {
-        training: {
+      candidateGroups: expect.arrayContaining([
+        expect.objectContaining({
+          suitability: "training",
           zeroMatchMuscles: ["肩部"],
-          exercises: [
-            { exerciseId: "Pushups" },
-            { exerciseId: "InvertedRow" },
-          ],
-        },
-      },
+          exercises: expect.arrayContaining([
+            expect.objectContaining({ exerciseId: "Pushups" }),
+            expect.objectContaining({ exerciseId: "InvertedRow" }),
+          ]),
+        }),
+      ]),
     });
     expect(result.record.traceSummary).toMatchObject({
-      groups: {
-        training: {
+      candidateGroups: [
+        expect.objectContaining({
+          suitability: "training",
           zeroMatchMuscles: ["肩部"],
           returnedCount: 2,
-        },
-      },
+        }),
+      ],
     });
     const projectedJson = JSON.stringify(result.record);
     expect(projectedJson).not.toContain("instructionsZh");
     expect(projectedJson).not.toContain("embedding");
     expect(projectedJson).not.toContain("candidatePool");
     expect(projectedJson).not.toContain("handlerOutput");
+    expect(JSON.stringify(modelMessage)).not.toContain("必须继续补查每个肌群");
   });
 
   it("keeps zeroMatchMuscles empty when the query has one or no muscle filters", async () => {
@@ -203,7 +242,7 @@ describe("searchExerciseResources LangChain tool", () => {
       );
       const modelMessage = JSON.parse(result.modelMessage);
 
-      expect(modelMessage.groups.training.zeroMatchMuscles).toEqual([]);
+      expect(findCandidateGroup(modelMessage, "training").zeroMatchMuscles).toEqual([]);
     }
   });
 
@@ -228,8 +267,10 @@ describe("searchExerciseResources LangChain tool", () => {
     );
     const modelMessage = JSON.parse(result.modelMessage);
 
-    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(["Pushups"]);
-    expect(modelMessage.groups.training.zeroMatchMuscles).toEqual([]);
+    const trainingGroup = findCandidateGroup(modelMessage, "training");
+
+    expect(trainingGroup.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(["Pushups"]);
+    expect(trainingGroup.zeroMatchMuscles).toEqual([]);
   });
 
   it("prioritizes requiredExerciseIds and reports filter mismatch diagnostics", async () => {
@@ -262,7 +303,7 @@ describe("searchExerciseResources LangChain tool", () => {
     const modelMessage = JSON.parse(result.modelMessage);
 
     expect(repository.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["Plank"]);
-    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
+    expect(findCandidateGroup(modelMessage, "training").exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
       "Plank",
       "Pushups",
     ]);
@@ -277,7 +318,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage.positiveAnchorBoundary).toContain("requiredExerciseIds");
   });
 
-  it("queries multiple exerciseNames through section groups without parallel name result structures", async () => {
+  it("queries multiple exerciseNames through candidate groups without parallel name result structures", async () => {
     const namedExercises = [
       createExerciseSummary({ id: "Pushups", nameZh: "俯卧撑", nameEn: "Pushups" }),
       createExerciseSummary({ id: "Bodyweight_Squat", nameZh: "深蹲", nameEn: "Bodyweight Squat", primaryMusclesZh: ["股四头肌"], primaryMuscles: ["quadriceps"] }),
@@ -307,7 +348,7 @@ describe("searchExerciseResources LangChain tool", () => {
       suitability: "training",
     }));
     expect(modelMessage.query.exerciseNames).toEqual(["俯卧撑", "深蹲", "平板支撑"]);
-    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
+    expect(findCandidateGroup(modelMessage, "training").exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
       "Pushups",
       "Bodyweight_Squat",
       "Plank",
@@ -382,6 +423,7 @@ describe("searchExerciseResources LangChain tool", () => {
       },
     });
     expect(modelMessage).not.toHaveProperty("fulfillment");
+    expect(modelMessage).not.toHaveProperty("groups");
     expect(JSON.stringify(modelMessage)).not.toContain("satisfied");
   });
 
@@ -394,6 +436,7 @@ describe("searchExerciseResources LangChain tool", () => {
       { muscles: ["胸部"], limit: 10 },
       { q: "俯卧撑" },
       { muscles: ["胸部"], homeRequirement: "无器械" },
+      { muscles: ["胸部"], candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection + 1 },
     ]) {
       const result = await executeLangChainToolWrapper(
         tool,
@@ -441,7 +484,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
 
-  it("keeps excluded exercises out of section groups when balanced candidates fill the result", async () => {
+  it("keeps excluded exercises out of candidate groups when balanced candidates fill the result", async () => {
     const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
         query: input,
@@ -467,7 +510,47 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       excludeExerciseIds: ["ExcludedPushup"],
     }));
-    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).not.toContain("ExcludedPushup");
+    expect(findCandidateGroup(modelMessage, "training").exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).not.toContain("ExcludedPushup");
+  });
+
+  it("keeps each requested suitability as a separate candidate group without coverage gaps", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: input.suitability === "warmup"
+          ? [createExerciseSummary({ id: "JumpingJack", nameZh: "开合跳", nameEn: "Jumping Jack", allowedSections: ["warmup"] })]
+          : [createExerciseSummary({ id: "Pushups", allowedSections: ["training"] })],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部"],
+        candidateCountPerSection: 2,
+        suitabilities: ["warmup", "training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledTimes(2);
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      suitability: "warmup",
+      maxReturned: 2,
+    }));
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      suitability: "training",
+      maxReturned: 2,
+    }));
+    expect(modelMessage.candidateGroups.map((group: { suitability: string }) => group.suitability)).toEqual([
+      "warmup",
+      "training",
+    ]);
+    expect(JSON.stringify(modelMessage)).not.toContain("missingSections");
+    expect(JSON.stringify(modelMessage)).not.toContain("allowedSections");
+    expect(JSON.stringify(modelMessage)).not.toContain("必须调用");
   });
 
   it("keeps multi-muscle coverage guidance inside the tool contract without phrasing triggers", async () => {
@@ -480,12 +563,14 @@ describe("searchExerciseResources LangChain tool", () => {
     ].join("\n");
 
     expect(modelVisibleText).toContain("suitabilities 可声明 warmup、training、stretch");
-    expect(modelVisibleText).toContain("完整单次训练 routine 的动作事实通常来自这三类 section");
-    expect(modelVisibleText).toContain("sectionSummary、availableSections、missingSections 只描述当前查询口径");
-    expect(modelVisibleText).toContain("不表达下一步 tool workflow");
-    expect(modelVisibleText).toContain("动作适配用途数组，只允许 warmup、training 或 stretch");
-    expect(modelVisibleText).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
-    expect(modelVisibleText).toContain("training 对应用户主训练目标");
+    expect(modelVisibleText).toContain("候选用途查询口径，不是最终训练编排命令");
+    expect(modelVisibleText).toContain("candidateCountPerSection");
+    expect(modelVisibleText).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
+    expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
+    expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
+    expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
+    expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
+    expect(modelVisibleText).toContain("服务端不根据用户原文分流");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(modelVisibleText).toContain("zeroMatchMuscles 是诊断事实");
     expect(modelVisibleText).toContain("不是必须继续补查每个肌群的义务");
@@ -499,6 +584,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).not.toContain("关键词");
     expect(modelVisibleText).not.toContain("短句模板");
     expect(modelVisibleText).not.toContain("必须调用");
+    expect(modelVisibleText).not.toContain("sectionSummary、availableSections、missingSections");
+    expect(modelVisibleText).not.toContain("groups.<section>");
   });
 });
 
@@ -561,10 +648,24 @@ function createSearchResult(input: {
     zeroMatchMuscles: input.zeroMatchMuscles ?? [],
     totalMatches: input.totalMatches ?? exercises.length,
     returnedCount: exercises.length,
-    maxReturned: input.query.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
+    maxReturned: input.query.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
     truncated: false,
     excludedCount: input.query.excludeExerciseIds?.length ?? 0,
     exercises,
+  };
+}
+
+function findCandidateGroup(modelMessage: { candidateGroups: Array<{ suitability: string }> }, suitability: string) {
+  const group = modelMessage.candidateGroups.find((candidateGroup) => candidateGroup.suitability === suitability);
+
+  expect(group).toBeDefined();
+
+  return group as {
+    suitability: string;
+    returnedCount: number;
+    truncated: boolean;
+    zeroMatchMuscles: string[];
+    exercises: Array<{ exerciseId: string }>;
   };
 }
 

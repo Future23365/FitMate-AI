@@ -68,6 +68,8 @@ const allowedSummaryKeys = new Set([
   "availableSections",
   "boundary",
   "candidateBoundary",
+  "candidateCountPerSection",
+  "candidateGroups",
   "category",
   "code",
   "conflictFields",

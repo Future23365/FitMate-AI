@@ -32,6 +32,7 @@ describe("production LangChain tool catalog", () => {
 
   it("keeps tool descriptions in Chinese without old AgentAction contract terms", () => {
     const descriptions = productionLangChainTools.map((tool) => tool.description).join("\n");
+    const searchDescription = productionLangChainTools.find((tool) => tool.name === "searchExerciseResources")?.description ?? "";
     const modelVisibleSamples = createProductionAgentModelVisibleTextSamples();
     const systemPrompt = modelVisibleSamples
       .filter((sample) => sample.kind === "system_prompt")
@@ -64,6 +65,9 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(descriptions).toContain("不是必须继续补查每个肌群的义务");
     expect(descriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
+    expect(descriptions).toContain("candidateGroups[]");
+    expect(descriptions).toContain("candidateCountPerSection");
+    expect(descriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
     expect(descriptions).toContain("Kind Selection");
     expect(descriptions).toContain("exercise_selection");
     expect(descriptions).toContain("纯主训练动作推荐集合");
@@ -74,8 +78,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("多天或周期训练计划");
     expect(descriptions).toContain("不替模型生成 prescription");
     expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
-    expect(descriptions).toContain("完整单次训练 routine 的动作事实通常来自这三类 section");
-    expect(descriptions).toContain("sectionSummary、availableSections、missingSections 只描述当前查询口径");
+    expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
+    expect(descriptions).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(descriptions).toContain("validator");
     expect(schemaDescriptions).toContain("Kind Selection");
     expect(schemaDescriptions).toContain("exercise_selection 只用于纯主训练动作推荐集合");
@@ -84,7 +88,8 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("kind=exercise_selection 时不得填写");
     expect(schemaDescriptions).toContain("kind=routine 或 kind=plan 时每个动作项都必须填写");
     expect(schemaDescriptions).toContain("kind=plan 时必须填写");
-    expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
+    expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
+    expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
@@ -92,6 +97,9 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).not.toContain("warmup、training、stretch");
     expect(descriptions).not.toContain("缺少 warmup 或 stretch");
     expect(descriptions).not.toContain("缺 warmup 或 stretch");
+    expect(searchDescription).not.toContain("sectionSummary");
+    expect(searchDescription).not.toContain("availableSections");
+    expect(searchDescription).not.toContain("missingSections");
     expect(descriptions).not.toContain("support section");
     expect(descriptions).not.toContain("先查询");
     expect(descriptions).not.toContain("必须调用");
@@ -151,21 +159,38 @@ describe("production LangChain tool catalog", () => {
 
     expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
     expect(schemaDescriptions).toContain("不是必须继续补查每个肌群的义务");
-    expect(schemaDescriptions).toContain("动作适配用途数组，只允许 warmup、training 或 stretch");
+    expect(schemaDescriptions).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
+    expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
+    expect(schemaDescriptions).toContain("服务端不根据用户原文分流");
+    expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
+    expect(schemaDescriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
-    expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
-    expect(schemaDescriptions).toContain("training 对应用户主训练目标");
     expect(schemaDescriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写");
     expect(schemaDescriptions).toContain("省略表示不额外限定环境条件");
   });
 
-  it("does not expose published as searchExerciseResources model input", () => {
+  it("exposes only controlled searchExerciseResources input fields", () => {
     const tools = createProductionLangChainToolCatalog({
       searchExerciseResourcesFacetCatalog: createFacetCatalog(),
     });
     const searchTool = tools.find((tool) => tool.name === "searchExerciseResources");
+    const inputSchemaJson = JSON.stringify(z.toJSONSchema(searchTool!.inputSchema));
 
     expect(searchTool?.description).not.toContain("published");
+    expect(inputSchemaJson).toContain("\"candidateCountPerSection\"");
+    for (const forbiddenField of [
+      "limit",
+      "page",
+      "pageSize",
+      "offset",
+      "take",
+      "cursor",
+      "maxReturned",
+      "published",
+      "q",
+    ]) {
+      expect(inputSchemaJson).not.toContain(`"${forbiddenField}"`);
+    }
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
       published: true,
@@ -175,7 +200,16 @@ describe("production LangChain tool catalog", () => {
       q: "俯卧撑",
       sort: "name_asc",
     }).success).toBe(false);
-    expect(JSON.stringify(z.toJSONSchema(searchTool!.inputSchema))).not.toContain("\"q\"");
+    expect(searchTool?.inputSchema.safeParse({
+      muscles: ["胸部"],
+      candidateCountPerSection: 24,
+      sort: "name_asc",
+    }).success).toBe(true);
+    expect(searchTool?.inputSchema.safeParse({
+      muscles: ["胸部"],
+      candidateCountPerSection: 25,
+      sort: "name_asc",
+    }).success).toBe(false);
   });
 });
 

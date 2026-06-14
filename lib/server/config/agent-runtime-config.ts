@@ -66,7 +66,8 @@ export type AgentRuntimeConfig = {
   tools: {
     searchExerciseResources: {
       timeoutMs: number;
-      maxReturnedPerSection: number;
+      defaultCandidateCountPerSection: number;
+      maxCandidateCountPerSection: number;
     };
     inspectVisibleTrainingProposals: {
       timeoutMs: number;
@@ -208,12 +209,14 @@ export const agentRuntimeConfig = {
   },
   /** tools 控制生产 tool 暴露给模型的默认事实数量和超时；业务层仍保留 hard cap。 */
   tools: {
-    /** searchExerciseResources 控制每个 section 返回给模型的动作事实数量。 */
+    /** searchExerciseResources 控制动作候选查询的受控返回规模，避免 tool 局部硬编码候选数量。 */
     searchExerciseResources: {
       /** timeoutMs 限制动作事实查询 tool 的单次执行时间；调大可能放大慢查询影响。 */
       timeoutMs: 2_000,
-      /** maxReturnedPerSection 控制每个 warmup/training/stretch section 的可见动作数量；调大增加模型上下文体积。 */
-      maxReturnedPerSection: 8,
+      /** defaultCandidateCountPerSection 是未显式指定时每个请求 section 的候选数量默认值。 */
+      defaultCandidateCountPerSection: 8,
+      /** maxCandidateCountPerSection 是模型可控候选数量上限；repository 仍保留同等 hard cap。 */
+      maxCandidateCountPerSection: 24,
     },
     /** inspectVisibleTrainingProposals 控制最近可见训练方案事实索引的读取规模。 */
     inspectVisibleTrainingProposals: {
