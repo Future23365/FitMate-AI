@@ -45,6 +45,8 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- runtimeMetadata.activitySummary 不会产生独立工具调用，不替代业务工具，不支撑最终回答 grounding，不保存到聊天历史。",
     "- 活动摘要只描述正在执行的当前步骤，不要写 toolName、内部字段、trace id、数据库 id、错误堆栈，也不要说已经完成尚未完成的事情。",
     "",
+    ...buildDecisionExamplePromptRules(),
+    "",
     "服务端边界：",
     "- 服务端负责认证、权限隔离、Zod 校验、数据库事实校验、结构化输出校验、trace 和 NDJSON 投影。",
     "- 你不能声称已保存、已写入、已确认或已生成卡片，除非对应工具或结构化输出已经通过服务端校验。",
@@ -64,4 +66,40 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- runtimeMetadata.activitySummary 不计入业务工具调用预算，也不打断业务工具连续调用计数。",
     `- 单次工具默认超时 ${config.toolWrapper.defaultTimeoutMs}ms。`,
   ].filter((line): line is string => typeof line === "string").join("\n");
+}
+
+/** buildDecisionExamplePromptRules 提供少量模型可见流程示例，只演示收口边界，不作为用户话术匹配规则。 */
+function buildDecisionExamplePromptRules() {
+  return [
+    "决策示例：",
+    "- 以下示例只说明任务边界、工具链路和收口方式，不是用户话术匹配规则；真实用户表达不需要和示例措辞一致。",
+    "- 示例中的 tool 名称、payload.kind 和字段名只用于说明当前模型可见工具/输出合同；实际 exerciseId 必须来自当前轮成功工具结果或已验证业务事实，不能复制示例占位或自行编造。",
+    "",
+    "示例 1：只交付动作推荐集合",
+    "- 场景：用户请求一组具体训练动作，但没有要求组数、次数、休息、训练日程或完整训练课。",
+    "- 工具链路：searchExerciseResources 获取动作候选；submitVisibleTrainingProposal 承载结构化动作推荐；fitmate_final_response 输出解释正文。",
+    "- 收口边界：candidateGroups[].exercises 中已有能满足目标的可选子集时，停止同类查询，从候选池选择贴合目标的子集。",
+    "- payload.kind=exercise_selection；exerciseItems[].section 全部是 training；不填写 prescription，不填写 schedule。",
+    "- content 只解释推荐理由、默认口径、适用场景和注意事项；不要把未经结构化校验的动作清单只写在正文里。",
+    "",
+    "示例 2：交付一次可执行训练",
+    "- 场景：用户请求一节可直接照着练的训练，而不只是动作名称。",
+    "- 工具链路：searchExerciseResources 获取必要的 warmup、training 或 stretch 动作候选；submitVisibleTrainingProposal 承载单次训练；fitmate_final_response 输出解释正文。",
+    "- 收口边界：已有候选事实足以组成一节训练时，停止同类查询。",
+    "- payload.kind=routine；至少包含 training，可以包含 warmup 和 stretch；每个 exerciseItems[] 必须填写 prescription；不填写 schedule。",
+    "- content 说明训练安排、默认口径和执行注意事项；不要在正文里补写 payload 没有承载的处方事实。",
+    "",
+    "示例 3：交付多天或周期训练计划",
+    "- 场景：用户请求未来多天、每周安排、周期训练计划、训练日/休息日分配，或希望把训练安排进持续周期。",
+    "- 工具链路：searchExerciseResources 获取必要动作候选；submitVisibleTrainingProposal 承载周期计划；fitmate_final_response 输出解释正文。",
+    "- 收口边界：已有候选事实足以组成周期计划时，停止同类查询。",
+    "- payload.kind=plan；每个 exerciseItems[] 必须填写 prescription；必须填写 schedule，用于表达训练日、休息日或周期内安排。",
+    "- content 说明计划结构、默认口径、执行注意事项和可调整项；不要用 routine 承载多天或周期安排。",
+    "",
+    "示例 4：只回答训练知识或动作要点",
+    "- 场景：用户询问训练原则、动作要点、注意事项、动作差异、热身或拉伸方法，但没有要求展示具体数据库动作条目。",
+    "- 工具链路：不需要展示具体数据库动作条目时，可以直接通过 fitmate_final_response 用 content 回答。",
+    "- 收口边界：不调用 searchExerciseResources；不调用 submitVisibleTrainingProposal；不要把普通建议伪装成已校验的训练卡片、routine 或 plan。",
+    "- content 可以给出原则、判断方法、动作质量提示和风险提醒，但不要声称这些内容来自数据库动作事实。",
+  ];
 }
