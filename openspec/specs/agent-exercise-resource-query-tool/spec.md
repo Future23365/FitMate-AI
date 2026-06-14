@@ -21,28 +21,44 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 工具结果 MUST NOT 产出 `candidate_set` resource
 
 ### Requirement: `searchExerciseResources` 输入必须只包含动作列表结构化筛选字段
-系统 SHALL 将 `searchExerciseResources` 的输入限制为结构化动作列表筛选字段和受控候选数量字段。允许字段包括 `exerciseNames`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscles`、`goalTag`、`riskTag`、`excludeExerciseIds`、`requiredExerciseIds`、`candidateCountPerSection` 和 `sort`。系统 MUST NOT 暴露 `q`、`published`、`visibility`、`bodyRegions`、`intensity`、`userText`、`intent`、`semanticQuery`、`limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned` 或任意 SQL / Prisma 查询片段作为模型可见输入。
+系统 SHALL 将 `searchExerciseResources` 的输入限制为结构化动作列表筛选字段、execution taxonomy 筛选字段和受控候选数量字段。允许字段包括 `exerciseNames`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax`、`noiseLevelMax`、`muscles`、`goalTag`、`riskTag`、`excludeExerciseIds`、`requiredExerciseIds`、`candidateCountPerSection` 和 `sort`。系统 MUST NOT 暴露 `equipment`、`homeRequirement`、`q`、`published`、`visibility`、`bodyRegions`、`intensity`、`userText`、`intent`、`semanticQuery`、`limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned` 或任意 SQL / Prisma 查询片段作为模型可见输入。
 
-#### Scenario: 合法结构化字段
+#### Scenario: 合法 execution taxonomy 字段
 - **WHEN** production registry 序列化 `searchExerciseResources` input schema
-- **THEN** schema MUST 只暴露 `exerciseNames`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscles`、`goalTag`、`riskTag`、`excludeExerciseIds`、`requiredExerciseIds`、`candidateCountPerSection` 和 `sort`
+- **THEN** schema MUST 包含 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax`
+- **AND** schema MUST 只暴露 `exerciseNames`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax`、`noiseLevelMax`、`muscles`、`goalTag`、`riskTag`、`excludeExerciseIds`、`requiredExerciseIds`、`candidateCountPerSection` 和 `sort`
+- **AND** `requiredEquipmentTags` MUST 使用 `ExerciseRequiredEquipmentTag` canonical values
+- **AND** `supportRequirementTags` MUST 使用 `ExerciseSupportRequirementTag` canonical values
+- **AND** `setupComplexityMax` MUST 使用已知 `ExerciseKnownSetupComplexity` canonical values，不允许 `unknown`
+- **AND** `impactLevelMax` MUST 使用 `low`、`medium` 或 `high`
+- **AND** `noiseLevelMax` MUST 使用 `quiet`、`normal` 或 `loud`
 - **AND** `candidateCountPerSection` MUST 表达每个请求 section 最多返回多少个动作候选
 - **AND** `candidateCountPerSection` MUST NOT 被描述为分页、offset、cursor、最终展示数量承诺或全库读取能力
 
-#### Scenario: 非法输入字段
-- **WHEN** Planner 传入 `q`、`published`、`visibility`、`bodyRegions`、`intensity`、`userText`、`intent`、`semanticQuery`、`limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned` 或任意 SQL / Prisma 查询片段
+#### Scenario: 旧字段不再作为模型可见输入
+- **WHEN** Planner 传入 `equipment`、`homeRequirement`、`q`、`published`、`visibility`、`bodyRegions`、`intensity`、`userText`、`intent`、`semanticQuery`、`limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned` 或任意 SQL / Prisma 查询片段
+- **THEN** `searchExerciseResources` input validation MUST reject 该调用
+- **AND** handler MUST NOT 执行动作库查询
+
+#### Scenario: taxonomy 输入自洽
+- **WHEN** Planner 同时传入 `requiresExternalEquipment = false` 和非空 `requiredEquipmentTags`
+- **THEN** `searchExerciseResources` input validation MUST reject 该调用
+- **AND** failure feedback MUST 指出外部器械需求与器械 tag 冲突
+
+#### Scenario: support none 互斥
+- **WHEN** Planner 传入 `supportRequirementTags` 且其中包含 `none` 和其他 support tag
 - **THEN** `searchExerciseResources` input validation MUST reject 该调用
 - **AND** handler MUST NOT 执行动作库查询
 
 ### Requirement: `searchExerciseResources` 必须返回查询摘要和动作资源摘要
-系统 SHALL 在 `searchExerciseResources` 成功执行后返回动作资源查询摘要和有限动作摘要。模型可见 observation MUST 使用 `candidateGroups[]` 表达当前查询口径下返回的动作候选；每个 candidate group MUST 包含 `suitability`、候选数量、截断状态和 `exercises[]`，其中 `suitability` 只表达本次查询来源，不是最终训练编排命令。每个动作摘要 MUST 至少包含 `exerciseId`、`nameZh`、`nameEn`、器械、居家条件、主要肌群和图片 URL 等动作事实摘要字段。模型可见 observation MUST NOT 暴露旧 `groups`、每个动作的 `allowedSections`、`sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation` 或 `groupSemantics`。
+系统 SHALL 在 `searchExerciseResources` 成功执行后返回动作资源查询摘要和有限动作摘要。模型可见 observation MUST 使用 `candidateGroups[]` 表达当前查询口径下返回的动作候选；每个 candidate group MUST 包含 `suitability` 和 `exercises[]`。每个动作摘要 MUST 至少包含 `exerciseId`、`nameZh`、`nameEn`、主要肌群、图片 URL 和有限 `executionTaxonomy` 事实。旧 `equipmentZh` / `homeRequirementZh` MAY 作为展示摘要保留，但模型 MUST NOT 继续把旧字段当作可填写筛选字段。
 
-#### Scenario: 成功返回有限动作摘要
+#### Scenario: 成功返回 execution taxonomy 摘要
 - **WHEN** `searchExerciseResources` 成功查询到动作候选
 - **THEN** model observation MUST 包含 `candidateGroups[]`
 - **AND** `candidateGroups[]` 中每个 group MUST 包含 `suitability` 和 `exercises[]`
-- **AND** `candidateGroups[].exercises[]` 中每个动作 MUST 包含有限动作事实摘要
-- **AND** model observation MUST 包含 `query.suitabilities`、`returnedCount`、`truncated`、`appliedFilters` 和必要 diagnostics
+- **AND** `candidateGroups[].exercises[]` 中每个动作 MUST 包含 `executionTaxonomy`
+- **AND** `executionTaxonomy` MUST 只包含 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel`
 - **AND** model observation MUST NOT 包含完整数据库对象、完整 handler output、内部 service 对象、训练候选 evidence 或与本次查询无关的诊断 payload
 
 #### Scenario: 不向模型暴露 placement 字段
@@ -52,38 +68,39 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** trace / user projection MAY 保留服务端复盘需要的安全摘要，但不得把这些字段回灌为 Planner 下一轮可复制 input
 
 ### Requirement: `searchExerciseResources` 必须下推数据库查询且不得全表读取
-系统 SHALL 为 `searchExerciseResources` 使用专用动作资源查询 repository，在数据库层执行动作名称匹配、结构化数据库 facet、tool 合同层确定性映射、section-aware hard filter policy、受控候选数量和排除条件筛选，并避免每次 tool 调用读取全量 `Exercise` 数据后再内存过滤。Repository MUST NOT 使用 `q`、`bodyRegions` 或服务端区域展开构造查询。Repository MUST NOT 从 Planner input 读取 `published`，也 MUST NOT 把 `published` 作为模型可控 hard filter。
+系统 SHALL 为 `searchExerciseResources` 使用专用动作资源查询 repository，在数据库层执行动作名称匹配、结构化数据库 facet、execution taxonomy filters、section-aware hard filter policy、受控候选数量和排除条件筛选，并避免每次 tool 调用读取全量 `Exercise` 数据后再内存过滤。Repository MUST NOT 使用 `q`、`bodyRegions` 或服务端区域展开构造查询。Repository MUST NOT 从 Planner input 读取 `published`，也 MUST NOT 把 `published` 作为模型可控 hard filter。
 
-#### Scenario: Repository 查询下推结构化筛选
+#### Scenario: Repository 查询下推 execution taxonomy 筛选
 - **WHEN** `searchExerciseResources` handler 接收到合法结构化输入
 - **THEN** handler MUST 调用专用 repository 查询入口，而不是调用 `listExerciseRecords()`、`listAllExercises()`、旧 `searchExercises()` 或其他全量动作读取入口
-- **AND** repository MUST 将 `category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`muscles`、`goalTag`、`riskTag`、`exerciseNames`、`requiredExerciseIds` 和 `excludeExerciseIds` 按当前 section 的 hard filter policy 转换为数据库可执行 `where` 条件
-- **AND** repository MUST 对 `training` 查询应用 `level`、`force`、`mechanic`、`category`、`goalTag`、`riskTag` 和 `exerciseNames` hard filters
-- **AND** repository MUST 对 `warmup` 和 `stretch` 查询应用 section、器械、场地、肌群、`exerciseNames`、`requiredExerciseIds` 和 `excludeExerciseIds` hard filters
-- **AND** repository MUST 将 `warmup` 和 `stretch` 查询中传入但未作为 hard filter 使用的字段记录到 `filterApplications.unappliedInputFilters`
-- **AND** repository MUST 将 `equipment = "no_equipment"` 或 `"无器械"` 映射为数据库自重动作查询条件，例如 `equipment = "body only"` 或 `equipmentZh = "自重"`
-- **AND** repository MUST NOT 因 `equipment = "no_equipment"` 或 `"无器械"` 自动添加 `homeRequirement = "none"`、`homeRequirementZh = "无器械"` 或等价居家条件过滤
+- **AND** repository MUST 将 `requiresExternalEquipment` 转换为 `Exercise.requiresExternalEquipment` 精确过滤
+- **AND** repository MUST 将 `requiredEquipmentTags` 转换为 `Exercise.requiredEquipmentTags hasSome` 过滤
+- **AND** repository MUST 将 `supportRequirementTags` 转换为 `Exercise.supportRequirementTags hasSome` 过滤
+- **AND** repository MUST 将 `setupComplexityMax` 转换为已知 setup complexity 等级上限过滤，且 `unknown` 不得匹配该过滤
+- **AND** repository MUST 将 `impactLevelMax` 转换为 impact level 等级上限过滤，且 `null` 不得匹配该过滤
+- **AND** repository MUST 将 `noiseLevelMax` 转换为 noise level 等级上限过滤，且 `null` 不得匹配该过滤
+- **AND** repository MUST NOT 使用旧 `equipment` / `homeRequirement` 输入构造 Agent 查询 where 条件
+- **AND** repository MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板自动补写 taxonomy 字段
 - **AND** repository MUST 将 `muscle` 与 `muscles` 合并去重后，在 `primaryMuscles`、`primaryMusclesZh`、`secondaryMuscles` 和 `secondaryMusclesZh` 中执行 OR 查询
 - **AND** repository MUST NOT 引用 `bodyRegions`、`expandExerciseBodyRegionTargetMuscles` 或等价区域展开逻辑
 - **AND** repository MUST 使用同一 section hard filter policy 下的 `where` 执行 `count()` 来生成该 section 的 `totalMatches`
 - **AND** repository MUST 使用 `candidateCountPerSection` 或默认候选数量推导的服务端受控 `maxReturned` 执行 `findMany({ take: maxReturned + 1 })` 或等价查询来判断 `truncated`
 - **AND** `limit`、`take`、`offset`、`page`、`pageSize`、`cursor` 或 `maxReturned` MUST NOT 由 LLM 输入控制
 
-#### Scenario: 显式环境条件叠加过滤
-- **WHEN** `searchExerciseResources` 输入同时包含 `equipment = "no_equipment"` 和合法 `homeRequirement`
-- **THEN** repository MUST 同时应用自重动作查询条件和该环境条件
-- **AND** 该环境条件 MUST 来自 Planner 显式输入
-- **AND** repository MUST NOT 根据用户原文或 `equipment` 值自动选择 `floor`、`support`、`none` 或其他环境条件
+#### Scenario: section hard filter policy 使用 taxonomy 字段
+- **WHEN** `searchExerciseResources` 查询 `training`
+- **THEN** repository MUST 对 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax` 应用 hard filters
+- **WHEN** `searchExerciseResources` 查询 `warmup` 或 `stretch`
+- **THEN** repository MUST 对 section、执行条件 taxonomy、肌群、`exerciseNames`、`requiredExerciseIds` 和 `excludeExerciseIds` 应用 hard filters
+- **AND** repository MUST 将 `warmup` 和 `stretch` 查询中传入但未作为 hard filter 使用的非 execution taxonomy 字段记录到 `filterApplications.unappliedInputFilters`
 
 ### Requirement: `searchExerciseResources` 投影必须保护模型、用户和 trace 边界
-系统 SHALL 为 `searchExerciseResources` 提供安全模型观察、用户投影和 trace summary，避免完整 handler output 默认外泄。模型可见 observation MUST 只表达动作库查询事实、按查询口径分组的有限动作摘要、查询口径、受控候选数量、截断状态和确定性 diagnostics；MUST NOT 暴露业务目标满足度、section coverage 缺口、每个动作的 placement eligibility、最终交付指令、下一步 tool 调用指导或固定 workflow。
+系统 SHALL 为 `searchExerciseResources` 提供安全模型观察、用户投影和 trace summary，避免完整 handler output 默认外泄。模型可见 observation MUST 只表达动作库查询事实、有限动作摘要、execution taxonomy 事实、查询口径和确定性 diagnostics；MUST NOT 暴露业务目标满足度、section coverage 缺口、每个动作的 placement eligibility、最终交付指令、下一步 tool 调用指导或固定 workflow。
 
-#### Scenario: 模型观察只包含安全事实摘要
+#### Scenario: 模型观察只包含安全 taxonomy 事实摘要
 - **WHEN** `searchExerciseResources` 执行成功并进入下一轮 Planner 输入
-- **THEN** 模型可见 observation MUST 包含查询事实，例如 `query`、`filters`、`returnedCount`、`truncated` 和应用的数据库 facet 摘要
-- **AND** 模型可见 observation MUST 包含 `candidateGroups[]`
-- **AND** 模型可见 observation MUST 在每个 `candidateGroups[]` item 中包含 `suitability`，该字段只表示查询来源
-- **AND** 模型可见 observation MUST 只在 `candidateGroups[].exercises[]` 中包含有限动作摘要字段，例如 `exerciseId`、`nameZh`、`nameEn`、`equipmentZh`、`homeRequirementZh`、`primaryMusclesZh` 和 `imageUrl`
+- **THEN** 模型可见 observation MUST 包含 `candidateGroups[]`
+- **AND** 模型可见 observation MUST 在每个 `candidateGroups[].exercises[]` 动作摘要中包含有限 `executionTaxonomy`
 - **AND** 模型可见 observation MUST NOT 包含旧 `groups`、每个动作的 `allowedSections`、`sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation`、`groupSemantics`、完整数据库对象、完整 handler output、内部 service 对象、训练候选 evidence 或与本次查询无关的诊断 payload
 - **AND** 模型可见 observation MUST NOT 包含 `fulfillment`、`satisfied`、`supportsOutputKinds`、`visibleDeliveryBoundary`、`supportSectionCompletionBoundary`、`routinePlanCompositionBoundary` 或等价字段
 
@@ -93,18 +110,20 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 用户可见投影 MUST NOT 生成 `visibleTrainingProposal`、routine、plan、处方、日程或训练卡片事实
 
 ### Requirement: `searchExerciseResources` 模型可见说明必须表达业务边界
-系统 SHALL 在 tool manifest、schema 描述、examples、facet catalog 或 observation 中为模型提供 `searchExerciseResources` 的使用边界，且不得把该 tool 的业务特例写入通用 Agent prompt。该边界 SHALL 表达 tool 只接受数据库真实 facet、受控动作 id、受控动作名称和受控候选数量；高层自然语言目标由模型基于 `facetCatalog`、上下文和可见事实自主选择结构化字段。该边界 MUST NOT 表达业务目标满足度，也 MUST NOT 将查询结果包装成结构化训练交付流程或 section placement 建议。
+系统 SHALL 在 tool manifest、schema 描述、examples、facet catalog 或 observation 中为模型提供 `searchExerciseResources` 的使用边界，且不得把该 tool 的业务特例写入通用 Agent prompt。该边界 SHALL 表达 tool 只接受数据库真实 facet、execution taxonomy canonical values、受控动作 id、受控动作名称和受控候选数量；高层自然语言目标由模型基于 `facetCatalog`、上下文和可见事实自主选择结构化字段。该边界 MUST NOT 表达业务目标满足度，也 MUST NOT 将查询结果包装成结构化训练交付流程或 section placement 建议。
 
-#### Scenario: Manifest 说明何时使用和何时不用
-- **WHEN** Agent 构造 Planner 可见 tool manifest
-- **THEN** `searchExerciseResources` 的模型可见说明 MUST 表达它适用于查询符合结构化数据库 facet 的发布态动作列表
-- **AND** 模型可见说明 MUST 表达所有 facet 值应优先来自 `facetCatalog`
+#### Scenario: Manifest 说明 execution taxonomy 输入来源
+- **WHEN** Agent 构造 Planner 可见 tool description 和 schema description
+- **THEN** `searchExerciseResources` 的模型可见说明 MUST 表达 `requiresExternalEquipment` 表示动作是否需要外部训练器械
+- **AND** 模型可见说明 MUST 表达 `requiredEquipmentTags` 来自 execution taxonomy facet catalog
+- **AND** 模型可见说明 MUST 表达 `supportRequirementTags` 表示非训练器械的支撑、场地或搭档条件
+- **AND** 模型可见说明 MUST 表达 `setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax` 是上限筛选，未知或未补齐值不匹配低门槛约束
 - **AND** 模型可见说明 MUST 表达 `candidateCountPerSection` 只控制每个请求 section 的候选数量，不是分页、offset、cursor 或最终展示数量承诺
 - **AND** 模型可见说明 MUST 表达它不适用于生成训练、保存结果、读取单个动作完整详情、从完整自然语言中做服务端语义解析、替模型做唯一身份强决策、统计全库 facet 或构建 routine / plan / patch 候选集合
 - **AND** 模型可见说明 MUST NOT 表达成功结果通过 `satisfied=true`、`fulfillment.satisfied=true` 或等价业务目标满足度支撑普通回答
 - **AND** 模型可见说明 MUST NOT 表达 failed、非法输入、0 条结果或候选不足通过 `satisfied=false`、`fulfillment.satisfied=false` 或等价业务目标未满足字段进入下一步
 - **AND** 模型可见说明 MUST NOT 表达 `supportsOutputKinds`、`supportsSuccessfulVisibleOutputs`、`finalAnswerSupport` 或等价业务输出可行性判断
-- **AND** 模型可见说明 MUST NOT 把自然语言短语写成固定 facet 选择规则
+- **AND** 模型可见说明 MUST NOT 把自然语言短语写成固定 taxonomy 字段选择规则
 - **AND** 通用 Agent prompt MUST NOT 新增 `searchExerciseResources` toolName 特例或服务端关键词路由规则
 
 #### Scenario: 查询结果事实可用于模型自主推理
@@ -115,18 +134,32 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 模型可见说明 MUST NOT 表达缺少某 section 时模型必须继续调用 `searchExerciseResources`
 - **AND** 模型可见说明 MUST NOT 表达若要交付用户可见结果就必须继续调用 `submitVisibleTrainingProposal`
 
-### Requirement: `searchExerciseResources` 必须具备 tool-level 验证
-系统 SHALL 为 `searchExerciseResources` 提供直接覆盖真实 tool 执行入口的自动化测试，而不能只验证 registry 或 manifest 暴露。
+#### Scenario: facet catalog 暴露 taxonomy canonical values
+- **WHEN** production registry 注入 `searchExerciseResources` facet catalog
+- **THEN** tool description MUST 暴露 execution taxonomy 的 canonical values 摘要
+- **AND** tool description MUST NOT 暴露旧 `equipment` 或 `homeRequirements` 作为 Planner 可填写 input facet
 
-#### Scenario: Tool 单测覆盖业务行为和安全边界
+### Requirement: `searchExerciseResources` 必须具备 tool-level 验证
+系统 SHALL 为 execution taxonomy 查询合同提供直接覆盖真实 tool 执行入口的自动化测试，而不能只验证 registry 或 manifest 暴露。
+
+#### Scenario: Tool 单测覆盖 taxonomy 查询
 - **WHEN** 本 change 完成实现
-- **THEN** 自动化测试 MUST 直接覆盖 `searchExerciseResources` 的 handler、`executeTool` 或当前真实 runtime 执行入口
+- **THEN** 自动化测试 MUST 直接覆盖 `searchExerciseResources` 的 handler、`executeTool`、`executeLangChainToolWrapper` 或当前真实 runtime 执行入口
+- **AND** 测试 MUST 覆盖 `requiresExternalEquipment = false`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax` 的 schema、repository input、model-visible summary、user projection 和 trace summary
+- **AND** 测试 MUST 覆盖旧 `equipment` / `homeRequirement` 模型可见 input 被拒绝
+- **AND** 测试 MUST 覆盖 `requiredExerciseIds` 与 taxonomy filter mismatch diagnostics
 - **AND** 测试 MUST 覆盖 `published` 不再出现在模型可见 input schema、description、examples、query summary 或 `appliedFilters` 中
 - **AND** 测试 MUST 覆盖模型传入 `published` 会作为未知字段被 schema 拒绝，且失败反馈包含字段级 issue
 - **AND** 测试 MUST 覆盖成功路径、schema 拒绝、空结果、数据库下推查询、projection / redaction、trace summary、handler 失败归一化、`excludeExerciseIds` 去重、数量上限、非法 id 拒绝、数据库层排除、排除后候选不足和摘要投影
 - **AND** 测试 MUST 使用接近 AITest 真实动作库查询的健身业务输入
 - **AND** 测试 MUST 证明被排除动作不会出现在返回动作中
 - **AND** 测试 MUST 证明该 tool 仍不产出 `candidateSetId`、`candidate_set` resource、训练卡片或保存事件
+
+#### Scenario: Production catalog 和模型可见门禁覆盖 taxonomy 合同
+- **WHEN** production catalog / model-visible contract tests 运行
+- **THEN** 测试 MUST 证明 `searchExerciseResources` description 和 schema description 暴露 execution taxonomy 输入来源和 canonical values
+- **AND** 测试 MUST 证明 Planner-visible summary 包含有限 `executionTaxonomy`
+- **AND** 测试 MUST 证明 Planner-visible summary 仍不暴露 `totalMatches`、`returnedCount`、`truncated`、`candidateCountPerSection`、`filterApplications`、`zeroMatchMuscles` 或固定 workflow 文案
 
 ### Requirement: searchExerciseResources 不得承担可见训练方案事实查询职责
 `searchExerciseResources` SHALL remain a read-only structured exercise database query tool. It MUST NOT be used as the tool for discovering whether the current conversation already has a user-visible `visibleTrainingProposal`; that responsibility SHALL belong to `inspectVisibleTrainingProposals` `list_recent` / `read_recent` operations.
@@ -179,7 +212,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 
 #### Scenario: Examples 只描述 tool 输入
 - **WHEN** Agent 序列化 `searchExerciseResources` examples 给 Planner
-- **THEN** examples MUST 展示如何填写结构化查询字段，例如 `suitabilities`、`equipment`、`homeRequirement`、`level`、`muscles`、`requiredExerciseIds` 或 `excludeExerciseIds`
+- **THEN** examples MUST 展示如何填写结构化查询字段，例如 `suitabilities`、`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`level`、`muscles`、`requiredExerciseIds` 或 `excludeExerciseIds`
 - **AND** examples MUST 使用符合当前 schema 的 input
 - **AND** examples MUST NOT 说明用户出现某个固定短语时必须选择某个 `visibleTrainingProposal.payload.kind`
 - **AND** examples MUST NOT 承诺 tool 自己会生成最终训练方案、处方、日程、结构化收口或保存结果
@@ -197,7 +230,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** output MUST NOT 新增 `requiredMatches`、`supplementalMatches`、`selectedRequiredExercises` 或等价并行动作列表字段
 
 #### Scenario: requiredExerciseIds 与筛选条件不完全一致
-- **WHEN** 某个 required exercise 与 `exerciseNames`、`level`、`equipment`、`homeRequirement`、`muscle`、`muscles` 或其他合法筛选字段不完全一致
+- **WHEN** 某个 required exercise 与 `exerciseNames`、`level`、`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax`、`noiseLevelMax`、`muscle`、`muscles` 或其他合法筛选字段不完全一致
 - **THEN** tool MUST 在 `diagnostics` 中返回稳定 code 和有限说明
 - **AND** diagnostics MUST 包含相关 `exerciseId` 和冲突字段摘要
 - **AND** tool MUST NOT 通过服务端自然语言判断替模型决定是否放弃该用户点名动作
@@ -268,9 +301,9 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** observation MUST NOT 要求所有请求固定调用 `searchExerciseResources`
 - **AND** observation MUST NOT 要求普通动作推荐额外查询 `warmup` / `stretch`
 
-### Requirement: `searchExerciseResources` 必须向 Planner 暴露完整数据库 facetCatalog
+### Requirement: `searchExerciseResources` 必须向 Planner 暴露完整可执行 facetCatalog
 
-系统 SHALL 将当前发布态动作库中 `searchExerciseResources` 支持查询的可执行 facet 作为模型可见 `facetCatalog` 暴露给 Planner。`facetCatalog` MUST 来自当前数据库事实、同一生产事实源或 tool 合同层稳定查询语义，MUST 去重、过滤空值并使用确定性排序；系统 MUST NOT 用手写自然语言映射表替代数据库事实，MUST NOT 因集合大小裁剪任何支持查询的 facet 类别。
+系统 SHALL 将当前发布态动作库中 `searchExerciseResources` 支持查询的可执行 facet 和 execution taxonomy canonical values 作为模型可见 `facetCatalog` 暴露给 Planner。`facetCatalog` MUST 来自当前数据库事实、同一生产事实源、共享 taxonomy 常量或 tool 合同层稳定查询语义，MUST 去重、过滤空值并使用确定性排序；系统 MUST NOT 用手写自然语言映射表替代数据库事实或 taxonomy 常量，MUST NOT 因集合大小裁剪任何支持查询的 facet 类别。
 
 #### Scenario: facetCatalog 包含全部支持查询的 facet 类别
 - **WHEN** production Agent registry 或等价 model input builder 构造 Planner 可见输入
@@ -280,23 +313,23 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** `facetCatalog` MUST 包含完整 `levels`
 - **AND** `facetCatalog` MUST 包含完整 `forces`
 - **AND** `facetCatalog` MUST 包含完整 `mechanics`
-- **AND** `facetCatalog` MUST 包含完整 `equipment`
-- **AND** `facetCatalog` MUST 包含完整 `homeRequirements`
+- **AND** `facetCatalog` MUST 包含完整 `requiredEquipmentTags`
+- **AND** `facetCatalog` MUST 包含完整 `supportRequirementTags`
+- **AND** `facetCatalog` MUST 包含完整 `setupComplexity`
+- **AND** `facetCatalog` MUST 包含完整 `impactLevel`
+- **AND** `facetCatalog` MUST 包含完整 `noiseLevel`
 - **AND** `facetCatalog` MUST 包含完整 `goalTags`
 - **AND** `facetCatalog` MUST 包含完整 `riskTags`
 - **AND** `facetCatalog` MUST 包含完整 `suitabilities`
 
-#### Scenario: equipment catalog 包含 no_equipment 语义
-- **WHEN** production Agent registry 或等价 model input builder 构造 `facetCatalog.equipment`
-- **THEN** `facetCatalog.equipment` MUST 包含用于 Planner 查询的 `no_equipment` 或 `无器械` 语义
-- **AND** 该语义 MUST 被描述为 tool 合同层稳定查询语义
-- **AND** 该语义 MUST NOT 被描述为数据库原始 `homeRequirement` facet
-
-#### Scenario: homeRequirements catalog 不暴露无器械
-- **WHEN** production Agent registry 或等价 model input builder 构造 `facetCatalog.homeRequirements`
-- **THEN** `facetCatalog.homeRequirements` MUST NOT 包含 `none`
-- **AND** `facetCatalog.homeRequirements` MUST NOT 包含 `无器械`
-- **AND** `facetCatalog.homeRequirements` MUST 只保留环境、场地或支撑条件类可执行值
+#### Scenario: execution taxonomy catalog 使用 canonical values
+- **WHEN** production Agent registry 或等价 model input builder 构造 execution taxonomy facet catalog
+- **THEN** `facetCatalog.requiredEquipmentTags` MUST 来自共享 taxonomy 常量
+- **AND** `facetCatalog.supportRequirementTags` MUST 来自共享 taxonomy 常量
+- **AND** `facetCatalog.setupComplexity` MUST 暴露已知准备复杂度 canonical values，且不得把 `unknown` 暴露为 `setupComplexityMax` 可填写值
+- **AND** `facetCatalog.impactLevel` MUST 暴露 `low`、`medium` 和 `high`
+- **AND** `facetCatalog.noiseLevel` MUST 暴露 `quiet`、`normal` 和 `loud`
+- **AND** `facetCatalog` MUST NOT 暴露旧 `equipment` 或 `homeRequirements` 作为 Planner 可填写 input facet
 
 #### Scenario: facetCatalog 来自发布态数据库事实
 - **WHEN** 数据库发布态 `Exercise` 中新增、删除或修改某个支持查询的 facet 值
@@ -304,6 +337,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** `facetCatalog` MUST 过滤空值和重复值
 - **AND** `facetCatalog` MUST NOT 因 prompt token、集合大小或手写优先级隐藏某个支持查询的 facet 类别
 - **AND** `facetCatalog` MAY 包含 `facetCatalogHash`、`source`、`publishedOnly` 或 `generatedAt` 等诊断字段，但这些字段 MUST NOT 替代完整 facet 列表
+- **AND** execution taxonomy canonical values 更新时，facet catalog MUST 与共享 taxonomy 常量同步
 
 #### Scenario: facetCatalog 不表达自然语言语义映射
 - **WHEN** `facetCatalog` 暴露给 Planner
@@ -395,53 +429,52 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** observation MUST 表达引用对象不可见时，不得使用本次动作查询结果宣称刷新、替换或调整成功
 - **AND** observation MUST NOT 要求固定调用 `inspectVisibleTrainingProposals`、固定调用 `read_recent` 或固定输出某个 `payload.kind`
 
-### Requirement: `searchExerciseResources` 必须分离器械可用性和居家环境条件
+### Requirement: `searchExerciseResources` 必须使用 execution taxonomy 分离器械和执行环境
 
-系统 SHALL 在模型可见合同、执行合同和测试中分离器械可用性与居家环境条件。`equipment` SHALL 表达动作需要或不需要的器械；`homeRequirement` SHALL 表达环境、场地或支撑条件。系统 MUST NOT 将“无器械”继续作为 `homeRequirement` 的模型可见值，也 MUST NOT 通过旧兼容把错误输入静默转换成新合同。
+系统 SHALL 在模型可见合同、执行合同和测试中使用 execution taxonomy 分离外部训练器械、器械 tag、支撑/场地条件、准备复杂度、冲击程度和噪音程度。`requiresExternalEquipment` SHALL 表达是否需要外部训练器械；`requiredEquipmentTags` SHALL 表达需要的训练器械；`supportRequirementTags` SHALL 表达非训练器械的支撑、场地或搭档条件。系统 MUST NOT 继续把旧 `equipment` / `homeRequirement` 作为 Planner 可填写字段，也 MUST NOT 通过旧兼容把错误输入静默转换成新合同。
 
-#### Scenario: 无器械查询返回自重且可需要地面动作
-- **WHEN** `searchExerciseResources` 使用 `equipment = "no_equipment"` 或 `equipment = "无器械"` 查询 `suitabilities = ["training"]`
-- **AND** 发布态动作库中存在 `equipment = "body only"` 且 `homeRequirement = "floor"` 的 training 动作
+#### Scenario: 无外部器械查询使用 taxonomy 字段
+- **WHEN** `searchExerciseResources` 使用 `requiresExternalEquipment = false` 查询 `suitabilities = ["training"]`
+- **AND** 发布态动作库中存在已回填为无外部训练器械、但需要 `floor_or_mat` 或其他支撑条件的 training 动作
 - **THEN** 这些动作 MUST 有资格进入数据库查询结果
-- **AND** 系统 MUST NOT 因这些动作的 `homeRequirement` 不是 `none` 而排除它们
+- **AND** 系统 MUST NOT 因这些动作存在 `supportRequirementTags` 而把它们排除为需要外部训练器械
 
-#### Scenario: 不做旧 homeRequirement 兼容
-- **WHEN** 模型输入 `homeRequirement = "none"` 或 `homeRequirement = "无器械"`
-- **THEN** tool handler MUST NOT 将其自动迁移成 `equipment = "no_equipment"`
+#### Scenario: 不做旧 equipment / homeRequirement 兼容
+- **WHEN** 模型输入 `equipment`、`homeRequirement`、`homeRequirement = "none"` 或 `homeRequirement = "无器械"`
+- **THEN** tool handler MUST NOT 将其自动迁移成 `requiresExternalEquipment`、`requiredEquipmentTags` 或 `supportRequirementTags`
 - **AND** tool handler MUST NOT 添加 alias、fallback、兼容层或服务端业务分流来修正该输入
 - **AND** 该错误输入 MUST 通过 schema、repair 或失败诊断暴露，而不是静默成功
 
-#### Scenario: examples 不展示错误字段组合
+#### Scenario: examples 不展示旧字段组合
 - **WHEN** production registry 序列化 `searchExerciseResources` examples
-- **THEN** examples MUST NOT 包含 `Pushups` 与 `homeRequirement = "none"` 的组合
-- **AND** examples MUST NOT 使用 `homeRequirement = "none"` 或 `homeRequirement = "无器械"` 表达无器械查询
-- **AND** 无器械动作查询示例 MUST 使用 `equipment = "no_equipment"` 或 `equipment = "无器械"`
+- **THEN** examples MUST NOT 使用 `equipment` 或 `homeRequirement` 表达执行条件查询
+- **AND** examples MUST 使用 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 或 `noiseLevelMax` 表达执行条件筛选
 
 #### Scenario: 不新增服务端语义分流
 - **WHEN** 本 change 完成实现
-- **THEN** `/api/chat`、Agent core、renderer、tool handler 和 repository MUST NOT 根据用户原文中的“无器械”“徒手”“自重”“俯卧撑”等词选择 `equipment` 或 `homeRequirement`
+- **THEN** `/api/chat`、Agent core、renderer、tool handler 和 repository MUST NOT 根据用户原文中的“无器械”“徒手”“自重”“俯卧撑”等词选择 execution taxonomy 字段
 - **AND** tests MUST prove no new keyword, regex, synonym table or fixed phrase routing is introduced for `searchExerciseResources`
-- **AND** Planner MUST remain responsible for selecting `equipment`、`homeRequirement` and other facet filters from model-visible contract
+- **AND** Planner MUST remain responsible for selecting taxonomy filters and other facet filters from model-visible contract
 
-### Requirement: `searchExerciseResources` 必须具备无器械查询合同回归验证
+### Requirement: `searchExerciseResources` 必须具备 execution taxonomy 查询合同回归验证
 
-系统 SHALL 为 `no_equipment` 器械语义、`homeRequirement` 模型可见过滤、不做旧兼容和无服务端语义分流提供自动化测试。
+系统 SHALL 为 execution taxonomy 查询、旧 `equipment` / `homeRequirement` 模型可见过滤、不做旧兼容和无服务端语义分流提供自动化测试。
 
-#### Scenario: Tool 单测覆盖 no_equipment 查询
-- **WHEN** tool-level test 使用 `equipment = "no_equipment"` 或 `equipment = "无器械"`
-- **THEN** 测试 MUST 证明 repository 查询包含自重动作条件
-- **AND** 测试 MUST 证明 repository 查询没有默认加入 `homeRequirement = "none"` 或 `"无器械"`
+#### Scenario: Tool 单测覆盖无外部器械查询
+- **WHEN** tool-level test 使用 `requiresExternalEquipment = false`
+- **THEN** 测试 MUST 证明 repository 查询使用 `Exercise.requiresExternalEquipment` 过滤
+- **AND** 测试 MUST 证明 repository 查询没有默认加入旧 `equipment` / `homeRequirement` 兼容条件
 - **AND** 测试 MUST 使用包含俯卧撑或等价自重地面动作的真实健身场景 fixture
 
 #### Scenario: Manifest 测试覆盖 Planner 可见合同
 - **WHEN** manifest / registry test 检查 Planner 可见 `searchExerciseResources`
-- **THEN** 测试 MUST 证明 `facetCatalog.equipment` 包含 `no_equipment` 或 `无器械`
-- **AND** 测试 MUST 证明 `facetCatalog.homeRequirements` 不包含 `none` 或 `无器械`
-- **AND** 测试 MUST 证明 examples 不再展示 `homeRequirement = "none"` 的无器械查询
+- **THEN** 测试 MUST 证明 `facetCatalog` 暴露 execution taxonomy canonical values
+- **AND** 测试 MUST 证明 Planner 可见 input schema 不再暴露 `equipment` 或 `homeRequirement`
+- **AND** 测试 MUST 证明 examples 不再展示旧字段执行条件查询
 
 #### Scenario: 旧兼容缺失是预期行为
-- **WHEN** tool-level test 或 schema test 输入 `homeRequirement = "none"` 或 `"无器械"`
-- **THEN** 测试 MUST 证明 handler 不会把它迁移成 `equipment = "no_equipment"`
+- **WHEN** tool-level test 或 schema test 输入 `equipment` 或 `homeRequirement`
+- **THEN** 测试 MUST 证明 handler 不会把它迁移成 execution taxonomy 字段
 - **AND** 测试 MUST 证明不存在旧字段 alias、fallback 或兼容成功路径
 
 ### Requirement: `searchExerciseResources` 模型可见合同必须表达 routine 组合边界
@@ -476,7 +509,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** model observation MUST 说明不能用该结果输出成功结构化训练结果
 
 #### Scenario: 有结构化约束的动作查询仍可满足
-- **WHEN** Planner 调用 `searchExerciseResources`，input 包含 `exerciseNames`、`category`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`muscles`、`goalTag`、`riskTag`、`requiredExerciseIds` 或 `excludeExerciseIds` 中至少一类可解释约束
+- **WHEN** Planner 调用 `searchExerciseResources`，input 包含 `exerciseNames`、`category`、`level`、`force`、`mechanic`、`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax`、`noiseLevelMax`、`muscle`、`muscles`、`goalTag`、`riskTag`、`requiredExerciseIds` 或 `excludeExerciseIds` 中至少一类可解释约束
 - **THEN** tool result MAY expose `factLevel = "section_scoped_exercise_facts"` 或等价事实等级
 - **AND** returned groups MAY be used as current-run action facts subject to final output validation
 
@@ -572,8 +605,10 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 #### Scenario: schema description 保留字段独有含义
 - **WHEN** `searchExerciseResources` input schema 被转成 Planner 可见 JSON Schema
 - **THEN** `suitabilities` description MUST 保留 `warmup`、`training`、`stretch` 的字段含义
-- **AND** `equipment` description MUST 保留 `no_equipment` 或 `无器械` 的 tool 合同层稳定查询语义
-- **AND** `homeRequirement` description MUST 保留其只表达环境、场地或支撑条件
+- **AND** `requiresExternalEquipment` description MUST 表达外部训练器械需求边界
+- **AND** `requiredEquipmentTags` description MUST 表达训练器械 tag 来自 execution taxonomy canonical values
+- **AND** `supportRequirementTags` description MUST 表达非训练器械的支撑、场地或搭档条件
+- **AND** `setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax` description MUST 表达上限筛选且未知值不匹配
 - **AND** `requiredExerciseIds` description MUST 表达正向锚点含义
 - **AND** `excludeExerciseIds` description MUST 表达负向排除含义
 - **AND** schema description MUST NOT 承担 `visibleTrainingProposal` 全局输出选择指南
@@ -619,29 +654,29 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 
 #### Scenario: training 查询保持严格结构化过滤
 - **WHEN** `searchExerciseResources` 输入包含 `suitabilities = ["training"]`
-- **AND** 输入包含 `equipment`、`homeRequirement`、`muscles`、`level`、`force`、`mechanic`、`category`、`goalTag`、`riskTag`、`exerciseNames`、`requiredExerciseIds` 或 `excludeExerciseIds`
+- **AND** 输入包含 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax`、`noiseLevelMax`、`muscles`、`level`、`force`、`mechanic`、`category`、`goalTag`、`riskTag`、`exerciseNames`、`requiredExerciseIds` 或 `excludeExerciseIds`
 - **THEN** repository MUST 按 `training` policy 将这些合法结构化字段转换为数据库可执行 hard filters
 - **AND** 查询 MUST 继续在数据库层下推
 - **AND** 查询 MUST NOT 回到全量动作读取后内存过滤
 
 #### Scenario: warmup 查询使用 support section hard filters
 - **WHEN** `searchExerciseResources` 输入包含 `suitabilities = ["warmup"]`
-- **AND** 输入包含 `equipment = "no_equipment"`、`muscles = ["胸部"]` 和 `level = "intermediate"`
-- **THEN** repository MUST 按 `support_section` policy 应用发布态、`warmup` section、器械和肌群 hard filters
+- **AND** 输入包含 `requiresExternalEquipment = false`、`muscles = ["胸部"]` 和 `level = "intermediate"`
+- **THEN** repository MUST 按 `support_section` policy 应用发布态、`warmup` section、execution taxonomy 和肌群 hard filters
 - **AND** repository MUST NOT 将 `level` 作为该 `warmup` 查询的 hard filter
 - **AND** tool output MUST 通过 `filterApplications` 或等价结构声明 `level` 未作为该 section 的 hard filter 使用
 
 #### Scenario: stretch 查询使用 support section hard filters
 - **WHEN** `searchExerciseResources` 输入包含 `suitabilities = ["stretch"]`
-- **AND** 输入包含 `equipment`、`homeRequirement`、`muscles`、`category`、`goalTag`、`riskTag` 或 `exerciseNames`
-- **THEN** repository MUST 按 `support_section` policy 应用发布态、`stretch` section、器械、场地和肌群 hard filters
+- **AND** 输入包含 `requiresExternalEquipment`、`supportRequirementTags`、`muscles`、`category`、`goalTag`、`riskTag` 或 `exerciseNames`
+- **THEN** repository MUST 按 `support_section` policy 应用发布态、`stretch` section、execution taxonomy 和肌群 hard filters
 - **AND** repository MUST 将 `exerciseNames` 作为该 `stretch` 查询的 hard filter
 - **AND** repository MUST NOT 将 `category`、`goalTag` 或 `riskTag` 作为该 `stretch` 查询的 hard filters
 - **AND** tool output MUST 通过 `filterApplications` 或等价结构声明这些未作为 hard filter 使用的输入字段
 
 #### Scenario: 混合 section 查询分别记录 hardFilterPolicy
 - **WHEN** `searchExerciseResources` 输入包含 `suitabilities = ["training", "warmup", "stretch"]`
-- **AND** 输入包含 `equipment`、`muscles` 和 `level`
+- **AND** 输入包含 `requiresExternalEquipment`、`muscles` 和 `level`
 - **THEN** repository MUST 分别按 section 构造查询
 - **AND** `training` 查询 MUST 应用 `level` hard filter
 - **AND** `warmup` 与 `stretch` 查询 MUST NOT 应用 `level` hard filter
@@ -721,7 +756,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 当前过滤条件下至少两个请求肌群存在匹配候选
 - **THEN** 当前查询口径对应的 `candidateGroups[].exercises[]` MUST 尽量包含多个请求肌群的候选动作
 - **AND** 系统 MUST NOT 只因默认 `name_asc` 排序而让返回候选集中在单一请求肌群
-- **AND** 返回候选 MUST 继续满足 section hard filter、`level`、`equipment`、`homeRequirement`、`category`、`goalTag`、`riskTag`、`requiredExerciseIds` 和 `excludeExerciseIds` 等既有筛选合同
+- **AND** 返回候选 MUST 继续满足 section hard filter、`level`、execution taxonomy、`category`、`goalTag`、`riskTag`、`requiredExerciseIds` 和 `excludeExerciseIds` 等既有筛选合同
 
 #### Scenario: 候选数量受上限约束
 - **WHEN** 多肌群查询命中候选数量超过 `candidateCountPerSection` 或默认候选数量
@@ -800,7 +835,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** output MUST NOT 新增 `exerciseNameResults`、`resolvedMentions`、`nameMatches` 或等价并行动作列表字段
 
 #### Scenario: exerciseNames 可与结构化筛选组合
-- **WHEN** Planner 调用 `searchExerciseResources` 并同时传入 `exerciseNames`、`suitabilities`、`equipment`、`level`、`homeRequirement` 或 `muscles`
+- **WHEN** Planner 调用 `searchExerciseResources` 并同时传入 `exerciseNames`、`suitabilities`、`requiresExternalEquipment`、`supportRequirementTags`、`setupComplexityMax`、`level` 或 `muscles`
 - **THEN** tool MUST 同时应用名称匹配和合法结构化筛选
 - **AND** 不满足筛选条件的名称候选 MUST 不进入 `groups.<section>.exercises[]`
 - **AND** tool MUST 通过 `diagnostics` 表达名称存在但与 section 或筛选条件冲突
@@ -911,20 +946,20 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** observation MUST 表达 `zeroMatchMuscles` 不要求固定继续调用 `searchExerciseResources` 或任何特定 tool
 - **AND** observation MUST NOT 把 `zeroMatchMuscles` 描述成用户目标失败、动作库永久缺失或最终输出不可收口
 
-### Requirement: `homeRequirement` 模型可见说明必须表达输入来源边界
+### Requirement: execution taxonomy 模型可见说明必须表达输入来源边界
 
-`searchExerciseResources` 的 `homeRequirement` schema description 或 tool description SHALL 表达该字段只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写。省略 `homeRequirement` SHALL 表示不额外限定环境条件。
+`searchExerciseResources` 的 execution taxonomy schema description 或 tool description SHALL 表达这些字段只在用户目标、上下文、已验证事实或当前规划确实需要执行条件约束时填写。省略 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 或 `noiseLevelMax` SHALL 表示不额外限定对应执行条件。
 
-#### Scenario: homeRequirement 只表达环境场地约束
+#### Scenario: supportRequirementTags 只表达支撑场地约束
 - **WHEN** production registry 序列化 `searchExerciseResources` input schema
-- **THEN** `homeRequirement` 的模型可见说明 MUST 表达它只表示环境、场地或支撑条件
-- **AND** 说明 MUST 表达无外部器械约束应使用 `equipment = "no_equipment"`
-- **AND** 说明 MUST 表达省略 `homeRequirement` 表示不额外限定环境条件
+- **THEN** `supportRequirementTags` 的模型可见说明 MUST 表达它只表示非训练器械的支撑、场地或搭档条件
+- **AND** 说明 MUST 表达无外部器械约束应使用 `requiresExternalEquipment = false`
+- **AND** 说明 MUST 表达省略 `supportRequirementTags` 表示不额外限定支撑、场地或搭档条件
 
-#### Scenario: homeRequirement 不承接保守默认
+#### Scenario: execution taxonomy 不承接保守默认
 - **WHEN** 用户目标缺少环境、场地或支撑条件偏好
-- **THEN** 模型可见说明 MUST 允许 Planner 不填写 `homeRequirement`
-- **AND** `/api/chat`、LangChain runtime、tool wrapper、handler 和 repository MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板自动补写 `homeRequirement`
+- **THEN** 模型可见说明 MUST 允许 Planner 不填写 `supportRequirementTags`
+- **AND** `/api/chat`、LangChain runtime、tool wrapper、handler 和 repository MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板自动补写 `requiresExternalEquipment`、`requiredEquipmentTags` 或 `supportRequirementTags`
 
 ### Requirement: `searchExerciseResources` 必须支持受控候选数量输入
 系统 SHALL 允许 `searchExerciseResources` 通过 `candidateCountPerSection` 表达每个请求 section 的候选返回数量。该字段 MUST 是受控整数，省略时使用集中配置默认值 8，最大值 MUST 为集中配置上限 24。该字段 MUST NOT 提供分页、offset、cursor、任意全库读取或 output-only `maxReturned` 复制能力。
@@ -997,4 +1032,3 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **THEN** Planner-visible summary MUST NOT 回显 `candidateCountPerSection`
 - **AND** Planner-visible summary MUST NOT 使用 `returnedCount`、`truncated`、`totalMatches` 或等价字段提示模型继续扩大候选数量
 - **AND** trace summary MAY 记录实际使用的 `candidateCountPerSection`、命中数量和截断状态
-

@@ -706,13 +706,13 @@ enum
 不推荐：
 
 ```txt
-equipment 可以写 no_equipment，也可以写 无器械。
+requiresExternalEquipment 可以写 false，也可以写 no_equipment 或 无器械。
 ```
 
 推荐：
 
 ```txt
-工具输入必须写 no_equipment。
+无外部训练器械必须写 requiresExternalEquipment = false。
 用户可见文本可以说“无器械”。
 ```
 
@@ -963,7 +963,8 @@ metadata 中如果给模型枚举或 catalog，应尽量是规范值。
 
 ```txt
 facetCatalog.muscles
-facetCatalog.equipment
+facetCatalog.requiredEquipmentTags
+facetCatalog.supportRequirementTags
 facetCatalog.level
 ```
 

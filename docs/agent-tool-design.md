@@ -1,5 +1,7 @@
 # Agent Tool 设计：只读结构化动作查询 `searchExerciseResources`
 
+> 当前状态：本文记录 `searchExerciseResources` 早期设计和历史演进语境。当前生产 `/api/chat` 已迁移到 LangChain Agent Runtime，且 `searchExerciseResources` 的 Planner 可见执行条件筛选已从旧 `equipment` / `homeRequirement` 迁移到 execution taxonomy 字段：`requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax`。实现或评审当前合同时，以 `docs/architecture.md`、`docs/agent-tool-orchestrator-design.md` 和 `openspec/specs/agent-exercise-resource-query-tool/spec.md` 为准。
+
 本文设计一个新增业务 Agent tool：`searchExerciseResources`。
 
 这个 tool 的职责是：接收 LLM 已经结构化后的动作库筛选条件，按当前 `Exercise` 数据库字段执行确定性筛选，并返回一组可用于普通问答的动作资源摘要。

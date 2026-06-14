@@ -250,9 +250,11 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 - 动作图片 URL 派生。
 - `searchExerciseResources` tool 的动作事实来源。
 
-`Exercise` 同时保留旧 `equipment` / `equipmentZh`、`homeRequirement` / `homeRequirementZh` 和新的 execution taxonomy 字段。新字段包括 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel`，取值与字段级校验集中在 `lib/shared/exercises/execution-taxonomy.ts`。当前 migration 只提供字段落点：已有动作默认保持 `requiresExternalEquipment = null`、空 tag 数组、`setupComplexity = "unknown"`、`impactLevel = null`、`noiseLevel = null`，这些值只表示尚未补齐，不能解释为无外部训练器械、无支撑需求、零准备、低冲击或安静。
+`Exercise` 同时保留旧 `equipment` / `equipmentZh`、`homeRequirement` / `homeRequirementZh` 和新的 execution taxonomy 字段。新字段包括 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel`，取值、中文说明、排序关系和字段级校验集中在 `lib/shared/exercises/execution-taxonomy.ts`。字段 migration 的默认值仍是 unknown-safe：新 seed 或未回填动作会保持 `requiresExternalEquipment = null`、空 tag 数组、`setupComplexity = "unknown"`、`impactLevel = null`、`noiseLevel = null`，这些值只表示尚未补齐，不能解释为无外部训练器械、无支撑需求、零准备、低冲击或安静。
 
-当前 `searchExerciseResources` 仍使用旧动作查询合同和旧 facet 字段；execution taxonomy 数据补齐、旧字段映射、LLM 辅助补齐、人工审查报告和 tool 合同迁移需要后续独立 change 处理。
+当前动作源数据的 execution taxonomy 补丁保存在 `data/exercise-execution-taxonomy.backfill.jsonl`，由 `scripts/backfill-exercise-execution-taxonomy.mjs` 通过 `npm run db:backfill-execution-taxonomy -- --apply` 写入 `Exercise` 表。该回填脚本只读取已提交的离线补丁和共享 taxonomy 校验，不调用 LLM，也不在运行时根据用户原文、关键词或旧字段即时推断 taxonomy。
+
+当前 Agent 只读动作查询 tool `searchExerciseResources` 已迁移到 execution taxonomy 合同：模型可见 input schema 不再接受 `equipment` / `homeRequirement`，改用 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax`。Repository 在数据库层下推这些 taxonomy filters；`setupComplexity = "unknown"`、`impactLevel = null` 和 `noiseLevel = null` 不匹配上限筛选。旧 `equipment` / `homeRequirement` 字段仍保留给 UI 展示、传统动作库筛选、seed 对照和人工审查，不再作为 Agent Planner 可填写筛选字段。
 
 训练业务由 `lib/server/workouts/workout-persistence-service.ts` 承接：
 
