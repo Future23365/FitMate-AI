@@ -9,8 +9,11 @@
 - 新增动作执行条件 taxonomy，用稳定字段拆分“是否需要外部训练器械”“需要哪些器械”“是否需要地面/瑜伽垫、椅子/墙面、健身房固定设施、搭档或户外空间”等执行条件。
 - 保留 `equipment` / `equipmentZh`、`homeRequirement` / `homeRequirementZh` 作为历史导入、展示和兼容字段，但不再作为 `searchExerciseResources` 的模型可见输入字段。
 - 新增共享 taxonomy 常量与校验边界，供 seed / 回填脚本、Prisma 数据访问、repository、tool schema description、测试和文档复用。
+- 固定 taxonomy 不变量：`requiresExternalEquipment` 与 `requiredEquipmentTags` 必须自洽，`supportRequirementTags = ["none"]` 必须与其他支撑/场地 tag 互斥，`setupComplexityMax` 的排序与 `unknown` 处理必须由共享 taxonomy 模块定义。
 - 为现有动作数据提供一次性回填规则，基于当前 `equipmentZh`、`homeRequirementZh` 和必要的人工审查补齐新字段。
+- 明确 `homeRequirementZh = "居家小器械"` 不再映射为支撑/场地 tag，而是作为 `setupComplexity = "small_equipment"` 的确定性来源；具体小器械仍由 `equipmentZh` 映射到 `requiredEquipmentTags`。
 - 调整 `searchExerciseResources` 的模型可见 input schema、description、examples、成功 observation、query summary 和 trace summary，统一使用新 taxonomy 字段表达执行条件。
+- 同步替换既有 `agent-exercise-resource-query-tool` spec 中仍要求模型看到旧 `equipment`、`homeRequirement`、`facetCatalog.equipment`、`facetCatalog.homeRequirements` 或完整 `query.totalMatches` 的旧合同，避免归档后新旧规范互相矛盾。
 - **BREAKING**: `searchExerciseResources` 模型可见合同不再暴露 `equipment` 和 `homeRequirement` 作为可传输入字段；模型必须改用新的执行条件字段。
 - 不新增服务端自然语言关键词规则、正则、同义词表、固定短句模板、provider `tool_calls` 改写、LangChain runtime 主循环分支或 `/api/chat` 主链路分流。
 - 本 change 取代“通过旧字段内部默认筛选低门槛候选”的方向；实施时不应并行引入只依赖旧 `equipment` / `homeRequirement` 的低门槛默认策略。

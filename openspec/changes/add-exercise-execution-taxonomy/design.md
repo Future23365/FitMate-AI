@@ -72,6 +72,7 @@ taxonomy 取值在 TypeScript 中集中定义，例如 `lib/shared/exercises/exe
 - `homeRequirementZh = "健身房器械"` → `supportRequirementTags = ["gym_fixture"]`。
 - `homeRequirementZh = "搭档辅助"` → `supportRequirementTags = ["partner"]`。
 - `homeRequirementZh = "户外场地"` → `supportRequirementTags = ["outdoor_space"]`。
+- `homeRequirementZh = "居家小器械"` → `setupComplexity = "small_equipment"`，不写入 `supportRequirementTags`；具体小器械由 `equipmentZh` 映射到 `requiredEquipmentTags`。
 
 对于 `equipmentZh = "自重"` 且 `homeRequirementZh = "健身房器械"` 的动作，回填结果应保留 `requiresExternalEquipment = false`，但写入 `supportRequirementTags = ["gym_fixture"]`，避免把单杠、双杠、上斜凳等固定设施误当作“家中无器械可完成”。
 
@@ -82,7 +83,7 @@ taxonomy 取值在 TypeScript 中集中定义，例如 `lib/shared/exercises/exe
 `searchExerciseResources` 的模型可见 input schema 不再包含 `equipment` 和 `homeRequirement`。模型应使用以下受控字段表达执行条件：
 
 - `equipmentAvailability?: "no_external_equipment" | "external_equipment_required"`。
-- `requiredEquipmentTags?: string[]`。
+- `requiredEquipmentTags?: string[]`，表示查询动作本身所需的训练器械 tag，默认按“至少命中一个 tag”筛选；它不是用户完整器械库存白名单。
 - `supportRequirementTags?: string[]`。
 - `setupComplexityMax?: string` 或等价准备复杂度上限。
 - `impactLevel?: string`。
@@ -107,6 +108,33 @@ taxonomy 取值在 TypeScript 中集中定义，例如 `lib/shared/exercises/exe
 - 新 taxonomy 动作事实字段。
 
 模型可见 observation 不暴露旧 `equipment` / `equipmentZh`、`homeRequirement` / `homeRequirementZh`，也不把完整 `totalMatches` 作为模型继续优化查询的诱导信号。若需要调试完整命中数，使用 trace summary 或开发日志。
+
+### 7. Taxonomy 不变量和 `setupComplexity` 排序固定在共享模块
+
+新增 taxonomy 字段必须满足以下不变量：
+
+- `requiresExternalEquipment = false` 时，`requiredEquipmentTags` 必须为空数组。
+- `requiresExternalEquipment = true` 时，`requiredEquipmentTags` 必须至少包含一个合法 tag；无法细分但确定需要外部器械时使用 `other_equipment`，不得保持空数组。
+- `supportRequirementTags = ["none"]` 只表示可确定无额外支撑/场地需求，并且必须与 `floor_or_mat`、`chair_or_wall`、`gym_fixture`、`partner`、`outdoor_space` 互斥。
+- `supportRequirementTags = []` 表示当前数据源不能断言额外支撑/场地需求，不等同于 `["none"]`，也不得被模型或 repository 当作“零支撑需求”。
+- `impactLevel = null`、`noiseLevel = null` 和 `setupComplexity = "unknown"` 表示该事实未知，不表示低冲击、安静或低准备复杂度。
+
+`setupComplexityMax` 使用共享 taxonomy 模块导出的排序：
+
+`zero_setup < floor_or_mat < home_support < small_equipment < gym_fixture < partner < outdoor`
+
+`unknown` 不参与“小于等于”比较。repository 在收到 `setupComplexityMax` 时默认只返回已知且排序不高于上限的动作；没有传入 `setupComplexityMax` 时不得因为 `unknown` 自动排除动作。选择该方案的原因是：未知事实不能被当作低门槛候选，否则会再次把数据缺失伪装成执行条件满足。
+
+### 8. 旧 `agent-exercise-resource-query-tool` spec 必须同步替换
+
+本 change 不是在旧 `equipment` / `homeRequirement` 合同上补充新字段，而是替换模型可见执行条件合同。因此归档前必须同步修改既有 `agent-exercise-resource-query-tool` spec 中仍要求以下内容的段落：
+
+- `equipment = "no_equipment"` 作为模型可见 input。
+- `homeRequirement` 作为模型可见 input。
+- `facetCatalog.equipment` / `facetCatalog.homeRequirements` 作为 Planner 可用执行条件 catalog。
+- 模型可见 observation 暴露完整 `query.totalMatches`。
+
+新的模型可见 catalog 应保留肌群、分类、难度、目标、风险、section 等数据库 facet，同时通过 `facetCatalog.executionTaxonomy` 或等价结构暴露 `equipmentAvailability`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel` 的受控取值与中文说明。
 
 ## Risks / Trade-offs
 
@@ -149,5 +177,4 @@ taxonomy 取值在 TypeScript 中集中定义，例如 `lib/shared/exercises/exe
 
 ## Open Questions
 
-- `setupComplexityMax` 的排序关系需要在实现前固定，例如 `zero_setup < floor_or_mat < home_support < small_equipment < gym_fixture < partner < outdoor < unknown`，还是改用多选 `setupComplexity` 精确匹配。
 - `impactLevel` 和 `noiseLevel` 第一轮只对人工可确定动作补齐，还是允许保守为空并在后续数据审查中逐步完善。

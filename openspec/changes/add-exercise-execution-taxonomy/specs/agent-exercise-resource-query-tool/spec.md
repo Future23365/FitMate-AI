@@ -33,12 +33,19 @@
 - **WHEN** production registry 序列化 `searchExerciseResources` manifest、input schema、schema description 或 examples
 - **THEN** 模型可见输入合同 MUST 包含用于表达无外部训练器械的受控字段，例如 `equipmentAvailability`
 - **AND** 模型可见输入合同 MUST 支持 `equipmentAvailability = "no_external_equipment"` 表达用户没有外部训练器械
-- **AND** 模型可见输入合同 MUST 支持 `requiredEquipmentTags` 表达用户指定可用器械
+- **AND** 模型可见输入合同 MUST 支持 `requiredEquipmentTags` 表达要查询的动作所需训练器械 tag
 - **AND** 模型可见输入合同 MUST 支持 `supportRequirementTags` 表达地面/瑜伽垫、椅子/墙面、健身房固定设施、搭档或户外空间等支撑/场地条件
 - **AND** 模型可见输入合同 MUST 支持 `setupComplexityMax` 或等价字段表达最大可接受准备复杂度
 - **AND** 模型可见输入合同 MUST 支持 `impactLevel` 表达低冲击等确定性动作属性
 - **AND** 模型可见输入合同 MUST 支持 `noiseLevel` 表达安静、正常或较吵等确定性动作属性
 - **AND** 这些字段的可选值 MUST 来自共享 execution taxonomy 常量
+
+#### Scenario: requiredEquipmentTags 不表达完整器械库存
+- **WHEN** production registry 序列化 `searchExerciseResources` input schema、schema description 或 examples
+- **THEN** `requiredEquipmentTags` MUST 被描述为动作所需训练器械 tag 筛选
+- **AND** `requiredEquipmentTags` MUST NOT 被描述为用户完整器械库存白名单
+- **AND** 多个 `requiredEquipmentTags` 默认 MUST 使用 overlap / `hasSome` 语义
+- **AND** 如果未来需要表达“用户只有这些器械”的库存白名单语义，系统 MUST 新增独立字段或新 change，不得重载 `requiredEquipmentTags`
 
 #### Scenario: muscles 使用 facetCatalog 中真实肌群值
 - **WHEN** production registry 序列化 `searchExerciseResources` manifest
@@ -102,8 +109,11 @@
 - **AND** repository MUST 将 `warmup` 和 `stretch` 查询中传入但未作为 hard filter 使用的字段记录到 `filterApplications.unappliedInputFilters`
 - **AND** repository MUST 将 `equipmentAvailability = "no_external_equipment"` 转换为 `requiresExternalEquipment = false`
 - **AND** repository MUST 根据 `requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevel` 和 `noiseLevel` 构造对应数据库过滤条件
+- **AND** repository MUST 将 `requiredEquipmentTags` 构造为动作 `requiredEquipmentTags` 与输入数组至少一个 tag 命中的查询
 - **AND** repository MUST NOT 因 `equipmentAvailability = "no_external_equipment"` 自动假设 `supportRequirementTags = ["none"]`
 - **AND** repository MUST NOT 因 `equipmentAvailability = "no_external_equipment"` 自动包含或排除 `floor_or_mat`、`chair_or_wall`、`gym_fixture`、`partner` 或 `outdoor_space`，除非 Planner 通过新 taxonomy 字段显式表达该边界
+- **AND** repository MUST 将 `setupComplexityMax` 解释为共享 taxonomy 排序中的最大可接受已知复杂度
+- **AND** repository MUST NOT 将 `setupComplexity = "unknown"` 当作满足任意 `setupComplexityMax`
 - **AND** repository MUST 将 `muscle` 与 `muscles` 合并去重后，在 `primaryMuscles`、`primaryMusclesZh`、`secondaryMuscles` 和 `secondaryMusclesZh` 中执行 OR 查询
 - **AND** repository MUST NOT 引用 `bodyRegions`、`expandExerciseBodyRegionTargetMuscles` 或等价区域展开逻辑
 - **AND** repository MUST 使用同一 section hard filter policy 下的 `where` 执行 `count()` 来生成该 section 的 `totalMatches`
@@ -155,6 +165,36 @@
 - **THEN** trace MUST 记录 toolName、toolResultId、输入摘要、`totalMatches`、`returnedCount`、`truncated`、duration 和 failureCode
 - **AND** trace MAY 记录旧字段到新 taxonomy 的应用摘要或 diagnostics
 - **AND** trace MUST NOT 记录完整 handler output、数据库连接对象、secret、跨用户 payload 或未经摘要的大 payload
+
+### Requirement: `searchExerciseResources` 必须迁移模型可见 facetCatalog 到 execution taxonomy
+系统 SHALL 将模型可见 `facetCatalog` 中的执行条件入口从旧 `equipment` / `homeRequirements` 迁移到 execution taxonomy。`facetCatalog` 仍 MUST 来自当前数据库事实、同一生产事实源或共享 taxonomy 常量；肌群、分类、难度、发力、机制、目标、风险和 section 等非执行条件 facet MAY 继续按既有数据库事实暴露。系统 MUST NOT 继续向 Planner 暴露旧 `facetCatalog.equipment` 或 `facetCatalog.homeRequirements` 作为 `searchExerciseResources` 可传 input 来源。
+
+#### Scenario: facetCatalog 暴露 executionTaxonomy
+- **WHEN** production Agent registry 或等价 model input builder 构造 Planner 可见输入
+- **THEN** Planner MUST 能看到 `searchExerciseResources.facetCatalog`
+- **AND** `facetCatalog` MUST 包含完整 `muscles`
+- **AND** `facetCatalog` MUST 包含完整 `categories`
+- **AND** `facetCatalog` MUST 包含完整 `levels`
+- **AND** `facetCatalog` MUST 包含完整 `forces`
+- **AND** `facetCatalog` MUST 包含完整 `mechanics`
+- **AND** `facetCatalog` MUST 包含完整 `goalTags`
+- **AND** `facetCatalog` MUST 包含完整 `riskTags`
+- **AND** `facetCatalog` MUST 包含完整 `suitabilities`
+- **AND** `facetCatalog` MUST 包含 `executionTaxonomy` 或等价结构
+- **AND** `executionTaxonomy` MUST 暴露 `equipmentAvailability`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel` 的受控取值、中文说明和必要排序信息
+
+#### Scenario: 旧 execution facetCatalog 不再模型可见
+- **WHEN** production Agent registry 或等价 model input builder 构造 Planner 可见输入
+- **THEN** `facetCatalog` MUST NOT 暴露旧 `equipment` 作为 `searchExerciseResources` 可传 input 来源
+- **AND** `facetCatalog` MUST NOT 暴露旧 `homeRequirements` 作为 `searchExerciseResources` 可传 input 来源
+- **AND** `facetCatalog` MUST NOT 将 `no_equipment`、`none`、`无器械` 或旧 `homeRequirement` 取值展示为推荐 tool input
+- **AND** 如用户投影或后台审查仍展示旧中文字段，该展示 MUST NOT 回灌到 Planner 可见 catalog
+
+#### Scenario: facetCatalog 不表达自然语言语义映射
+- **WHEN** 模型看到 execution taxonomy catalog
+- **THEN** catalog MUST 只提供可传 input 的受控取值、中文说明和排序关系
+- **AND** catalog MUST NOT 包含用户原话、关键词、同义词表、短句模板或 provider `tool_calls` 改写规则
+- **AND** 服务端 MUST NOT 根据用户原文把旧字段值或自然语言短语改写成 execution taxonomy input
 
 ### Requirement: `searchExerciseResources` examples 必须展示查询能力而非意图分类
 系统 SHALL 将 `searchExerciseResources` examples 限定为合法结构化查询输入示例，避免把 examples 变成自然语言意图到输出结构、下一步 tool 或固定 workflow 的映射。Examples MUST 使用新的 execution taxonomy 字段表达器械可用性、支撑/场地、准备复杂度、冲击程度和噪音程度；MUST NOT 使用旧 `equipment` 或 `homeRequirement` 字段。

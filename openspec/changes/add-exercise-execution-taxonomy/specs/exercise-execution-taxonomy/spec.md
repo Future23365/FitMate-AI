@@ -21,6 +21,28 @@
 - **AND** 非空 `impactLevel` MUST 属于共享 taxonomy 常量
 - **AND** 非空 `noiseLevel` MUST 属于共享 taxonomy 常量
 
+#### Scenario: 器械需求字段必须自洽
+- **WHEN** 某个发布态 `Exercise` 写入 execution taxonomy
+- **AND** `requiresExternalEquipment = false`
+- **THEN** `requiredEquipmentTags` MUST 为空数组
+- **AND** 当 `requiresExternalEquipment = true` 时，`requiredEquipmentTags` MUST 至少包含一个合法 tag
+- **AND** 如果只能确定动作需要外部训练器械但无法细分器械类型，`requiredEquipmentTags` MUST 使用 `other_equipment`
+- **AND** 系统 MUST NOT 用空 `requiredEquipmentTags` 表达未知外部器械需求
+
+#### Scenario: none 支撑条件必须互斥
+- **WHEN** 某个发布态 `Exercise.supportRequirementTags` 包含 `none`
+- **THEN** `supportRequirementTags` MUST 等于 `["none"]`
+- **AND** `none` MUST NOT 与 `floor_or_mat`、`chair_or_wall`、`gym_fixture`、`partner` 或 `outdoor_space` 同时出现
+- **AND** 空 `supportRequirementTags` MUST NOT 被解释为 `none`
+- **AND** 空 `supportRequirementTags` MUST 表示当前数据源没有可断言的额外支撑/场地 tag
+
+#### Scenario: unknown 不得伪装成低准备复杂度
+- **WHEN** 某个动作的 `setupComplexity = "unknown"`
+- **THEN** 系统 MUST 将其解释为准备复杂度未知
+- **AND** 系统 MUST NOT 将其解释为 `zero_setup`、`floor_or_mat`、`home_support` 或其他低准备复杂度
+- **AND** `impactLevel = null` MUST 表示冲击程度未知
+- **AND** `noiseLevel = null` MUST 表示噪音程度未知
+
 #### Scenario: 旧字段保留但不承担新查询合同
 - **WHEN** seed、导入、后台展示或人工审查读取动作数据
 - **THEN** 系统 MAY 继续读取 `equipment` / `equipmentZh` 和 `homeRequirement` / `homeRequirementZh`
@@ -40,6 +62,13 @@
 - **AND** 该模块 MUST 导出 `impactLevel` 的受控取值集合
 - **AND** 该模块 MUST 导出 `noiseLevel` 的受控取值集合
 - **AND** 该模块 MUST 提供 Zod schema 或等价校验能力
+
+#### Scenario: setupComplexity 排序关系固定
+- **WHEN** repository、tool schema description、测试或文档引用 `setupComplexityMax`
+- **THEN** 共享 taxonomy 模块 MUST 导出排序关系 `zero_setup < floor_or_mat < home_support < small_equipment < gym_fixture < partner < outdoor`
+- **AND** `unknown` MUST NOT 参与小于等于排序
+- **AND** 使用 `setupComplexityMax` 查询时，repository MUST 只匹配已知且排序不高于上限的 `setupComplexity`
+- **AND** 未传入 `setupComplexityMax` 时，repository MUST NOT 因 `setupComplexity = "unknown"` 自动排除动作
 
 #### Scenario: 禁止散落 taxonomy 取值
 - **WHEN** repository、tool schema、seed、测试或文档需要引用执行条件 taxonomy
@@ -71,6 +100,14 @@
 - **AND** `homeRequirementZh = "健身房器械"` MUST 映射为 `supportRequirementTags = ["gym_fixture"]`
 - **AND** `homeRequirementZh = "搭档辅助"` MUST 映射为 `supportRequirementTags = ["partner"]`
 - **AND** `homeRequirementZh = "户外场地"` MUST 映射为 `supportRequirementTags = ["outdoor_space"]`
+
+#### Scenario: 居家小器械映射准备复杂度而非支撑条件
+- **WHEN** 回填处理某个动作
+- **AND** `homeRequirementZh = "居家小器械"`
+- **THEN** `setupComplexity` MUST 设置为 `small_equipment`
+- **AND** `supportRequirementTags` MUST NOT 因该旧字段写入新的支撑/场地 tag
+- **AND** 具体小器械 MUST 继续由 `equipmentZh` 映射到 `requiredEquipmentTags`
+- **AND** 如果 `equipmentZh = "其他"` 或其他无法可靠细分的值，该动作 MUST 进入人工审查清单
 
 #### Scenario: 自重但需要健身房固定设施
 - **WHEN** 回填处理某个动作
