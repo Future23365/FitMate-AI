@@ -51,6 +51,9 @@ export type RunLangChainAgentRuntimeInput = {
   onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
 };
 
+const consecutiveToolLimitExceededCode = "tool_consecutive_call_limit_exceeded";
+const terminalToolLoopFailureMessage = "LangChain agent terminal tool loop stalled after consecutive business tool calls exceeded the configured limit.";
+
 /** runLangChainAgentRuntime 封装 LangChain agent harness，保留服务端工具校验、预算、错误归一化和 trace 摘要边界。 */
 export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeInput): Promise<LangChainAgentRunResult> {
   const startedAt = Date.now();
@@ -110,6 +113,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       },
     ));
     const middleware = [
+      ...createTerminalToolLoopFailureMiddleware(() => toolExecutions),
       ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
       modelCallRecorder.middleware,
     ] as const;
@@ -135,7 +139,28 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       mergeToolExecutions(toolExecutions, messages),
       modelCallRecorder.modelCalls,
     );
+    const terminalToolLoopFailure = findTerminalToolLoopFailure(mergedToolExecutions);
     const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
+
+    if (terminalToolLoopFailure) {
+      return createFailure({
+        code: "tool_handler_failed",
+        message: createTerminalToolLoopFailureErrorMessage(terminalToolLoopFailure),
+        retryable: true,
+        messages,
+        toolExecutions: mergedToolExecutions,
+        traceSummary: createTraceSummary({
+          startedAt,
+          modelName: modelResult.modelName,
+          inputMessages: input.messages,
+          messages,
+          toolExecutions: mergedToolExecutions,
+          toolWrappers,
+          modelCalls: modelCallRecorder.modelCalls,
+          finalText: undefined,
+        }),
+      });
+    }
 
     if (budgetFailure) {
       return createFailure({
@@ -421,6 +446,43 @@ function createDuplicateInputExecution(input: {
   };
 }
 
+/** createTerminalToolLoopFailureMiddleware 在连续工具超限记录生成后终止主 Agent loop，避免模型切换工具继续空转。 */
+function createTerminalToolLoopFailureMiddleware(
+  readToolExecutions: () => readonly LangChainAgentToolExecution[],
+) {
+  return [createMiddleware({
+    name: "FitMateTerminalToolLoopFailureMiddleware",
+    wrapModelCall: async (request, handler) => {
+      const terminalFailure = findTerminalToolLoopFailure(readToolExecutions());
+
+      if (terminalFailure) {
+        throw new Error(createTerminalToolLoopFailureErrorMessage(terminalFailure));
+      }
+
+      return handler(request);
+    },
+  })];
+}
+
+/** findTerminalToolLoopFailure 只识别通用连续业务 tool 超限，不依赖具体业务 toolName 或用户 phrasing。 */
+function findTerminalToolLoopFailure(
+  toolExecutions: readonly LangChainAgentToolExecution[],
+) {
+  return toolExecutions.find(isConsecutiveToolLimitExecution);
+}
+
+function isConsecutiveToolLimitExecution(execution: LangChainAgentToolExecution) {
+  if (execution.status !== "failed") {
+    return false;
+  }
+
+  return readStringFromRecord(readRecord(execution.traceSummary), "code") === consecutiveToolLimitExceededCode;
+}
+
+function createTerminalToolLoopFailureErrorMessage(execution: LangChainAgentToolExecution) {
+  return `${terminalToolLoopFailureMessage} toolName=${execution.toolName}.`;
+}
+
 function createConsecutiveBusinessToolLimitExecution(input: {
   wrapper: LangChainToolWrapper;
   rawInput: unknown;
@@ -440,8 +502,8 @@ function createConsecutiveBusinessToolLimitExecution(input: {
     toolName: input.wrapper.name,
     limit: input.limit,
     consecutiveCount: input.consecutiveCount,
-    message: "同一个业务工具已连续调用达到本轮上限；请先使用其他已满足条件的业务工具、提交结构化终态、直接收口或向用户澄清。不要假装该工具已执行成功。",
-    boundary: "runtimeMetadata 不产生独立工具调用，也不打断业务工具连续计数；整轮 maxToolCalls 和 maxModelCalls 仍是安全熔断。",
+    message: "同一个业务工具已连续调用达到本轮上限；runtime 将终止当前主 Agent loop，并进入失败收口或由上层 adapter 处理。不要假装该工具已执行成功。",
+    boundary: "runtimeMetadata 不产生独立工具调用，也不打断业务工具连续计数；触发连续超限后不会继续自由业务工具调用，整轮 maxToolCalls 和 maxModelCalls 仍是外层安全熔断。",
   }, config.toolWrapper.modelVisibleSummaryMaxLength);
 
   return {
@@ -462,7 +524,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
         consecutiveCount: input.consecutiveCount,
       }, config.toolWrapper.traceSummaryMaxLength),
       failureCode: "tool_handler_failed",
-      failureMessage: "同一个业务工具连续调用次数超过本轮上限。",
+      failureMessage: "同一个业务工具连续调用次数超过本轮上限，主 Agent loop 已终止。",
       enteredModelContext: true,
     },
   };
@@ -1008,6 +1070,10 @@ function normalizeLangChainRuntimeError(error: unknown): { code: LangChainAgentR
 
   if (message.includes("model call budget exhausted")) {
     return { code: "budget_exhausted", message, retryable: true };
+  }
+
+  if (message.includes(terminalToolLoopFailureMessage)) {
+    return { code: "tool_handler_failed", message, retryable: true };
   }
 
   if (message.includes("abort") || message.includes("AbortError")) {
