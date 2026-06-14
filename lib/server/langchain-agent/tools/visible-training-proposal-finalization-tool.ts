@@ -34,7 +34,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；kind=routine 表示单次可执行训练，默认完整编排由 warmup、training、stretch 三段组成，training 承载用户主训练目标，动作项必须包含 prescription；用户明确只要部分范围、明确排除某段或当前事实不足时，可以只承载当前已支撑的 section，并由最终回答说明交付范围。kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -79,11 +79,15 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
     description: [
       "Purpose：提交模型已经构造好的 visibleTrainingProposal 结构化训练结果，让服务端 validator 校验并生成用户可见投影。",
       "Use When：最终回答会向用户呈现一个或多个具体训练动作，且这些动作来自模型可见、可被服务端数据库复核的受控动作事实；或当前回答要交付单次训练 routine / 多天训练 plan。",
-      "Content Boundary：如果 content 准备列出这些具体动作，动作事实本身应由 visibleTrainingProposal.kind=exercise_selection 承载；当 payload.kind=exercise_selection 时，content 只写推荐理由、目标肌群、适用场景、动作差异或动作注意事项，不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数。",
+      "Content Boundary：content 只解释已由 payload 承载并通过服务端 validator 的动作事实、推荐理由、目标肌群、适用场景、动作差异、动作注意事项或默认口径；content 不能替代 payload 中的动作、prescription 或 schedule 事实。",
+      "Kind Selection：payload.kind=exercise_selection 只用于纯主训练动作推荐集合；exerciseItems[].section 必须全部是 training；不得包含 prescription 或 schedule。",
+      "Kind Selection：payload.kind=routine 用于单次可执行训练；可以包含 warmup、training、stretch；至少包含 training；每个 exerciseItems[] 动作项都必须包含 prescription；不得包含 schedule。",
+      "Kind Selection：payload.kind=plan 用于多天或周期训练计划；每个 exerciseItems[] 动作项都必须包含 prescription；必须包含 schedule；schedule 只表达同一套编排在周期内的训练日和休息日。",
+      "Kind Selection：当结构需要 warmup / stretch，或要交付单次可执行训练时，不要把这些动作塞进 exercise_selection；应选择能承载可执行编排的 routine 或 plan。",
       "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",
-      "Output Meaning：payload.kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；payload.kind=routine 表示单次可执行训练，默认完整 routine 由 warmup、training、stretch 三段组成，training 段承载用户主训练目标；用户明确只要部分范围、明确排除某段或当前事实不足时，可以只交付已支撑 section 并在最终回答说明范围。payload.kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
-      "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不生成处方、不保存计划、不写入用户数据。",
+      "Output Meaning：accepted 表示 payload 已通过服务端 validator 并生成用户可见投影；rejected 表示结构或确定性事实校验失败。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
+      "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不替模型生成 prescription、不保存计划、不写入用户数据；如果提交 routine 或 plan，模型必须在 payload 中提供 prescription。",
       "accepted summary 会暴露已校验 payload 的 sectionSummary、availableSections、missingSections；这些字段只描述当前结构覆盖事实。",
       "accepted 表示结构已通过服务端 validator 并生成可渲染投影；rejected 只表示结构或确定性事实校验失败。",
     ].join("\n"),

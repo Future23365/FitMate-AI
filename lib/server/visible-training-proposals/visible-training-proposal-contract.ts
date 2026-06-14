@@ -13,7 +13,8 @@ export const visibleTrainingProposalFactIndexResourceType = "visible_training_pr
 export const visibleTrainingProposalFactSchemaVersion = 1;
 
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
-const visibleTrainingProposalKindSchema = z.enum(["exercise_selection", "routine", "plan"]);
+const visibleTrainingProposalKindSchema = z.enum(["exercise_selection", "routine", "plan"])
+  .describe("结构化训练结果类型。exercise_selection 只用于纯主训练动作推荐集合；routine 用于单次可执行训练；plan 用于多天或周期训练计划。");
 
 /** visibleTrainingPrescriptionSchema 对齐现有 routine / plan draft 的可执行动作处方字段。 */
 export const visibleTrainingPrescriptionSchema = z.object({
@@ -22,14 +23,16 @@ export const visibleTrainingPrescriptionSchema = z.object({
   target: z.number().int().min(1).max(600),
   setRestSeconds: z.number().int().min(0).max(300),
   transitionRestSeconds: z.number().int().min(0).max(600),
-}).strict();
+}).strict()
+  .describe("单个动作项的执行处方。只允许在 kind=routine 或 kind=plan 的 exerciseItems[] 中出现，并且 routine / plan 的每个动作项都必须包含。");
 
 /** visibleTrainingExerciseItemSchema 是可见训练方案里动作、分段、顺序和处方绑定的唯一动作事实项。 */
 export const visibleTrainingExerciseItemSchema = z.object({
   exerciseId: exerciseIdSchema,
   section: exerciseAllowedSectionSchema,
   order: z.number().int().min(1).max(200),
-  prescription: visibleTrainingPrescriptionSchema.optional(),
+  prescription: visibleTrainingPrescriptionSchema.optional()
+    .describe("动作项的执行处方。kind=exercise_selection 时不得填写；kind=routine 或 kind=plan 时每个动作项都必须填写。"),
 }).strict();
 
 const visibleTrainingScheduleAssignmentSchema = z.object({
@@ -41,7 +44,9 @@ const visibleTrainingScheduleAssignmentSchema = z.object({
 export const visibleTrainingScheduleSchema = z.object({
   cycleLengthDays: z.number().int().min(1).max(90),
   assignments: z.array(visibleTrainingScheduleAssignmentSchema).min(1).max(90),
-}).strict().superRefine((schedule, ctx) => {
+}).strict()
+  .describe("多天或周期训练计划的日程。只允许并且必须在 kind=plan 时出现；kind=exercise_selection 和 kind=routine 不允许包含 schedule。")
+  .superRefine((schedule, ctx) => {
   if (schedule.assignments.length !== schedule.cycleLengthDays) {
     ctx.addIssue({
       code: "custom",
@@ -78,7 +83,8 @@ export const visibleTrainingScheduleSchema = z.object({
 export const visibleTrainingProposalPayloadSchema = z.object({
   kind: visibleTrainingProposalKindSchema,
   exerciseItems: z.array(visibleTrainingExerciseItemSchema).min(1).max(40),
-  schedule: visibleTrainingScheduleSchema.optional(),
+  schedule: visibleTrainingScheduleSchema.optional()
+    .describe("训练日程。kind=plan 时必须填写；kind=exercise_selection 或 kind=routine 时不得填写。"),
 }).strict().superRefine((payload, ctx) => {
   const sectionCounts = countSections(payload.exerciseItems);
 
