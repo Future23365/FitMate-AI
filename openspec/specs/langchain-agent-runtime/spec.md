@@ -146,15 +146,15 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 #### Scenario: 连续达到单 tool 上限后不再暴露给后续 provider 请求
 - **WHEN** 当前 Agent run 中最近连续业务 tool 调用序列已经达到某业务 tool 的连续调用上限
 - **THEN** Runtime MUST 在后续 model request 中从可用 `tools` 列表移除该业务 tool
-- **AND** 其他业务 tool SHOULD 继续可用
 - **AND** 模型后续 provider tool_call 尝试 MUST NOT 继续消耗整轮业务 tool 总预算
 
-#### Scenario: 被其他业务 tool 打断后允许再次调用同一业务 tool
-- **WHEN** 模型连续调用某个业务 tool 达到上限
-- **AND** 模型随后成功或失败地调用了另一个业务 tool
-- **THEN** Runtime MUST 将前一个业务 tool 的连续计数视为已被业务 tool 打断
-- **AND** Runtime MUST 允许后续 model request 再次暴露前一个业务 tool
-- **AND** 该再次调用仍 MUST 受整轮业务 tool 总预算和新的连续调用上限约束
+#### Scenario: 连续超限后终止主 Agent loop
+- **WHEN** 模型连续调用某个业务 tool 超过集中配置的连续调用上限
+- **THEN** LangChain Runtime MUST 阻止该超限 tool call 执行对应 handler
+- **AND** Runtime MUST 记录稳定失败 execution、失败摘要和 trace summary
+- **AND** Runtime MUST 将当前主 Agent run 归一化为 terminal failure
+- **AND** Runtime MUST NOT 允许模型通过调用其他业务 tool、重复历史查询 tool 或改变 tool input 继续推进同一个主 Agent loop
+- **AND** 该行为 MUST 不绕过项目现有 schema、权限、projection、trace 和最终结构化回复校验
 
 #### Scenario: runtime metadata 不打断业务 tool 连续计数
 - **WHEN** 模型连续调用同一个业务 tool 达到上限
@@ -163,11 +163,11 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 - **AND** Runtime MUST 继续按真实业务 `toolName`、tool version 和归一化业务 input 计算连续限制
 - **AND** `runtimeMetadata.activitySummary` MUST NOT 消耗旧 activity report 预算或任何独立 activity 预算
 
-#### Scenario: 连续超限不执行 handler
-- **WHEN** 模型连续调用同一业务 tool 超过集中配置的连续调用上限
-- **THEN** LangChain Runtime MUST 阻止该超限 tool call 执行对应 handler
-- **AND** 同一 model response 内已经超出连续上限的 tool_call MAY 进入 LangChain tool limit 失败结果
-- **AND** 该行为 MUST 不绕过项目现有 schema、权限、projection、trace 和最终结构化回复校验
+#### Scenario: 连续超限失败用于受控失败收口
+- **WHEN** Runtime 因连续业务 tool 超限终止主 Agent run
+- **THEN** `/api/chat` MAY 使用现有 terminal failure finalizer 或确定性 fallback 生成用户可见失败说明
+- **AND** terminal failure finalizer MUST NOT 接收 tool catalog 或继续执行原始任务
+- **AND** 用户可见回复 MUST NOT 声称已经完成未发生的工具执行、结构化训练输出、保存或训练事实写入
 
 #### Scenario: 全局预算仍然作为安全熔断
 - **WHEN** 模型跨多个业务 tool 的总调用次数超过集中配置的整轮业务 tool 总预算

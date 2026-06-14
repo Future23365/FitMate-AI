@@ -35,7 +35,7 @@
 - **THEN** `searchExerciseResources` input validation MUST reject 该调用
 - **AND** handler MUST NOT 执行动作库查询
 
-### Requirement: `searchExerciseResources` 必须返回查询摘要和按查询口径分组的动作资源摘要
+### Requirement: `searchExerciseResources` 必须返回查询摘要和动作资源摘要
 系统 SHALL 在 `searchExerciseResources` 成功执行后返回动作资源查询摘要和有限动作摘要。模型可见 observation MUST 使用 `candidateGroups[]` 表达当前查询口径下返回的动作候选；每个 candidate group MUST 包含 `suitability`、候选数量、截断状态和 `exercises[]`，其中 `suitability` 只表达本次查询来源，不是最终训练编排命令。每个动作摘要 MUST 至少包含 `exerciseId`、`nameZh`、`nameEn`、器械、居家条件、主要肌群和图片 URL 等动作事实摘要字段。模型可见 observation MUST NOT 暴露旧 `groups`、每个动作的 `allowedSections`、`sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation` 或 `groupSemantics`。
 
 #### Scenario: 成功返回有限动作摘要
