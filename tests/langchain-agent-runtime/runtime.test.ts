@@ -817,6 +817,96 @@ describe("LangChain Agent runtime", () => {
     expect(result.traceSummary?.modelCallCount).toBeLessThan(agentRuntimeConfig.langChain.runBudget.maxModelCalls);
   });
 
+  it("allows same-tool fan-out with different inputs in one provider response", async () => {
+    const handler = vi.fn(async (input: { section: string }) => ({
+      status: "succeeded" as const,
+      section: input.section,
+    }));
+    const fanoutTool = defineLangChainToolWrapper({
+      name: "fanoutExerciseFacts",
+      description: "用于验证同一模型响应内同名不同输入 fan-out 的测试工具。",
+      inputSchema: z.object({
+        section: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        section: output.section,
+      }),
+    });
+    const model = fakeModel()
+      .respondWithTools([
+        { name: "fanoutExerciseFacts", args: { section: "warmup" }, id: "call_fanout_1" },
+        { name: "fanoutExerciseFacts", args: { section: "training" }, id: "call_fanout_2" },
+        { name: "fanoutExerciseFacts", args: { section: "stretch" }, id: "call_fanout_3" },
+      ])
+      .respondWithTools([createFinalResponseToolCall({ content: "已基于同批并列查询完成回答。" })]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [fanoutTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(3);
+    expect(result.toolExecutions).toHaveLength(3);
+    expect(result.toolExecutions.every((execution) => execution.status === "succeeded")).toBe(true);
+    expect(result.toolExecutions.map((execution) => execution.toolCallId).sort()).toEqual([
+      "call_fanout_1",
+      "call_fanout_2",
+      "call_fanout_3",
+    ]);
+    expect(result.traceSummary?.providerToolCalls.filter((toolCall) => toolCall.name === "fanoutExerciseFacts")).toHaveLength(3);
+    expect(JSON.stringify(result.toolExecutions)).not.toContain("tool_consecutive_call_limit_exceeded");
+  });
+
+  it("keeps duplicate input feedback for repeated same-tool input in one provider response", async () => {
+    const handler = vi.fn(async (input: { section: string }) => ({
+      status: "succeeded" as const,
+      section: input.section,
+    }));
+    const duplicateFanoutTool = defineLangChainToolWrapper({
+      name: "duplicateFanoutExerciseFacts",
+      description: "用于验证同批 fan-out 中重复同参仍被去重的测试工具。",
+      inputSchema: z.object({
+        section: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        section: output.section,
+      }),
+    });
+    const model = fakeModel()
+      .respondWithTools([
+        { name: "duplicateFanoutExerciseFacts", args: { section: "training" }, id: "call_duplicate_fanout_1" },
+        { name: "duplicateFanoutExerciseFacts", args: { section: "training" }, id: "call_duplicate_fanout_2" },
+      ])
+      .respondWithTools([createFinalResponseToolCall({ content: "已复用第一次工具事实回答。" })]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [duplicateFanoutTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(result.toolExecutions).toHaveLength(2);
+    expect(result.toolExecutions.map((execution) => execution.status).sort()).toEqual(["duplicate_input", "succeeded"]);
+    const duplicateExecution = result.toolExecutions.find((execution) => execution.status === "duplicate_input");
+    expect(duplicateExecution).toMatchObject({
+      toolName: "duplicateFanoutExerciseFacts",
+      feedbackCode: "duplicate_tool_input",
+      traceSummary: {
+        status: "duplicate_input",
+        code: "duplicate_tool_input",
+      },
+    });
+    expect(JSON.stringify(result.toolExecutions)).not.toContain("tool_consecutive_call_limit_exceeded");
+  });
+
   it("allows ok=true empty facts to support an ordinary final text response", async () => {
     const emptyFactsTool = defineLangChainToolWrapper({
       name: "emptyExerciseFacts",
@@ -882,12 +972,12 @@ describe("LangChain Agent runtime", () => {
       }),
     });
     const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool + 1;
-    const model = fakeModel()
-      .respondWithTools(Array.from({ length: requestedToolCalls }, (_, index) => ({
+    const model = Array.from({ length: requestedToolCalls }, (_, index) => ({
         name: "limitedExerciseGoal",
         args: { goal: `训练目标 ${index + 1}` },
         id: `call_limited_${index + 1}`,
-      })))
+      }))
+      .reduce((builder, toolCall) => builder.respondWithTools([toolCall]), fakeModel())
       .respondWithTools([createFinalResponseToolCall({ content: "已停止重复调用同一个工具。" })]);
 
     const result = await runLangChainAgentRuntime({
@@ -904,7 +994,7 @@ describe("LangChain Agent runtime", () => {
     if (!result.ok) {
       expect(result.code).toBe("tool_handler_failed");
       expect(result.message).toContain("consecutive business tool calls exceeded");
-      expect(result.traceSummary?.modelCallCount).toBe(1);
+      expect(result.traceSummary?.modelCallCount).toBe(3);
     }
     const blockedExecution = result.toolExecutions.find((execution) => execution.toolCallId === "call_limited_3");
     expect(blockedExecution).toMatchObject({
@@ -1052,7 +1142,11 @@ describe("LangChain Agent runtime", () => {
     const model = fakeModel()
       .respondWithTools([
         { name: "terminalPrimaryExerciseLookup", args: { goal: "第一次查询" }, id: "call_terminal_primary_1" },
+      ])
+      .respondWithTools([
         { name: "terminalPrimaryExerciseLookup", args: { goal: "第二次查询" }, id: "call_terminal_primary_2" },
+      ])
+      .respondWithTools([
         { name: "terminalPrimaryExerciseLookup", args: { goal: "第三次查询" }, id: "call_terminal_primary_3" },
       ])
       .respondWithTools([
@@ -1505,7 +1599,9 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("runtimeMetadata.activitySummary");
     expect(prompt).toContain("活动摘要");
     expect(prompt).toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次业务工具调用`);
-    expect(prompt).toContain(`同一个业务工具最多连续调用 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次`);
+    expect(prompt).toContain(`同一个业务工具最多连续 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 个模型决策批次`);
+    expect(prompt).toContain("同一模型响应内的并列 tool_calls 不按循环计数");
+    expect(prompt).toContain("runtime 会去重或拒绝重复执行");
     expect(prompt).toContain("runtimeMetadata.activitySummary 不计入业务工具调用预算");
     expect(prompt).toContain("不打断业务工具连续调用计数");
     expect(prompt).toContain("保守默认继续");

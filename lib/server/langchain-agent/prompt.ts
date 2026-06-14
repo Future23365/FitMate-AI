@@ -65,7 +65,8 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "",
     "运行预算：",
     `- 本轮最多 ${config.runBudget.maxToolCalls} 次业务工具调用。`,
-    `- 同一个业务工具最多连续调用 ${config.runBudget.maxToolCallsPerTool} 次；达到连续上限后应换用其他已满足条件的业务工具、收口说明或向用户澄清。`,
+    `- 同一个业务工具最多连续 ${config.runBudget.maxToolCallsPerTool} 个模型决策批次作为主要业务能力使用；达到连续上限后应基于已满足条件的事实收口说明或向用户澄清。`,
+    "- 同一模型响应内的并列 tool_calls 不按循环计数；如果同批或跨批重复提交同一个业务工具的等价输入，runtime 会去重或拒绝重复执行。",
     "- runtimeMetadata.activitySummary 不计入业务工具调用预算，也不打断业务工具连续调用计数。",
     `- 单次工具默认超时 ${config.toolWrapper.defaultTimeoutMs}ms。`,
   ].filter((line): line is string => typeof line === "string").join("\n");

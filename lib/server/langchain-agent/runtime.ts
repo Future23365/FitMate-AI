@@ -74,6 +74,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   }
 
   const toolWrappers = input.toolWrappers ?? [];
+  const businessToolNames = createBusinessToolNameSet(toolWrappers);
   const modelCallRecorder = createLangChainModelCallTraceRecorder({
     toolWrappers,
     maxModelCalls: config.runBudget.maxModelCalls,
@@ -91,6 +92,10 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
     const consecutiveToolCallCoordinator = createConsecutiveBusinessToolCallCoordinator({
       maxConsecutiveBusinessToolCalls: config.runBudget.maxToolCallsPerTool,
+      resolveToolCallBatch: createBusinessToolCallBatchResolver({
+        modelCalls: modelCallRecorder.modelCalls,
+        businessToolNames,
+      }),
       delegate: duplicateInputCoordinator,
     });
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
@@ -114,7 +119,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     ));
     const middleware = [
       ...createTerminalToolLoopFailureMiddleware(() => toolExecutions),
-      ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
+      ...createBusinessToolAvailabilityMiddleware(businessToolNames, config.runBudget.maxToolCallsPerTool),
       modelCallRecorder.middleware,
     ] as const;
     const agent = createAgent({
@@ -331,33 +336,98 @@ function createDuplicateInputExecutionCoordinator(): LangChainToolExecutionCoord
 
 function createConsecutiveBusinessToolCallCoordinator(input: {
   maxConsecutiveBusinessToolCalls: number;
+  resolveToolCallBatch: (toolCallId: string | undefined, fallbackToolName: string) => BusinessToolCallBatch;
   delegate: LangChainToolExecutionCoordinator;
 }): LangChainToolExecutionCoordinator {
   let lastBusinessToolName: string | undefined;
-  let consecutiveBusinessToolCalls = 0;
+  let consecutiveBusinessToolBatches = 0;
+  const countedBatchKeys = new Set<string>();
+  const exhaustedBatchByKey = new Map<string, { toolName: string; consecutiveCount: number }>();
 
   return {
-    // 业务 tool 连续限制只防止模型原地反复请求同一能力；总成本仍由全局 tool/model budget 控制。
+    // 连续限制按模型决策批次计数；同批 fan-out 不是 observation 后的循环。
     execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
-      if (wrapper.name === lastBusinessToolName) {
-        consecutiveBusinessToolCalls += 1;
-      } else {
-        lastBusinessToolName = wrapper.name;
-        consecutiveBusinessToolCalls = 1;
+      const batch = input.resolveToolCallBatch(toolCallId, wrapper.name);
+
+      if (!countedBatchKeys.has(batch.batchKey)) {
+        countedBatchKeys.add(batch.batchKey);
+
+        if (!batch.singleBusinessToolName) {
+          lastBusinessToolName = undefined;
+          consecutiveBusinessToolBatches = 0;
+        } else if (batch.singleBusinessToolName === lastBusinessToolName) {
+          consecutiveBusinessToolBatches += 1;
+        } else {
+          lastBusinessToolName = batch.singleBusinessToolName;
+          consecutiveBusinessToolBatches = 1;
+        }
+
+        if (batch.singleBusinessToolName && consecutiveBusinessToolBatches > input.maxConsecutiveBusinessToolCalls) {
+          exhaustedBatchByKey.set(batch.batchKey, {
+            toolName: batch.singleBusinessToolName,
+            consecutiveCount: consecutiveBusinessToolBatches,
+          });
+        }
       }
 
-      if (consecutiveBusinessToolCalls > input.maxConsecutiveBusinessToolCalls) {
+      const exhaustedBatch = exhaustedBatchByKey.get(batch.batchKey);
+
+      if (exhaustedBatch?.toolName === wrapper.name) {
         return createConsecutiveBusinessToolLimitExecution({
           wrapper,
           rawInput,
           toolCallId,
           limit: input.maxConsecutiveBusinessToolCalls,
-          consecutiveCount: consecutiveBusinessToolCalls,
+          consecutiveCount: exhaustedBatch.consecutiveCount,
         });
       }
 
       return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
     },
+  };
+}
+
+type BusinessToolCallBatch = {
+  batchKey: string;
+  singleBusinessToolName?: string;
+};
+
+function createBusinessToolNameSet(toolWrappers: readonly LangChainToolWrapper[]) {
+  return new Set(toolWrappers
+    .filter((wrapper) => (wrapper.executionKind ?? "business") === "business")
+    .map((wrapper) => wrapper.name));
+}
+
+/** createBusinessToolCallBatchResolver 将 provider tool_calls 映射为模型决策批次，不读取用户自然语言或业务字段。 */
+function createBusinessToolCallBatchResolver(input: {
+  modelCalls: readonly LangChainAgentModelCallTrace[];
+  businessToolNames: ReadonlySet<string>;
+}) {
+  let unlinkedBatchIndex = 0;
+
+  return (toolCallId: string | undefined, fallbackToolName: string): BusinessToolCallBatch => {
+    const linkage = findToolCallModelLinkage(toolCallId, input.modelCalls);
+
+    if (!linkage?.modelCallIndex) {
+      unlinkedBatchIndex += 1;
+
+      return {
+        batchKey: `unlinked:${unlinkedBatchIndex}`,
+        singleBusinessToolName: fallbackToolName,
+      };
+    }
+
+    const modelCall = input.modelCalls.find((call) => call.modelCallIndex === linkage.modelCallIndex);
+    const batchBusinessToolNames = new Set(modelCall?.providerToolCalls
+      .map((toolCall) => toolCall.name)
+      .filter((toolName) => input.businessToolNames.has(toolName)));
+
+    return {
+      batchKey: `model:${linkage.modelCallIndex}`,
+      singleBusinessToolName: batchBusinessToolNames.size === 1
+        ? [...batchBusinessToolNames][0]
+        : undefined,
+    };
   };
 }
 
@@ -554,13 +624,9 @@ function createToolExecutionBudget(input: {
 
 /** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除连续达上限的业务 tool，避免模型原地重复请求同一能力。 */
 function createBusinessToolAvailabilityMiddleware(
-  toolWrappers: readonly LangChainToolWrapper[],
+  businessToolNames: ReadonlySet<string>,
   maxToolCallsPerTool: number,
 ) {
-  const businessToolNames = new Set(toolWrappers
-    .filter((wrapper) => (wrapper.executionKind ?? "business") === "business")
-    .map((wrapper) => wrapper.name));
-
   if (businessToolNames.size === 0) {
     return [];
   }
@@ -596,23 +662,31 @@ function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
   maxToolCallsPerTool: number,
 ) {
   const currentRunMessages = messages.slice(findCurrentRunMessageStartIndex(messages));
-  const businessToolCallNames: string[] = [];
+  const businessToolCallBatches: Array<string | undefined> = [];
 
   for (const message of currentRunMessages) {
     if (!AIMessage.isInstance(message)) {
       continue;
     }
 
+    const batchBusinessToolNames = new Set<string>();
+
     for (const toolCall of message.tool_calls ?? []) {
       if (!businessToolNames.has(toolCall.name)) {
         continue;
       }
 
-      businessToolCallNames.push(toolCall.name);
+      batchBusinessToolNames.add(toolCall.name);
     }
+
+    if (batchBusinessToolNames.size === 0) {
+      continue;
+    }
+
+    businessToolCallBatches.push(batchBusinessToolNames.size === 1 ? [...batchBusinessToolNames][0] : undefined);
   }
 
-  const lastToolName = businessToolCallNames.at(-1);
+  const lastToolName = businessToolCallBatches.at(-1);
 
   if (!lastToolName) {
     return undefined;
@@ -620,8 +694,8 @@ function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
 
   let consecutiveCount = 0;
 
-  for (let index = businessToolCallNames.length - 1; index >= 0; index -= 1) {
-    if (businessToolCallNames[index] !== lastToolName) {
+  for (let index = businessToolCallBatches.length - 1; index >= 0; index -= 1) {
+    if (businessToolCallBatches[index] !== lastToolName) {
       break;
     }
 
