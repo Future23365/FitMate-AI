@@ -15,9 +15,11 @@ export const visibleTrainingProposalCanonicalExerciseSchema = z.object({
   exerciseId: z.string().trim().min(1),
   nameZh: z.string(),
   nameEn: z.string(),
+  categoryZh: z.string().nullable().default(null),
   levelZh: z.string().nullable().default(null),
   equipmentZh: z.string().nullable(),
   primaryMusclesZh: z.array(z.string()),
+  secondaryMusclesZh: z.array(z.string()).default([]),
   allowedSections: z.array(exerciseAllowedSectionSchema),
   imageUrl: z.string().nullable(),
 }).strict();
@@ -32,9 +34,11 @@ type ExerciseFactRecord = {
   id: string;
   nameZh: string;
   nameEn: string;
+  categoryZh?: string | null;
   levelZh?: string | null;
   equipmentZh: string | null;
   primaryMusclesZh: string[];
+  secondaryMusclesZh?: string[];
   allowedSections: ExerciseAllowedSection[];
   imageUrls: string[];
   isPublished: boolean;
@@ -142,9 +146,11 @@ function toCanonicalExercise(record: ExerciseFactRecord): VisibleTrainingProposa
     exerciseId: record.id,
     nameZh: record.nameZh,
     nameEn: record.nameEn,
+    categoryZh: record.categoryZh ?? null,
     levelZh: record.levelZh ?? null,
     equipmentZh: record.equipmentZh,
     primaryMusclesZh: record.primaryMusclesZh,
+    secondaryMusclesZh: record.secondaryMusclesZh ?? [],
     allowedSections: record.allowedSections,
     imageUrl: record.imageUrls[0] ?? null,
   };

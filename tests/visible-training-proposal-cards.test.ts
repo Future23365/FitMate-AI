@@ -19,16 +19,20 @@ describe("visible training proposal rich card adapter", () => {
           items: [
             createContentItem("push-up", {
               nameZh: "俯卧撑",
+              categoryZh: "力量训练",
               levelZh: "初级",
               equipmentZh: "自重",
               primaryMusclesZh: ["胸部"],
+              secondaryMusclesZh: ["肱三头肌"],
               imageUrl: "/push-up.png",
             }),
             createContentItem("squat", {
               nameZh: "深蹲",
+              categoryZh: "力量训练",
               levelZh: "初级",
               equipmentZh: "自重",
               primaryMusclesZh: ["腿部"],
+              secondaryMusclesZh: ["臀部"],
               imageUrl: "/squat.png",
             }),
           ],
@@ -43,8 +47,22 @@ describe("visible training proposal rich card adapter", () => {
         goal: "推荐 2 个训练动作",
         summary: "共 2 个训练动作，主要覆盖腿部、胸部，器械需求：自重。",
         items: [
-          { exerciseId: "squat", nameZh: "深蹲", levelZh: "初级", primaryMusclesZh: ["腿部"] },
-          { exerciseId: "push-up", nameZh: "俯卧撑", levelZh: "初级", primaryMusclesZh: ["胸部"] },
+          {
+            exerciseId: "squat",
+            nameZh: "深蹲",
+            categoryZh: "力量训练",
+            levelZh: "初级",
+            primaryMusclesZh: ["腿部"],
+            secondaryMusclesZh: ["臀部"],
+          },
+          {
+            exerciseId: "push-up",
+            nameZh: "俯卧撑",
+            categoryZh: "力量训练",
+            levelZh: "初级",
+            primaryMusclesZh: ["胸部"],
+            secondaryMusclesZh: ["肱三头肌"],
+          },
         ],
       },
     });

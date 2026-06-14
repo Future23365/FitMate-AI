@@ -84,9 +84,11 @@ function renderExerciseItem(
           exerciseId: detail.exerciseId,
           nameZh: detail.nameZh,
           nameEn: detail.nameEn,
+          categoryZh: detail.categoryZh,
           levelZh: detail.levelZh,
           equipmentZh: detail.equipmentZh,
           primaryMusclesZh: detail.primaryMusclesZh,
+          secondaryMusclesZh: detail.secondaryMusclesZh,
           allowedSections: detail.allowedSections,
           imageUrl: detail.imageUrl,
         }
