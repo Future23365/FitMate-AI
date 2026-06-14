@@ -8,7 +8,7 @@
 
 ## 2. OpenSpec 合同
 
-- [ ] 2.1 运行 `openspec validate clarify-exercise-query-clarification-contract --strict`，确认 proposal、design、tasks 和三个 spec delta 均合法。
+- [ ] 2.1 运行 `openspec validate add-exercise-muscle-match-role --strict`，确认 proposal、design、tasks 和三个 spec delta 均合法。
 - [ ] 2.2 对照 `docs/llm-prompt-guidance.md` 检查本 change 的分层：Prompt 定策略，Schema 定形状，Tool 定能力和字段语义，Validator 守边界。
 - [ ] 2.3 确认 OpenSpec 文档没有把“今天我要减肥，想多练练核心，有没有推荐的动作”这类具体用户输入写成生产触发规则；具体输入只允许出现在测试样例说明中。
 
@@ -46,7 +46,7 @@
 
 ## 7. 验证
 
-- [ ] 7.1 运行 `openspec validate clarify-exercise-query-clarification-contract --strict`。
+- [ ] 7.1 运行 `openspec validate add-exercise-muscle-match-role --strict`。
 - [ ] 7.2 运行 `npm test -- tests/langchain-agent-tools/search-exercise-resources.test.ts tests/langchain-agent-tools/production-tool-catalog.test.ts tests/langchain-agent-runtime/runtime.test.ts tests/langchain-agent-tools/model-visible-contract-gate.test.ts`。
 - [ ] 7.3 修改 TypeScript、schema、AI 编排或共享业务逻辑后运行 `npm run typecheck`。
 - [ ] 7.4 最终 diff 检查，确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判、具体业务 `toolName` 语义分支、runtime 主循环改动或 `/api/chat` 主链路分流。

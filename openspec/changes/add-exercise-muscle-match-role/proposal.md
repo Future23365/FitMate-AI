@@ -1,8 +1,6 @@
 ## Why
 
-当前 `searchExerciseResources.muscles` 同时匹配主肌群和辅助肌群，导致用户只表达目标肌群动作推荐时，模型拿到的是“目标肌群参与”的宽泛候选池，而不是“目标肌群主练”的候选池。模型随后容易为了让候选池更纯净而重复查库，不能稳定从已有候选中收口。
-
-数据库已经有 `primaryMuscles` / `primaryMusclesZh` 和 `secondaryMuscles` / `secondaryMusclesZh`，问题不在缺少数据字段，而在 tool 查询参数和模型可见合同没有区分“主练命中”和“参与命中”。
+当前 `searchExerciseResources.muscles` 同时匹配主肌群和辅助肌群，导致用户按目标肌群请求动作推荐时，模型拿到的是“目标肌群参与”的宽泛候选池，而不是“目标肌群主练”的候选池。数据库已经有 `primaryMuscles*` 和 `secondaryMuscles*`，问题不在缺少数据字段，而在 tool 查询参数和模型可见合同没有区分“主练命中”和“参与命中”。
 
 ## What Changes
 

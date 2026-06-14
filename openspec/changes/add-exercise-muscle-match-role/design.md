@@ -10,7 +10,7 @@
 
 **Goals:**
 
-- 让 `searchExerciseResources` 能显式表达肌群匹配角色：主练命中或主/辅任意命中。
+- 让 `searchExerciseResources` 能显式表达肌群匹配角色：主练命中或主/辅任意参与匹配。
 - 将 `muscles` 的默认匹配口径改为主肌群命中，使目标肌群动作推荐默认返回更可交付的候选池。
 - 保留辅助肌群查询能力，用于解释某动作是否带到某肌群、查询参与肌群或覆盖宽泛相关动作。
 - 让模型可见 tool description、schema description、summary、projection 和 trace 都能说明当前 `muscleMatchRole`。
@@ -39,7 +39,7 @@ muscleMatchRole?: "primary" | "any"
 
 备选方案是直接从查询中删除辅助肌群匹配。该方案会破坏“某动作是否会带到核心”“哪些动作会辅助刺激腹肌”这类合法场景，因此不采用。辅助肌群不是错误事实，只是不应该作为默认推荐口径。
 
-备选方案是新增 `primaryMusclesOnly: true`。该名称是一次 trace 中模型曾尝试使用的字段形态，容易把失败输出反向升格为生产合同。本 change 采用更稳定的抽象名 `muscleMatchRole`，表达资源查询的匹配角色，而不是某个 case 的修复字段。
+备选方案是新增 `primaryMusclesOnly: true`。该名称来自一次失败 trace 中模型曾尝试使用的字段形态，容易把失败输出反向升格为生产合同。本 change 采用更稳定的抽象名 `muscleMatchRole`，表达资源查询的匹配角色，而不是某个 case 的修复字段。
 
 ### 2. Tool 负责结构化匹配语义，不负责推荐排序
 
@@ -78,9 +78,6 @@ muscleMatchRole?: "primary" | "any"
 - [Risk] 只改默认匹配角色不等于完整推荐排序，候选池仍可能不是最佳排序。  
   → Mitigation：本 change 只解决主/辅肌群混查导致的默认候选池污染；推荐排序可以后续另开 change 设计，不在本次 scope 内隐式加入。
 
-- [Risk] OpenSpec 名称仍包含 clarification，但新范围更偏执行合同。  
-  → Mitigation：保留目录以复用已有 in-progress change，文档中明确当前范围已经扩展为 `muscleMatchRole` 执行合同调整。
-
 ## Migration Plan
 
 1. 更新 OpenSpec delta spec 和 tasks。
@@ -88,6 +85,6 @@ muscleMatchRole?: "primary" | "any"
 3. 更新 repository 肌群 filter，使默认 `primary` 只匹配主肌群字段，显式 `any` 匹配主/辅肌群字段。
 4. 更新默认 prompt 中目标肌群推荐和宽泛参与查询的 Planner Policy。
 5. 更新 tool-level、production catalog、runtime prompt 和 model-visible contract gate 测试。
-6. 运行 `openspec validate clarify-exercise-query-clarification-contract --strict`、相关 `npm test` 和 `npm run typecheck`。
+6. 运行 `openspec validate add-exercise-muscle-match-role --strict`、相关 `npm test` 和 `npm run typecheck`。
 
 回滚策略：如果默认 `primary` 导致重要场景召回不足，可回滚 schema 默认值、repository filter 和模型可见说明；不涉及数据库迁移或数据回填。
