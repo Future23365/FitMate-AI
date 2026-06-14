@@ -36,7 +36,7 @@ const maxMuscles = 20;
 const maxCandidateCountPerSection = agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从动作库 facet catalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
-const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 会在 filterApplications.unappliedInputFilters 中披露其未作为 hard filter 使用。`;
+const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 只在非 Planner 调试通道披露其未作为 hard filter 使用。`;
 
 const equipmentFilterSchema = optionalTextFilterSchema
   .describe(`器械可用性或器械类别的精确筛选值；无外部器械统一使用 no_equipment。${catalogFacetDescription}`);
@@ -161,7 +161,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。多值查询用于获得代表性候选覆盖并会尽量均衡返回各请求肌群的候选，candidateGroups[].zeroMatchMuscles 只表示当前查询口径和当前过滤条件下独立 count 为 0 的请求肌群；该诊断可用于解释、澄清或调整查询，不是必须继续补查每个肌群的义务。${catalogFacetDescription}`),
+    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。多值查询用于获得代表性候选覆盖并会尽量均衡返回各请求肌群的候选；成功 result 的 Planner-visible summary 只暴露候选动作事实，不回显各肌群零命中桶、精确命中数或截断状态。${catalogFacetDescription}`),
   goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${trainingPolicyFacetDescription}`),
   riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${trainingPolicyFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
@@ -261,8 +261,7 @@ export function createSearchExerciseResourcesLangChainTool(
       "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令，也不由服务端根据用户原文分流。",
       "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量，默认使用服务端配置；它不是分页、offset、cursor、全库读取能力或最终展示数量承诺。",
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
-      "Output Meaning：多 muscles 查询用于获得代表性候选覆盖，并会尽量均衡返回各请求肌群的候选；candidateGroups[].zeroMatchMuscles 只表示当前查询口径、过滤条件和排除条件下没有候选的请求肌群。",
-      "zeroMatchMuscles 是诊断事实，可用于解释、澄清或调整查询；不表示动作库永久缺失该肌群，不表示用户训练目标失败，也不是必须继续补查每个肌群的义务。",
+      "Output Meaning：多 muscles 查询用于获得代表性候选覆盖，并会尽量均衡返回各请求肌群的候选；成功 result 的 Planner-visible summary 只提供候选动作事实和中性 diagnostics，不提供精确匹配数量、截断状态、过滤执行细节或下一步固定 workflow。",
       "当模型已经从用户请求、上下文或 tool result summary 中结构化提取动作名称时，使用 exerciseNames 查询动作名称字段；exerciseNames 不接受完整用户消息，也不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入候选列表；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；最终 visibleTrainingProposal 的 exerciseId、发布态和 section 合法性仍由服务端数据库事实复核。",
@@ -428,24 +427,8 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.riskTag ? { riskTag: output.query.riskTag } : {}),
           ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
           ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
-          candidateCountPerSection: output.query.candidateCountPerSection,
-          sort: output.query.sort,
         },
-        returnedCount: output.query.returnedCount,
-        truncated: output.query.truncated,
-        excludedCount: output.query.excludedCount,
-        querySpecificity: buildQuerySpecificityObservation(output),
-        filterSemantics: output.query.filterSemantics,
-        positiveAnchorBoundary: output.query.requiredExerciseIds?.length
-          ? "requiredExerciseIds 是正向锚点，只表示优先纳入当前查询口径候选列表的受控动作事实。"
-          : "本次查询未使用 requiredExerciseIds。",
-        refreshExclusionBoundary: output.query.excludedCount > 0
-          ? "本次查询已应用 excludeExerciseIds；候选不足时不得回填已排除动作。"
-          : "本次查询未应用 excludeExerciseIds；该结果不证明存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
-        appliedFilters: output.query.appliedFilters,
-        filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
-        filterApplications: toProjectionFilterApplications(output.query.filterApplications),
-        candidateGroups: mapCandidateGroups(
+        candidateGroups: mapModelVisibleCandidateGroups(
           output.groups,
           (exercise) => ({
             exerciseId: exercise.exerciseId,
@@ -454,11 +437,11 @@ export function createSearchExerciseResourcesLangChainTool(
             equipmentZh: exercise.equipmentZh,
             homeRequirementZh: exercise.homeRequirementZh,
             primaryMusclesZh: exercise.primaryMusclesZh,
+            secondaryMusclesZh: exercise.secondaryMusclesZh,
             imageUrl: exercise.imageUrl,
           }),
-          { includeTotalMatches: false },
         ),
-        diagnostics: output.diagnostics,
+        diagnostics: toModelVisibleDiagnostics(output.diagnostics),
       };
     },
     toUserProjection: (output) => ({
@@ -495,6 +478,8 @@ export function createSearchExerciseResourcesLangChainTool(
         code: diagnostic.code,
         ...(diagnostic.exerciseName ? { exerciseName: diagnostic.exerciseName } : {}),
         ...(diagnostic.exerciseId ? { exerciseId: diagnostic.exerciseId } : {}),
+        ...(diagnostic.totalMatches === undefined ? {} : { totalMatches: diagnostic.totalMatches }),
+        ...(diagnostic.returnedCount === undefined ? {} : { returnedCount: diagnostic.returnedCount }),
         ...(diagnostic.conflictFields ? { conflictFields: diagnostic.conflictFields } : {}),
       })),
     }),
@@ -561,29 +546,6 @@ function isBroadExerciseResourceQueryOutput(output: SearchExerciseResourcesOutpu
 
 function isSpecificExerciseResourceFilter(field: SearchExerciseResourcesOutput["query"]["filterApplications"][number]["appliedHardFilters"][number]) {
   return field !== "suitabilities";
-}
-
-function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput): Record<string, string | string[]> {
-  const broadQuery = isBroadExerciseResourceQueryOutput(output);
-  const specificFilters = [
-    ...new Set(output.query.filterApplications.flatMap((application) =>
-      application.appliedHardFilters.filter(isSpecificExerciseResourceFilter),
-    )),
-  ];
-
-  if (broadQuery) {
-    return {
-      status: "too_broad",
-      specificFilters,
-      boundary: "本次 searchExerciseResources input 除默认 suitabilities、sort 外没有目标、facet、器械、场地、点名动作或模型可见动作锚点；该结果只表达查询口径和返回事实。",
-    };
-  }
-
-  return {
-    status: "constrained",
-    specificFilters,
-    boundary: "本次查询包含可解释结构化约束；返回事实仍需与 section、动作事实、prescription、schedule 和 terminal validator 边界共同校验。",
-  };
 }
 
 function toProjectionFilterApplications(filterApplications: ExerciseResourceFilterApplication[]) {
@@ -887,6 +849,72 @@ function mapCandidateGroups<T>(
       ...(includeExercises ? { exercises: typedGroup.exercises.map(mapExercise) } : {}),
     }];
   });
+}
+
+// mapModelVisibleCandidateGroups 是 Planner-visible 白名单投影，只保留动作选择所需候选事实。
+function mapModelVisibleCandidateGroups<T>(
+  groups: SearchExerciseResourcesOutput["groups"],
+  mapExercise: (exercise: ExerciseResourceOutput) => T,
+) {
+  return Object.values(groups).flatMap((group) => {
+    if (!group) {
+      return [];
+    }
+
+    const typedGroup = group as SuitabilityGroupOutput;
+    return [{
+      suitability: typedGroup.suitability,
+      exercises: typedGroup.exercises.map(mapExercise),
+    }];
+  });
+}
+
+// toModelVisibleDiagnostics 将内部诊断映射成中性事实，避免把统计或继续查询暗示注入 Planner。
+function toModelVisibleDiagnostics(diagnostics: SearchExerciseResourcesOutput["diagnostics"]) {
+  return diagnostics.map((diagnostic) => {
+    const code = diagnostic.code === "exercise_name_too_broad"
+      ? "exercise_name_ambiguous"
+      : diagnostic.code;
+
+    return {
+      suitability: diagnostic.suitability,
+      code,
+      ...(diagnostic.exerciseName ? { exerciseName: diagnostic.exerciseName } : {}),
+      ...(diagnostic.exerciseId ? { exerciseId: diagnostic.exerciseId } : {}),
+      ...(diagnostic.conflictFields?.length ? { conflictFields: diagnostic.conflictFields } : {}),
+      message: createModelVisibleDiagnosticMessage({
+        ...diagnostic,
+        code,
+      }),
+    };
+  });
+}
+
+function createModelVisibleDiagnosticMessage(
+  diagnostic: Omit<SearchExerciseResourcesOutput["diagnostics"][number], "code"> & {
+    code: Exclude<SearchExerciseResourcesOutput["diagnostics"][number]["code"], "exercise_name_too_broad">;
+  },
+) {
+  switch (diagnostic.code) {
+    case "no_candidates":
+      return `${diagnostic.suitability} 用途当前查询没有可纳入的候选动作。`;
+    case "exercise_name_not_found":
+      return `动作名称“${diagnostic.exerciseName}”无法作为当前查询候选事实纳入。`;
+    case "exercise_name_section_conflict":
+      return `动作名称“${diagnostic.exerciseName}”与 ${diagnostic.suitability} 用途不一致，无法纳入该分组。`;
+    case "exercise_name_filter_mismatch":
+      return `动作名称“${diagnostic.exerciseName}”与当前结构化筛选字段不一致。`;
+    case "exercise_name_ambiguous":
+      return `动作名称“${diagnostic.exerciseName}”匹配不唯一，无法作为唯一候选锚点。`;
+    case "required_exercise_not_found":
+      return `指定动作 ${diagnostic.exerciseId} 不存在，无法纳入 ${diagnostic.suitability} 动作列表。`;
+    case "required_exercise_section_conflict":
+      return `指定动作 ${diagnostic.exerciseId} 不适配 ${diagnostic.suitability} 用途，无法纳入该分组。`;
+    case "required_exercise_excluded":
+      return `指定动作 ${diagnostic.exerciseId} 同时出现在 excludeExerciseIds 中，无法纳入候选。`;
+    case "required_exercise_filter_mismatch":
+      return `指定动作 ${diagnostic.exerciseId} 与当前结构化筛选字段不完全一致。`;
+  }
 }
 
 function formatFacetCatalogForDescription(catalog?: ExerciseResourceFacetCatalog) {

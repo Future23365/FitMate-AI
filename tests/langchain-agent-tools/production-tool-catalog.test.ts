@@ -61,9 +61,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
     expect(descriptions).toContain("exerciseNames");
-    expect(descriptions).toContain("zeroMatchMuscles");
     expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
-    expect(descriptions).toContain("不是必须继续补查每个肌群的义务");
+    expect(descriptions).toContain("不提供精确匹配数量、截断状态、过滤执行细节或下一步固定 workflow");
     expect(descriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
     expect(descriptions).toContain("candidateGroups[]");
     expect(descriptions).toContain("candidateCountPerSection");
@@ -117,6 +116,7 @@ describe("production LangChain tool catalog", () => {
     expect(modelVisibleText).not.toContain("finalAnswerSupport");
     expect(modelVisibleText).not.toContain("nextActionHints");
     expect(modelVisibleText).not.toContain("resolveExerciseResourceMentions");
+    expect(modelVisibleText).not.toContain("zeroMatchMuscles");
     expect(schemaDescriptions).not.toContain("\"q\"");
     expect(findings).toEqual([]);
   });
@@ -158,7 +158,7 @@ describe("production LangChain tool catalog", () => {
       .join("\n");
 
     expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
-    expect(schemaDescriptions).toContain("不是必须继续补查每个肌群的义务");
+    expect(schemaDescriptions).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
     expect(schemaDescriptions).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(schemaDescriptions).toContain("服务端不根据用户原文分流");
@@ -167,6 +167,7 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(schemaDescriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写");
     expect(schemaDescriptions).toContain("省略表示不额外限定环境条件");
+    expect(schemaDescriptions).not.toContain("zeroMatchMuscles");
   });
 
   it("exposes only controlled searchExerciseResources input fields", () => {

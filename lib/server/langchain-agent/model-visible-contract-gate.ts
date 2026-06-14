@@ -177,6 +177,7 @@ const allowedSummaryKeys = new Set([
   "sectionRelation",
   "sectionHint",
   "sectionSummary",
+  "secondaryMusclesZh",
   "sort",
   "source",
   "specificFilters",
@@ -261,6 +262,54 @@ const businessReadinessPatterns: readonly RegExp[] = [
 
 const negationPattern = /(不要|不需要|不能|不得|禁止|不要求|不会|不是|不代表|不替代|不支撑|不得|不应)/;
 
+const searchExercisePlannerForbiddenKeys = new Set([
+  "totalMatches",
+  "returnedCount",
+  "truncated",
+  "excludedCount",
+  "candidateCountPerSection",
+  "sort",
+  "maxReturned",
+  "limit",
+  "take",
+  "offset",
+  "page",
+  "pageSize",
+  "cursor",
+  "querySpecificity",
+  "filterSemantics",
+  "appliedFilters",
+  "filterApplicationBoundary",
+  "filterApplications",
+  "positiveAnchorBoundary",
+  "refreshExclusionBoundary",
+  "sectionSummary",
+  "availableSections",
+  "missingSections",
+  "allowedSectionsRelation",
+  "groupSemantics",
+  "allowedSections",
+  "zeroMatchMuscles",
+  "exercise_name_too_broad",
+  "too_broad",
+  "sufficient",
+  "insufficient",
+  "ready",
+  "canProceed",
+  "canDeliverPlan",
+  "goalSatisfied",
+  "businessGoalSatisfied",
+  "complete",
+]);
+
+const searchExercisePlannerForbiddenTextPatterns: readonly RegExp[] = [
+  /\b(exercise_name_too_broad|too_broad)\b/i,
+  /\b(sufficient|insufficient|canProceed|canDeliverPlan|goalSatisfied|businessGoalSatisfied|complete)\b/i,
+  /(候选|结果|动作).{0,12}(已经|已|不够|不足|足够)/,
+  /(已经|已|可以|可).{0,12}(生成|交付).{0,12}(训练方案|计划)/,
+  /(必须|务必|应当|应该|需要|请|继续|先).{0,24}(扩大|增加|提高).{0,16}candidateCountPerSection/i,
+];
+
 /** createProductionAgentModelVisibleTextSamples 收集当前生产会实际暴露给模型的 prompt、tool description 和 schema description 文本。 */
 export function createProductionAgentModelVisibleTextSamples(
   options: CreateProductionLangChainToolCatalogOptions = {},
@@ -315,6 +364,7 @@ export function validateAgentModelVisibleSummaryContract(
   const normalized = normalizeSummaryValue(sample.value);
   const findings = [
     ...collectSummaryKeyFindings(sample, normalized.value),
+    ...collectSearchExerciseResourcesPlannerSummaryFindings(sample, normalized.value),
     ...lintAgentModelVisibleText({
       id: sample.id,
       kind: sample.kind,
@@ -395,6 +445,97 @@ function normalizeSummaryValue(value: string | LangChainJsonValue) {
   }
 
   return { value, text: value };
+}
+
+function collectSearchExerciseResourcesPlannerSummaryFindings(
+  sample: AgentModelVisibleSummarySample,
+  value: unknown,
+  path = "$",
+): AgentModelVisibleContractFinding[] {
+  if (sample.kind !== "tool_result_summary" || !sample.id.startsWith("searchExerciseResources.")) {
+    return [];
+  }
+
+  if (typeof value === "string") {
+    const parsed = tryParseJsonText(value);
+    const parsedFindings = parsed === undefined
+      ? []
+      : collectSearchExerciseResourcesPlannerSummaryFindings(sample, parsed, path);
+
+    return [
+      ...parsedFindings,
+      ...collectSearchExerciseResourcesPlannerTextFindings(sample, value, path),
+    ];
+  }
+
+  if (value === null || value === undefined || typeof value !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) =>
+      collectSearchExerciseResourcesPlannerSummaryFindings(sample, item, `${path}[${index}]`),
+    );
+  }
+
+  const findings: AgentModelVisibleContractFinding[] = [];
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = path === "$" ? key : `${path}.${key}`;
+
+    if (searchExercisePlannerForbiddenKeys.has(key)) {
+      findings.push({
+        sampleId: sample.id,
+        kind: sample.kind,
+        ruleId: "search_exercise_planner_forbidden_summary_key",
+        message: `searchExerciseResources Planner-visible summary 不得暴露 ${key}。`,
+        path: childPath,
+      });
+    }
+
+    findings.push(...collectSearchExerciseResourcesPlannerSummaryFindings(sample, child, childPath));
+  }
+
+  return findings;
+}
+
+function collectSearchExerciseResourcesPlannerTextFindings(
+  sample: AgentModelVisibleSummarySample,
+  text: string,
+  path: string,
+): AgentModelVisibleContractFinding[] {
+  return searchExercisePlannerForbiddenTextPatterns.flatMap((pattern) => {
+    const match = pattern.exec(text);
+    if (!match) {
+      return [];
+    }
+
+    const excerpt = readExcerpt(text, match.index, match[0].length);
+    if (isNegatedExcerpt(excerpt)) {
+      return [];
+    }
+
+    return [{
+      sampleId: sample.id,
+      kind: sample.kind,
+      ruleId: "search_exercise_planner_forbidden_summary_text",
+      message: "searchExerciseResources Planner-visible summary 不得包含继续查询暗示、过宽 code 或业务目标满足度文案。",
+      path,
+      excerpt,
+    }];
+  });
+}
+
+function tryParseJsonText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed) as LangChainJsonValue;
+  } catch {
+    return undefined;
+  }
 }
 
 function collectSummaryKeyFindings(

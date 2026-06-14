@@ -65,12 +65,16 @@ describe("Agent model-visible contract gate", () => {
     const searchModelSummaries = samples
       .filter((sample) => sample.id.startsWith("searchExerciseResources.") && sample.kind === "tool_result_summary")
       .map((sample) => JSON.stringify(sample.value));
+    const searchTraceSummaries = samples
+      .filter((sample) => sample.id.startsWith("searchExerciseResources.") && sample.kind === "trace_summary")
+      .map((sample) => JSON.stringify(sample.value));
 
     expect(findings).toEqual([]);
     expect(searchModelSummaries.length).toBeGreaterThan(0);
     for (const summaryJson of searchModelSummaries) {
       expect(summaryJson).toContain("candidateGroups");
       expect(summaryJson).not.toContain("\"groups\"");
+      expectSearchExercisePlannerSummaryTextIsClean(summaryJson);
       expect(summaryJson).not.toContain("allowedSections");
       expect(summaryJson).not.toContain("allowedSectionsRelation");
       expect(summaryJson).not.toContain("sectionSummary");
@@ -78,6 +82,9 @@ describe("Agent model-visible contract gate", () => {
       expect(summaryJson).not.toContain("missingSections");
       expect(summaryJson).not.toContain("groupSemantics");
     }
+    expect(searchTraceSummaries.some((summaryJson) => summaryJson.includes("candidateCountPerSection"))).toBe(true);
+    expect(searchTraceSummaries.some((summaryJson) => summaryJson.includes("totalMatches"))).toBe(true);
+    expect(searchTraceSummaries.some((summaryJson) => summaryJson.includes("returnedCount"))).toBe(true);
   });
 
   it("fails for renamed readiness fields instead of only matching historical field names", () => {
@@ -102,6 +109,41 @@ describe("Agent model-visible contract gate", () => {
 
     expect(exactHistorical.findings.map((finding) => finding.ruleId)).toContain("historical_forbidden_summary_key");
     expect(renamedSameClass.findings.map((finding) => finding.ruleId)).toContain("undeclared_summary_key");
+  });
+
+  it("recursively rejects misleading searchExerciseResources Planner summary fields", () => {
+    const result = validateAgentModelVisibleSummaryContract({
+      id: "searchExerciseResources.bad_nested.model_visible_summary",
+      kind: "tool_result_summary",
+      source: "negative fixture",
+      value: {
+        status: "succeeded",
+        query: {
+          candidateCountPerSection: 12,
+        },
+        candidateGroups: [{
+          suitability: "training",
+          returnedCount: 3,
+          nested: "{\"truncated\":true,\"diagnostics\":[{\"code\":\"exercise_name_too_broad\"}]}",
+        }],
+        diagnostics: [{
+          code: "too_broad",
+          message: "候选还不够，需要继续扩大 candidateCountPerSection。",
+        }],
+      },
+    });
+
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(expect.arrayContaining([
+      "search_exercise_planner_forbidden_summary_key",
+      "search_exercise_planner_forbidden_summary_text",
+    ]));
+    expect(result.findings.map((finding) => finding.path)).toEqual(expect.arrayContaining([
+      "query.candidateCountPerSection",
+      "candidateGroups[0].returnedCount",
+      "candidateGroups[0].nested.truncated",
+      "candidateGroups[0].nested.diagnostics[0].code",
+      "diagnostics[0].code",
+    ]));
   });
 
   it("fails for equivalent workflow guidance and case-specific production rules", () => {
@@ -138,6 +180,40 @@ function readFixturesForTool(tool: LangChainToolWrapper) {
   const fixtures = modelVisibleOutputFixtures[tool.name];
 
   return fixtures ?? [];
+}
+
+function expectSearchExercisePlannerSummaryTextIsClean(summaryJson: string) {
+  for (const forbiddenText of [
+    "totalMatches",
+    "returnedCount",
+    "truncated",
+    "excludedCount",
+    "candidateCountPerSection",
+    "sort",
+    "maxReturned",
+    "limit",
+    "take",
+    "offset",
+    "page",
+    "pageSize",
+    "cursor",
+    "querySpecificity",
+    "filterSemantics",
+    "appliedFilters",
+    "filterApplicationBoundary",
+    "filterApplications",
+    "positiveAnchorBoundary",
+    "refreshExclusionBoundary",
+    "zeroMatchMuscles",
+    "exercise_name_too_broad",
+    "too_broad",
+    "canDeliverPlan",
+    "goalSatisfied",
+    "businessGoalSatisfied",
+    "complete",
+  ]) {
+    expect(summaryJson).not.toContain(forbiddenText);
+  }
 }
 
 const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: unknown }[]> = {

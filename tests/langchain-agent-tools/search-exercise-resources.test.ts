@@ -82,21 +82,19 @@ describe("searchExerciseResources LangChain tool", () => {
         suitabilities: ["training"],
         muscles: ["胸部"],
         equipment: "no_equipment",
-        candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
-        sort: "name_asc",
       },
-      returnedCount: 1,
-      truncated: false,
       candidateGroups: [
         {
           suitability: "training",
-          returnedCount: 1,
-          truncated: false,
-          zeroMatchMuscles: [],
           exercises: [
             {
               exerciseId: "Pushups",
               nameZh: "俯卧撑",
+              nameEn: "Pushups",
+              equipmentZh: "自重",
+              homeRequirementZh: "无器械",
+              primaryMusclesZh: ["胸部"],
+              secondaryMusclesZh: ["肱三头肌"],
               imageUrl: "/push-up.png",
             },
           ],
@@ -104,13 +102,26 @@ describe("searchExerciseResources LangChain tool", () => {
       ],
     });
     expect(modelMessage).not.toHaveProperty("totalMatches");
+    expect(modelMessage).not.toHaveProperty("returnedCount");
+    expect(modelMessage).not.toHaveProperty("truncated");
+    expect(modelMessage).not.toHaveProperty("excludedCount");
     expect(modelMessage).not.toHaveProperty("maxReturned");
+    expect(modelMessage).not.toHaveProperty("querySpecificity");
+    expect(modelMessage).not.toHaveProperty("filterSemantics");
+    expect(modelMessage).not.toHaveProperty("positiveAnchorBoundary");
+    expect(modelMessage).not.toHaveProperty("refreshExclusionBoundary");
+    expect(modelMessage).not.toHaveProperty("appliedFilters");
+    expect(modelMessage).not.toHaveProperty("filterApplicationBoundary");
+    expect(modelMessage).not.toHaveProperty("filterApplications");
     expect(modelMessage).not.toHaveProperty("groups");
     expect(modelMessage).not.toHaveProperty("availableSections");
     expect(modelMessage).not.toHaveProperty("sectionSummary");
     expect(modelMessage).not.toHaveProperty("missingSections");
     expect(modelMessage).not.toHaveProperty("groupSemantics");
     expect(modelMessage.candidateGroups[0]).not.toHaveProperty("totalMatches");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("returnedCount");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("truncated");
+    expect(modelMessage.candidateGroups[0]).not.toHaveProperty("zeroMatchMuscles");
     expect(modelMessage.candidateGroups[0]).not.toHaveProperty("maxReturned");
     expect(modelMessage.candidateGroups[0].exercises[0]).not.toHaveProperty("allowedSections");
     expect(modelMessage.candidateGroups[0]).not.toHaveProperty("allowedSectionsRelation");
@@ -120,12 +131,10 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage).not.toHaveProperty("visibleDeliveryBoundary");
     expect(modelMessage).not.toHaveProperty("supportsOutputKinds");
     expect(modelMessage).not.toHaveProperty("published");
-    expect(modelMessage.appliedFilters).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ field: "published" }),
-      ]),
-    );
+    expect(modelMessage.query).not.toHaveProperty("candidateCountPerSection");
+    expect(modelMessage.query).not.toHaveProperty("sort");
     const modelJson = JSON.stringify(modelMessage);
+    expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage);
     expect(modelJson).not.toContain("instructionsZh");
     expect(modelJson).not.toContain("embedding");
     expect(modelJson).not.toContain("缺少 warmup 或 stretch");
@@ -158,11 +167,63 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       maxReturned: 10,
     }));
-    expect(modelMessage.query.candidateCountPerSection).toBe(10);
+    expect(result.record.userProjection).toMatchObject({
+      candidateCountPerSection: 10,
+    });
+    expect(result.record.traceSummary).toMatchObject({
+      candidateCountPerSection: 10,
+    });
+    expect(modelMessage.query).not.toHaveProperty("candidateCountPerSection");
     expect(modelMessage).not.toHaveProperty("maxReturned");
   });
 
-  it("projects zeroMatchMuscles in model, user and trace summaries without exposing handler internals", async () => {
+  it("keeps internal truncation statistics outside the Planner-visible summary", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [createExerciseSummary()],
+        totalMatches: 6,
+        truncated: true,
+        excludedCount: 2,
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部"],
+        candidateCountPerSection: 1,
+        excludeExerciseIds: ["OldPushup", "OldRow"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(result.record.userProjection).toMatchObject({
+      candidateCountPerSection: 1,
+      totalMatches: 6,
+      returnedCount: 1,
+      truncated: true,
+      excludedCount: 2,
+    });
+    expect(result.record.traceSummary).toMatchObject({
+      candidateCountPerSection: 1,
+      totalMatches: 6,
+      returnedCount: 1,
+      candidateGroups: [
+        expect.objectContaining({
+          totalMatches: 6,
+          returnedCount: 1,
+          truncated: true,
+        }),
+      ],
+    });
+    expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage);
+  });
+
+  it("keeps zeroMatchMuscles in user and trace summaries without exposing it to Planner", async () => {
     const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
         query: input,
@@ -189,7 +250,6 @@ describe("searchExerciseResources LangChain tool", () => {
 
     const trainingGroup = findCandidateGroup(modelMessage, "training");
 
-    expect(trainingGroup.zeroMatchMuscles).toEqual(["肩部"]);
     expect(trainingGroup.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
       "Pushups",
       "InvertedRow",
@@ -216,6 +276,7 @@ describe("searchExerciseResources LangChain tool", () => {
       ],
     });
     const projectedJson = JSON.stringify(result.record);
+    expect(JSON.stringify(modelMessage)).not.toContain("zeroMatchMuscles");
     expect(projectedJson).not.toContain("instructionsZh");
     expect(projectedJson).not.toContain("embedding");
     expect(projectedJson).not.toContain("candidatePool");
@@ -242,7 +303,7 @@ describe("searchExerciseResources LangChain tool", () => {
       );
       const modelMessage = JSON.parse(result.modelMessage);
 
-      expect(findCandidateGroup(modelMessage, "training").zeroMatchMuscles).toEqual([]);
+      expect(findCandidateGroup(modelMessage, "training")).not.toHaveProperty("zeroMatchMuscles");
     }
   });
 
@@ -270,7 +331,7 @@ describe("searchExerciseResources LangChain tool", () => {
     const trainingGroup = findCandidateGroup(modelMessage, "training");
 
     expect(trainingGroup.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(["Pushups"]);
-    expect(trainingGroup.zeroMatchMuscles).toEqual([]);
+    expect(trainingGroup).not.toHaveProperty("zeroMatchMuscles");
   });
 
   it("prioritizes requiredExerciseIds and reports filter mismatch diagnostics", async () => {
@@ -315,7 +376,7 @@ describe("searchExerciseResources LangChain tool", () => {
         conflictFields: ["muscles"],
       }),
     ]);
-    expect(modelMessage.positiveAnchorBoundary).toContain("requiredExerciseIds");
+    expect(modelMessage).not.toHaveProperty("positiveAnchorBoundary");
   });
 
   it("queries multiple exerciseNames through candidate groups without parallel name result structures", async () => {
@@ -353,9 +414,12 @@ describe("searchExerciseResources LangChain tool", () => {
       "Bodyweight_Squat",
       "Plank",
     ]);
-    expect(modelMessage.appliedFilters).toEqual(expect.arrayContaining([
-      { field: "exerciseNames", value: ["俯卧撑", "深蹲", "平板支撑"] },
-    ]));
+    expect(modelMessage).not.toHaveProperty("appliedFilters");
+    expect(result.record.userProjection).toMatchObject({
+      appliedFilters: expect.arrayContaining([
+        { field: "exerciseNames", value: ["俯卧撑", "深蹲", "平板支撑"] },
+      ]),
+    });
     expect(JSON.stringify(modelMessage)).not.toContain("exerciseNameResults");
     expect(JSON.stringify(modelMessage)).not.toContain("resolvedMentions");
     expect(JSON.stringify(modelMessage)).not.toContain("nameMatches");
@@ -370,6 +434,7 @@ describe("searchExerciseResources LangChain tool", () => {
           { code: "exercise_name_not_found", exerciseName: "火星跳跃", totalMatches: 0 },
           { code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3, returnedCount: 2 },
           { code: "exercise_name_filter_mismatch", exerciseName: "平板支撑", conflictFields: ["muscles"], totalMatches: 1 },
+          { code: "exercise_name_too_broad", exerciseName: "推", totalMatches: 12, returnedCount: 3 },
         ],
       }),
     });
@@ -388,14 +453,30 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(modelMessage.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
-      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3 }),
+      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船" }),
       expect.objectContaining({ code: "exercise_name_filter_mismatch", exerciseName: "平板支撑", conflictFields: ["muscles"] }),
+      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "推" }),
     ]));
+    for (const diagnostic of modelMessage.diagnostics) {
+      expect(diagnostic).not.toHaveProperty("totalMatches");
+      expect(diagnostic).not.toHaveProperty("returnedCount");
+      expect(diagnostic.code).not.toBe("exercise_name_too_broad");
+      expect(diagnostic.code).not.toBe("too_broad");
+    }
     expect(result.record.traceSummary).toMatchObject({
       diagnostics: expect.arrayContaining([
         expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
+        expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3, returnedCount: 2 }),
+        expect.objectContaining({ code: "exercise_name_too_broad", exerciseName: "推", totalMatches: 12, returnedCount: 3 }),
       ]),
     });
+    expect(result.record.userProjection).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3, returnedCount: 2 }),
+        expect.objectContaining({ code: "exercise_name_too_broad", exerciseName: "推", totalMatches: 12, returnedCount: 3 }),
+      ]),
+    });
+    expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage);
     expect(JSON.stringify(result.record)).not.toContain("exerciseNameResults");
     expect(JSON.stringify(result.record)).not.toContain("resolvedMentions");
     expect(JSON.stringify(result.record)).not.toContain("nameMatches");
@@ -418,13 +499,53 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(modelMessage).toMatchObject({
       factLevel: "diagnostic",
-      querySpecificity: {
-        status: "too_broad",
-      },
     });
+    expect(modelMessage).not.toHaveProperty("querySpecificity");
     expect(modelMessage).not.toHaveProperty("fulfillment");
     expect(modelMessage).not.toHaveProperty("groups");
+    expect(JSON.stringify(modelMessage)).not.toContain("too_broad");
     expect(JSON.stringify(modelMessage)).not.toContain("satisfied");
+  });
+
+  it("projects empty candidates as neutral diagnostics without counts or readiness wording", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [],
+        totalMatches: 0,
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(modelMessage.diagnostics).toEqual([
+      expect.objectContaining({
+        suitability: "training",
+        code: "no_candidates",
+        message: "training 用途当前查询没有可纳入的候选动作。",
+      }),
+    ]);
+    expect(result.record.userProjection).toMatchObject({
+      totalMatches: 0,
+      returnedCount: 0,
+      candidateGroups: [
+        expect.objectContaining({
+          totalMatches: 0,
+          returnedCount: 0,
+          truncated: false,
+        }),
+      ],
+    });
+    expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage);
   });
 
   it("rejects invalid fields and removed published input before repository execution", async () => {
@@ -572,8 +693,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(modelVisibleText).toContain("服务端不根据用户原文分流");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
-    expect(modelVisibleText).toContain("zeroMatchMuscles 是诊断事实");
-    expect(modelVisibleText).toContain("不是必须继续补查每个肌群的义务");
+    expect(modelVisibleText).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
     expect(modelVisibleText).toContain("homeRequirement 只表示环境、场地或支撑条件");
     expect(modelVisibleText).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
     expect(modelVisibleText).toContain("exerciseNames");
@@ -584,6 +704,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).not.toContain("关键词");
     expect(modelVisibleText).not.toContain("短句模板");
     expect(modelVisibleText).not.toContain("必须调用");
+    expect(modelVisibleText).not.toContain("zeroMatchMuscles");
     expect(modelVisibleText).not.toContain("sectionSummary、availableSections、missingSections");
     expect(modelVisibleText).not.toContain("groups.<section>");
   });
@@ -624,6 +745,8 @@ function createSearchResult(input: {
   exercises?: ExerciseResourceSummary[];
   totalMatches?: number;
   zeroMatchMuscles?: string[];
+  truncated?: boolean;
+  excludedCount?: number;
   diagnostics?: ExerciseResourceNameDiagnostic[];
 }): ExerciseResourceSearchResult {
   const exercises = input.exercises ?? [];
@@ -649,8 +772,8 @@ function createSearchResult(input: {
     totalMatches: input.totalMatches ?? exercises.length,
     returnedCount: exercises.length,
     maxReturned: input.query.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
-    truncated: false,
-    excludedCount: input.query.excludeExerciseIds?.length ?? 0,
+    truncated: input.truncated ?? false,
+    excludedCount: input.excludedCount ?? input.query.excludeExerciseIds?.length ?? 0,
     exercises,
   };
 }
@@ -662,11 +785,53 @@ function findCandidateGroup(modelMessage: { candidateGroups: Array<{ suitability
 
   return group as {
     suitability: string;
-    returnedCount: number;
-    truncated: boolean;
-    zeroMatchMuscles: string[];
     exercises: Array<{ exerciseId: string }>;
   };
+}
+
+function expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage: unknown) {
+  const summaryJson = JSON.stringify(modelMessage);
+  for (const forbiddenText of [
+    "totalMatches",
+    "returnedCount",
+    "truncated",
+    "excludedCount",
+    "candidateCountPerSection",
+    "sort",
+    "maxReturned",
+    "limit",
+    "take",
+    "offset",
+    "page",
+    "pageSize",
+    "cursor",
+    "querySpecificity",
+    "filterSemantics",
+    "appliedFilters",
+    "filterApplicationBoundary",
+    "filterApplications",
+    "positiveAnchorBoundary",
+    "refreshExclusionBoundary",
+    "sectionSummary",
+    "availableSections",
+    "missingSections",
+    "allowedSectionsRelation",
+    "groupSemantics",
+    "allowedSections",
+    "zeroMatchMuscles",
+    "exercise_name_too_broad",
+    "too_broad",
+    "sufficient",
+    "insufficient",
+    "ready",
+    "canProceed",
+    "canDeliverPlan",
+    "goalSatisfied",
+    "businessGoalSatisfied",
+    "complete",
+  ]) {
+    expect(summaryJson).not.toContain(forbiddenText);
+  }
 }
 
 function createExerciseSummary(overrides: Partial<ExerciseResourceSummary> = {}): ExerciseResourceSummary {
