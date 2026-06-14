@@ -11,7 +11,8 @@
 - [ ] 2.3 从 Planner-visible summary 递归移除 `querySpecificity`、`filterSemantics`、`appliedFilters`、`filterApplicationBoundary`、`filterApplications`、`positiveAnchorBoundary` 和 `refreshExclusionBoundary`
 - [ ] 2.4 从 Planner-visible summary 递归移除 `sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation`、`groupSemantics`、`allowedSections`、`candidateGroups[].zeroMatchMuscles` 和等价 placement / section coverage 字段
 - [ ] 2.5 将 Planner-visible `diagnostics[]` 收敛为中性诊断，移除 `diagnostics[].totalMatches`、`diagnostics[].returnedCount`、`exercise_name_too_broad`、`too_broad` 和等价继续查询暗示
-- [ ] 2.6 保留 trace summary、user projection 和内部 handler output 中的调试统计，确保开发排障信息不因 Planner 投影瘦身丢失
+- [ ] 2.6 确认 Planner-visible summary 不新增 `sufficient`、`insufficient`、`ready`、`canProceed`、`canDeliverPlan`、`goalSatisfied`、`businessGoalSatisfied`、`complete` 或等价业务目标满足度字段 / 文案
+- [ ] 2.7 保留 trace summary、user projection 和内部 handler output 中的调试统计，确保开发排障信息不因 Planner 投影瘦身丢失
 
 ## 3. 模型可见说明同步
 
@@ -22,7 +23,7 @@
 ## 4. 回归测试
 
 - [ ] 4.1 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖成功候选 result 的 Planner-visible summary 不含误导字段
-- [ ] 4.2 增加空候选、名称歧义、输入冲突和内部截断场景，验证 Planner-visible diagnostics 不含精确计数和 `too_broad` 类 code
+- [ ] 4.2 增加空候选、名称歧义、输入冲突和内部截断场景，验证 Planner-visible diagnostics 不含精确计数、`too_broad` 类 code，以及 sufficiency / readiness / completion 类字段或文案
 - [ ] 4.3 更新 `tests/langchain-agent-tools/model-visible-contract-gate.test.ts`，递归扫描 `projection.model` / `modelVisibleSummary` 的顶层、嵌套对象和字符串化 JSON
 - [ ] 4.4 增加 trace / user projection 保留统计字段的测试，证明 contract gate 只约束 Planner-visible summary
 - [ ] 4.5 按需更新 `tests/langchain-agent-tools/production-tool-catalog.test.ts`，防止 manifest / examples 重新暴露 output-only 字段

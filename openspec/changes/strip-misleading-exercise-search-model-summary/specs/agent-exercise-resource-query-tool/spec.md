@@ -21,11 +21,13 @@
 - **AND** `diagnostics[]` MUST 只表达当前查询无法提供候选、需要澄清、需要放宽条件或存在确定性冲突
 - **AND** `diagnostics[]` MUST NOT 包含 `totalMatches`、`returnedCount`、`truncated`、`candidateCountPerSection` 或等价精确统计
 - **AND** `diagnostics[]` MUST NOT 包含 `exercise_name_too_broad`、`too_broad` 或其他会表达“继续扩大查询即可解决”的 code
+- **AND** `diagnostics[]` MUST NOT 包含 `sufficient`、`insufficient`、`ready`、`canProceed`、`canDeliverPlan`、`goalSatisfied`、`businessGoalSatisfied`、`complete` 或等价 sufficiency / readiness / completion 字段或文案
 - **AND** 内部 trace MAY 继续保留原始失败 code 和统计，用于开发排障
 
 #### Scenario: 模型可见 summary 不提供固定下一步建议
 - **WHEN** `searchExerciseResources` 的 Planner-visible summary 进入下一轮模型输入
 - **THEN** summary MUST NOT 表达“必须继续调用 `searchExerciseResources`”、“必须扩大 `candidateCountPerSection`”、“必须补查某个 section”或等价固定 workflow
+- **AND** summary MUST NOT 表达“候选已经足够”、“候选还不够”、“已经 ready”、“可以生成训练方案”或等价业务目标满足度判断
 - **AND** summary MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板替 Planner 选择下一步 tool
 - **AND** summary MUST NOT 将查询结果表达成已完成的 `visibleTrainingProposal`、routine、plan、prescription、schedule 或保存结果
 

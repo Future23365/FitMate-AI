@@ -10,6 +10,7 @@
 - **AND** gate MUST 断言不存在 `totalMatches`、`returnedCount`、`truncated`、`excludedCount`、`candidateCountPerSection`、`sort`、`maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize` 或 `cursor`
 - **AND** gate MUST 断言不存在 `querySpecificity`、`filterSemantics`、`appliedFilters`、`filterApplicationBoundary`、`filterApplications`、`positiveAnchorBoundary` 或 `refreshExclusionBoundary`
 - **AND** gate MUST 断言不存在 `sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation`、`groupSemantics`、`allowedSections`、`zeroMatchMuscles`、`exercise_name_too_broad` 或 `too_broad`
+- **AND** gate MUST 断言不存在 `sufficient`、`insufficient`、`ready`、`canProceed`、`canDeliverPlan`、`goalSatisfied`、`businessGoalSatisfied`、`complete` 或等价 sufficiency / readiness / completion 字段和文案
 
 #### Scenario: Trace 和用户投影不被误删
 - **WHEN** `searchExerciseResources` 的 trace summary 或 user projection 包含开发调试统计

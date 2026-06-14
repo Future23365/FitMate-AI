@@ -10,7 +10,7 @@
 
 `simplify-exercise-resource-search-output` 已经把旧 `groups` / `allowedSections` / section coverage 输出收敛到 `candidateGroups[]`，但仍保留了大量执行诊断和统计字段。实际 trace 说明：只删除 section coverage 不够，模型仍会把“还有更多命中 / 当前结果被截断 / 当前查询还能继续细化”理解为继续调用同一 tool 的信号。
 
-本 change 的抽象问题类型是：**tool result summary 混入了执行诊断、预算回显和继续查询暗示，导致 Planner 在已有候选事实足够时继续查询**。
+本 change 的抽象问题类型是：**tool result summary 混入了执行诊断、预算回显和继续查询暗示，导致 Planner 在已有候选事实可供选择时继续查询**。
 
 ## Goals / Non-Goals
 
@@ -34,7 +34,7 @@
 
 ### 1. Planner-visible summary 采用候选事实白名单
 
-`toModelVisibleSummary()` 使用白名单投影，而不是从完整 handler output 中删除少数字段。保留字段以“模型能基于候选完成当前回答或结构化输出”为标准：
+`toModelVisibleSummary()` 使用白名单投影，而不是从完整 handler output 中删除少数字段。保留字段以“模型能基于候选事实继续推理、选择动作或进入全局停止条件判断”为标准：
 
 - 保留：`status`、`factLevel`、必要的 `query` 语义过滤值、`candidateGroups[].suitability`、`candidateGroups[].exercises[]`、候选动作的有限事实字段、少量中性 `diagnostics[]`
 - 删除：精确匹配数量、返回数量、截断标记、候选预算回显、排序、过滤执行细节、数据库 hard filter 说明、正向锚点边界、刷新排除边界、section coverage 和任何下一步行为暗示
@@ -50,6 +50,8 @@
 - 输入约束冲突，需要模型基于当前上下文修正
 
 诊断不得包含 `totalMatches`、`returnedCount`、`truncated`，也不得使用 `exercise_name_too_broad`、`too_broad` 等会暗示“继续扩大候选”的 code。内部 code 可以继续保留在 trace / user projection 中；Planner-visible summary 需要映射成中性 code 或直接省略。
+
+`diagnostics[]` 不表达 sufficiency / readiness / completion。它只能描述本次查询的事实状态或可恢复阻断原因，不能给出“已经足够”“还不够”“可以交付”“必须继续查询”这类业务目标判断。是否直接回答、追问、继续调用 tool 或提交结构化终态，由 Planner 基于全局停止条件、候选事实和 finalization 合同自行决定。
 
 ### 3. Debug 字段保留在非 Planner 通道
 
