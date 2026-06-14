@@ -223,6 +223,41 @@ describe("exercise repository", () => {
     ]);
   });
 
+  it("defaults resource muscle matching to primary muscles only", async () => {
+    prismaMock.exercise.count.mockResolvedValue(0);
+
+    await searchExerciseResourceSummaries({
+      suitability: "training",
+      muscles: ["腹肌"],
+      maxReturned: 3,
+      sort: "name_asc",
+    });
+    const serializedWhere = JSON.stringify(prismaMock.exercise.count.mock.calls[0][0].where);
+
+    expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"primaryMusclesZh\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).not.toContain("secondaryMuscles");
+    expect(serializedWhere).not.toContain("secondaryMusclesZh");
+  });
+
+  it("uses primary and secondary muscle fields when muscleMatchRole is any", async () => {
+    prismaMock.exercise.count.mockResolvedValue(0);
+
+    await searchExerciseResourceSummaries({
+      suitability: "training",
+      muscles: ["腹肌"],
+      muscleMatchRole: "any",
+      maxReturned: 3,
+      sort: "name_asc",
+    });
+    const serializedWhere = JSON.stringify(prismaMock.exercise.count.mock.calls[0][0].where);
+
+    expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"primaryMusclesZh\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"secondaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"secondaryMusclesZh\":{\"has\":\"腹肌\"}");
+  });
+
   it("balances multi-muscle resource candidates and reports zero-match muscles from independent counts", async () => {
     prismaMock.exercise.count
       .mockResolvedValueOnce(2)

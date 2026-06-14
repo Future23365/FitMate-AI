@@ -70,6 +70,11 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("动作候选");
     expect(descriptions).toContain("exerciseNames");
     expect(descriptions).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
+    expect(descriptions).toContain('muscleMatchRole = "primary"');
+    expect(descriptions).toContain("请求肌群是动作主练目标");
+    expect(descriptions).toContain('muscleMatchRole = "any"');
+    expect(descriptions).toContain("肌群是否参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作");
+    expect(descriptions).toContain("any 不代表候选动作都同等适合作为目标肌群主练推荐");
     expect(descriptions).toContain("不保证每个候选都同等适合作为最终推荐");
     expect(descriptions).toContain("executionProfile 用于选择动作执行场景");
     expect(descriptions).toContain("no_equipment");
@@ -114,6 +119,10 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
+    expect(schemaDescriptions).toContain("肌群匹配角色");
+    expect(schemaDescriptions).toContain('默认 "primary"');
+    expect(schemaDescriptions).toContain("只匹配 primaryMuscles / primaryMusclesZh");
+    expect(schemaDescriptions).toContain("匹配 primaryMuscles / primaryMusclesZh / secondaryMuscles / secondaryMusclesZh");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
     expect(systemPrompt).not.toContain("缺少 stretch");
@@ -207,6 +216,10 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
     expect(schemaDescriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
+    expect(schemaDescriptions).toContain("该字段与 muscleMatchRole 共同决定匹配主练肌群还是主/辅任意参与肌群");
+    expect(schemaDescriptions).toContain("肌群匹配角色");
+    expect(schemaDescriptions).toContain('默认 "primary"');
+    expect(schemaDescriptions).toContain('"any" 返回的是参与候选');
     expect(schemaDescriptions).toContain("动作执行场景筛选");
     expect(schemaDescriptions).toContain("完整无器械口径");
     expect(schemaDescriptions).toContain("compatible_with_available");
@@ -239,6 +252,7 @@ describe("production LangChain tool catalog", () => {
     expect(inputSchemaJson).toContain("\"equipmentScope\"");
     expect(inputSchemaJson).toContain("\"impactLimit\"");
     expect(inputSchemaJson).toContain("\"noiseLimit\"");
+    expect(inputSchemaJson).toContain("\"muscleMatchRole\"");
     for (const forbiddenField of [
       "requiresExternalEquipment",
       "requiredEquipmentTags",
@@ -271,12 +285,18 @@ describe("production LangChain tool catalog", () => {
     }).success).toBe(false);
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
+      muscleMatchRole: "any",
       candidateCountPerSection: 24,
       executionProfile: "no_equipment",
       impactLimit: "low",
       noiseLimit: "quiet",
       sort: "name_asc",
     }).success).toBe(true);
+    expect(searchTool?.inputSchema.safeParse({
+      muscles: ["胸部"],
+      muscleMatchRole: "secondary",
+      sort: "name_asc",
+    }).success).toBe(false);
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
       executionProfile: "no_equipment",

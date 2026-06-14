@@ -1514,6 +1514,12 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("在正文中说明默认口径");
     expect(prompt).toContain("代表性覆盖理解");
     expect(prompt).toContain("每个细分肌群");
+    expect(prompt).toContain("目标肌群动作推荐、训练动作筛选或结构化训练结果候选");
+    expect(prompt).toContain("默认把请求肌群理解为主练目标");
+    expect(prompt).toContain("不要把只作为辅助参与该肌群的动作当作同等优先的目标肌群推荐候选");
+    expect(prompt).toContain("查询肌群参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作");
+    expect(prompt).toContain("主练或辅助任意参与口径");
+    expect(prompt).toContain("返回的是参与候选，不代表每个候选都适合作为目标肌群主练推荐");
     expect(prompt).toContain("普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释");
     expect(prompt).toContain("工具返回的候选列表是可选择的候选池");
     expect(prompt).toContain("当前可见事实中是否已有可选子集能满足用户目标");

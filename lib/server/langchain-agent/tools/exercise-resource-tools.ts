@@ -4,11 +4,13 @@ import { z } from "zod";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
 import {
+  exerciseResourceMuscleMatchRoleValues,
   getExerciseResourceSummariesByIds,
   normalizeExerciseResourceFacetCatalogForPlanner,
   searchExerciseResourceSummaries,
   type ExerciseResourceFacetCatalog,
   type ExerciseResourceFilterSemantic,
+  type ExerciseResourceMuscleMatchRole,
   type ExerciseResourceNameDiagnostic,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
@@ -96,6 +98,16 @@ const impactLimitFilterSchema = exerciseImpactLevelSchema
 const noiseLimitFilterSchema = exerciseNoiseLevelSchema
   .optional()
   .describe("噪音程度上限筛选；合法值为 quiet、normal、loud。适合用户明确公寓、夜间或低噪音限制时使用。");
+
+const muscleMatchRoleSchema = z.enum(exerciseResourceMuscleMatchRoleValues);
+const muscleMatchRoleInputSchema = muscleMatchRoleSchema
+  .default("primary")
+  .describe([
+    '肌群匹配角色；未显式指定时默认 "primary"。',
+    '"primary" 表示请求肌群是动作主练目标，只匹配 primaryMuscles / primaryMusclesZh，适合目标肌群动作推荐、训练动作筛选和结构化训练结果候选。',
+    '"any" 表示请求肌群可以是主练或辅助参与，匹配 primaryMuscles / primaryMusclesZh / secondaryMuscles / secondaryMusclesZh，适合查询肌群是否参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作。',
+    '"any" 返回的是参与候选，不代表每个候选都适合作为目标肌群主练推荐。',
+  ].join(" "));
 
 const exerciseNamesFilterSchema = z.array(
   z.string()
@@ -224,7 +236,8 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`一个或多个主肌群或辅助肌群 facet 值；单个肌群也写成一项数组。多值查询用于获得覆盖多个请求肌群的候选。${catalogFacetDescription}`),
+    .describe(`一个或多个请求肌群 facet 值；单个肌群也写成一项数组。该字段与 muscleMatchRole 共同决定匹配主练肌群还是主/辅任意参与肌群。多值查询用于获得覆盖多个请求肌群的候选。${catalogFacetDescription}`),
+  muscleMatchRole: muscleMatchRoleInputSchema,
   goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${structuredFacetDescription}`),
   riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${structuredFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
@@ -272,6 +285,7 @@ export const searchExerciseResourcesOutputSchema = z.object({
     impactLimit: exerciseImpactLevelSchema.optional(),
     noiseLimit: exerciseNoiseLevelSchema.optional(),
     muscles: z.array(z.string()).optional(),
+    muscleMatchRole: muscleMatchRoleSchema,
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
     excludeExerciseIds: z.array(exerciseIdSchema).optional(),
@@ -340,12 +354,15 @@ export function createSearchExerciseResourcesLangChainTool(
       "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
       "Input Source：impactLimit 和 noiseLimit 是上限筛选；适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用。",
       "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令。",
+      'Input Source：muscles 用于目标肌群动作推荐、训练动作筛选或结构化训练结果候选时，默认使用 muscleMatchRole = "primary"，表示请求肌群是动作主练目标。',
+      'Input Source：需要查询肌群是否参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作时，使用 muscleMatchRole = "any"；any 不代表候选动作都同等适合作为目标肌群主练推荐。',
       "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量；它不是分页、offset、cursor 或最终展示数量承诺。",
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
       "Output Meaning：candidateGroups[].exercises 是动作候选池，不是最终推荐清单；候选动作可以被选择、跳过或用于后续结构化输出，未选择的候选不需要通过再次查询移除。",
       "Output Meaning：candidateGroups[].exercises 只要存在能满足当前目标的可选择子集，就可以支撑动作推荐集合；候选池不要求完全纯净，也不要求先排除未选候选。",
       "Output Meaning：candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要；null 或 unknown 表示事实未补齐，不能当作低门槛事实。",
       "Output Meaning：多 muscles 查询用于获得覆盖多个请求肌群的候选；结果只提供候选动作事实和中性 diagnostics，不保证每个候选都同等适合作为最终推荐，也不要求最终输出使用全部候选。",
+      'Output Meaning：query.muscleMatchRole 会回填本次肌群匹配角色；primary 表示主练肌群候选口径，any 表示主练或辅助参与候选口径。',
       "当模型已经从用户请求、上下文或 tool result summary 中结构化提取动作名称时，使用 exerciseNames 查询动作名称字段；exerciseNames 不接受完整用户消息，也不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入候选列表；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；候选池中存在可选择子集并能支撑用户目标时，应基于该子集进入最终回答或结构化训练收口；本 tool 不直接生成 visibleTrainingProposal。",
@@ -364,12 +381,14 @@ export function createSearchExerciseResourcesLangChainTool(
       const muscles = normalizeFacetList(input.muscles);
       const exerciseNames = normalizeFacetList(input.exerciseNames);
       const equipmentScope = normalizeExerciseEquipmentScope(input.equipmentScope);
+      const muscleMatchRole: ExerciseResourceMuscleMatchRole = input.muscleMatchRole ?? "primary";
       const candidateCountPerSection = input.candidateCountPerSection
         ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection;
       const normalizedInput = {
         ...input,
         exerciseNames,
         muscles,
+        muscleMatchRole,
         equipmentScope,
       };
       const suitabilities = normalizeSuitabilities(input.suitabilities);
@@ -395,6 +414,7 @@ export function createSearchExerciseResourcesLangChainTool(
           impactLimit: input.impactLimit,
           noiseLimit: input.noiseLimit,
           muscles,
+          muscleMatchRole,
           goalTag: input.goalTag,
           riskTag: input.riskTag,
           requiredExerciseIds,
@@ -470,6 +490,7 @@ export function createSearchExerciseResourcesLangChainTool(
           impactLimit: firstResult.query.impactLimit,
           noiseLimit: firstResult.query.noiseLimit,
           muscles: firstResult.query.muscles,
+          muscleMatchRole: firstResult.query.muscleMatchRole ?? muscleMatchRole,
           goalTag: firstResult.query.goalTag,
           riskTag: firstResult.query.riskTag,
           excludeExerciseIds: firstResult.query.excludeExerciseIds,
@@ -516,6 +537,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.impactLimit ? { impactLimit: output.query.impactLimit } : {}),
           ...(output.query.noiseLimit ? { noiseLimit: output.query.noiseLimit } : {}),
           ...(output.query.muscles ? { muscles: output.query.muscles } : {}),
+          muscleMatchRole: output.query.muscleMatchRole,
           ...(output.query.goalTag ? { goalTag: output.query.goalTag } : {}),
           ...(output.query.riskTag ? { riskTag: output.query.riskTag } : {}),
           ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
@@ -678,6 +700,7 @@ function toSearchResourceQueryProjection(query: SearchExerciseResourcesOutput["q
     ...(query.impactLimit ? { impactLimit: query.impactLimit } : {}),
     ...(query.noiseLimit ? { noiseLimit: query.noiseLimit } : {}),
     ...(query.muscles ? { muscles: query.muscles } : {}),
+    muscleMatchRole: query.muscleMatchRole,
     ...(query.goalTag ? { goalTag: query.goalTag } : {}),
     ...(query.riskTag ? { riskTag: query.riskTag } : {}),
     ...(query.requiredExerciseIds ? { requiredExerciseIds: query.requiredExerciseIds } : {}),

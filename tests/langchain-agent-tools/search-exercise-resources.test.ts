@@ -46,6 +46,7 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       muscles: ["胸部"],
+      muscleMatchRole: "primary",
       executionProfile: "no_equipment",
       impactLimit: "low",
       noiseLimit: "quiet",
@@ -69,6 +70,9 @@ describe("searchExerciseResources LangChain tool", () => {
       },
       traceSummary: {
         status: "succeeded",
+        query: expect.objectContaining({
+          muscleMatchRole: "primary",
+        }),
         suitabilities: ["training"],
         candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
         totalMatches: 1,
@@ -87,6 +91,7 @@ describe("searchExerciseResources LangChain tool", () => {
       query: {
         suitabilities: ["training"],
         muscles: ["胸部"],
+        muscleMatchRole: "primary",
         executionProfile: "no_equipment",
         impactLimit: "low",
         noiseLimit: "quiet",
@@ -598,6 +603,7 @@ describe("searchExerciseResources LangChain tool", () => {
         muscles: ["胸部"],
         equipmentScope: { mode: "must_use_any", tags: [] },
       },
+      { muscles: ["胸部"], muscleMatchRole: "secondary" },
     ]) {
       const result = await executeLangChainToolWrapper(
         tool,
@@ -779,6 +785,105 @@ describe("searchExerciseResources LangChain tool", () => {
         noiseLimit: "quiet",
       }),
     });
+  });
+
+  it("passes explicit muscleMatchRole any through handler and query projections", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [
+          createExerciseSummary({
+            id: "RingSupport",
+            nameZh: "吊环支撑",
+            nameEn: "Ring Support",
+            primaryMusclesZh: ["胸部"],
+            secondaryMusclesZh: ["腹肌"],
+          }),
+        ],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["腹肌"],
+        muscleMatchRole: "any",
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      muscles: ["腹肌"],
+      muscleMatchRole: "any",
+    }));
+    expect(modelMessage.query).toMatchObject({
+      muscles: ["腹肌"],
+      muscleMatchRole: "any",
+    });
+    expect(findCandidateGroup(modelMessage, "training").exercises[0]).toMatchObject({
+      exerciseId: "RingSupport",
+      primaryMusclesZh: ["胸部"],
+      secondaryMusclesZh: ["腹肌"],
+    });
+    expect(result.record.userProjection).toMatchObject({
+      query: expect.objectContaining({
+        muscles: ["腹肌"],
+        muscleMatchRole: "any",
+      }),
+    });
+    expect(result.record.traceSummary).toMatchObject({
+      query: expect.objectContaining({
+        muscles: ["腹肌"],
+        muscleMatchRole: "any",
+      }),
+    });
+  });
+
+  it.each([
+    "今天我要减肥，想多练练核心，有没有推荐的动作",
+    "帮我筛几个腹肌主练动作",
+  ])("regression: target-muscle recommendation defaults to primary role for %s", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [
+          createExerciseSummary({
+            id: "Plank",
+            nameZh: "平板支撑",
+            nameEn: "Plank",
+            primaryMusclesZh: ["腹肌"],
+            secondaryMusclesZh: ["肩部"],
+          }),
+        ],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["腹肌"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      muscles: ["腹肌"],
+      muscleMatchRole: "primary",
+      suitability: "training",
+    }));
+    expect(modelMessage.query).toMatchObject({
+      muscles: ["腹肌"],
+      muscleMatchRole: "primary",
+    });
+    expect(findCandidateGroup(modelMessage, "training").exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(["Plank"]);
+    expect(JSON.stringify(modelMessage)).not.toContain("必须继续");
+    expect(JSON.stringify(modelMessage)).not.toContain("扩大 candidateCountPerSection");
   });
 
   it("keeps each requested suitability as a separate candidate group without coverage gaps", async () => {
@@ -1026,6 +1131,31 @@ describe("searchExerciseResources repository execution constraints", () => {
     });
   });
 
+  it("defaults muscleMatchRole to primary and excludes secondary muscle fields", async () => {
+    const { where } = await captureRepositoryWhere({
+      muscles: ["腹肌"],
+    });
+    const serializedWhere = JSON.stringify(where);
+
+    expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"primaryMusclesZh\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).not.toContain("secondaryMuscles");
+    expect(serializedWhere).not.toContain("secondaryMusclesZh");
+  });
+
+  it("maps muscleMatchRole any to primary and secondary muscle fields", async () => {
+    const { where } = await captureRepositoryWhere({
+      muscles: ["腹肌"],
+      muscleMatchRole: "any",
+    });
+    const serializedWhere = JSON.stringify(where);
+
+    expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"primaryMusclesZh\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"secondaryMuscles\":{\"has\":\"腹肌\"}");
+    expect(serializedWhere).toContain("\"secondaryMusclesZh\":{\"has\":\"腹肌\"}");
+  });
+
   it("maps impactLimit and noiseLimit to known value upper bounds without null matches", async () => {
     const { where, result } = await captureRepositoryWhere({
       impactLimit: "medium",
@@ -1055,6 +1185,7 @@ async function importToolWithRepositoryImplementation(input: {
   const searchExerciseResourceSummaries = vi.fn(input.searchImplementation);
   const getExerciseResourceSummariesByIds = vi.fn(input.getByIdsImplementation ?? (async () => []));
   vi.doMock(repositoryPath, () => ({
+    exerciseResourceMuscleMatchRoleValues: ["primary", "any"],
     getExerciseResourceSummariesByIds,
     normalizeExerciseResourceFacetCatalogForPlanner: (catalog: unknown) => catalog,
     searchExerciseResourceSummaries,

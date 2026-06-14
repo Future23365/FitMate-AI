@@ -141,6 +141,7 @@ const allowedSummaryKeys = new Set([
   "model",
   "modelCallCount",
   "mode",
+  "muscleMatchRole",
   "muscles",
   "nameEn",
   "nameZh",
@@ -262,6 +263,7 @@ const workflowInstructionPatterns: readonly RegExp[] = [
   /(缺少|没有|未覆盖).{0,24}(warmup|stretch|training|热身|拉伸|主训练).{0,40}(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用|查询|补查|收口)/i,
   /(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用).{0,40}(searchExerciseResources|inspectVisibleTrainingProposals|submitVisibleTrainingProposal|结构化收口工具|动作查询工具)/i,
   /(下一步|next step).{0,24}(必须|务必|应当|应该|需要|请).{0,24}(调用|使用|查询|补查)/i,
+  /(为了|因为).{0,24}(肌群匹配角色|候选池纯净度|未确认偏好).{0,40}(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用|查询|补查)/i,
 ];
 
 const caseSpecificRulePatterns: readonly RegExp[] = [
@@ -269,6 +271,7 @@ const caseSpecificRulePatterns: readonly RegExp[] = [
   /如果用户.{0,40}(就调用|则调用|改写|路由)/,
   /用户短句|具体短句|关键词路由|短句模板|phrasing|字段组合|toolName\s*=/i,
   /当.{0,30}字段.{0,20}(等于|为|=).{0,30}时/,
+  /服务端.{0,24}(用户自然语言|关键词|正则|同义词|短句模板|phrasing).{0,40}(自动|直接).{0,24}(选择|补写|路由|分流|改写)/i,
 ];
 
 const businessReadinessPatterns: readonly RegExp[] = [

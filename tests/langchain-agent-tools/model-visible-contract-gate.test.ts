@@ -146,6 +146,45 @@ describe("Agent model-visible contract gate", () => {
     ]));
   });
 
+  it("allows stable muscleMatchRole semantics in model-visible contracts", () => {
+    const textFindings = lintAgentModelVisibleTextSamples([
+      {
+        id: "ok.muscle_match_role_tool_description",
+        kind: "tool_description",
+        source: "positive fixture",
+        text: 'muscleMatchRole = "primary" 用于主练肌群匹配；muscleMatchRole = "any" 用于主练或辅助任意参与匹配。目标肌群推荐默认主练口径，候选池可以选择子集并在已有可用候选时停止同类查询。',
+      },
+    ]);
+    const summaryResult = validateAgentModelVisibleSummaryContract({
+      id: "searchExerciseResources.ok_muscle_match_role.model_visible_summary",
+      kind: "tool_result_summary",
+      source: "positive fixture",
+      value: {
+        status: "succeeded",
+        factLevel: "candidate",
+        query: {
+          suitabilities: ["training"],
+          muscles: ["腹肌"],
+          muscleMatchRole: "primary",
+        },
+        candidateGroups: [{
+          suitability: "training",
+          exercises: [{
+            exerciseId: "plank",
+            nameZh: "平板支撑",
+            nameEn: "Plank",
+            primaryMusclesZh: ["腹肌"],
+            secondaryMusclesZh: ["肩部"],
+          }],
+        }],
+        diagnostics: [],
+      },
+    });
+
+    expect(textFindings).toEqual([]);
+    expect(summaryResult.findings).toEqual([]);
+  });
+
   it("fails for equivalent workflow guidance and case-specific production rules", () => {
     const findings = lintAgentModelVisibleTextSamples([
       {
@@ -159,6 +198,24 @@ describe("Agent model-visible contract gate", () => {
         kind: "system_prompt",
         source: "negative fixture",
         text: "当用户说换一批时就调用 searchExerciseResources，并把 toolName = searchExerciseResources 作为固定路由。",
+      },
+      {
+        id: "bad.field_combo",
+        kind: "tool_description",
+        source: "negative fixture",
+        text: "当 toolName = searchExerciseResources 且字段 muscleMatchRole = any 时，模型必须继续补查。",
+      },
+      {
+        id: "bad.fixed_refetch",
+        kind: "tool_result_summary",
+        source: "negative fixture",
+        text: "为了候选池纯净度，必须继续调用动作查询工具补查。",
+      },
+      {
+        id: "bad.server_semantic_routing",
+        kind: "schema_description",
+        source: "negative fixture",
+        text: "服务端根据用户自然语言和关键词自动选择 muscleMatchRole。",
       },
       {
         id: "bad.readiness_text",
@@ -241,10 +298,11 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
       id: "no_candidates",
       output: {
         status: "succeeded",
-        query: {
-          suitabilities: ["training"],
-          sort: "name_asc",
-          appliedFilters: [{ field: "suitabilities", value: ["training"] }],
+          query: {
+            suitabilities: ["training"],
+            muscleMatchRole: "primary",
+            sort: "name_asc",
+            appliedFilters: [{ field: "suitabilities", value: ["training"] }],
           filterApplications: [{
             section: "training",
             hardFilterPolicy: "training",
@@ -283,6 +341,7 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
           query: {
             exerciseNames: ["俯卧撑"],
             muscles: ["胸部"],
+            muscleMatchRole: "primary",
             executionProfile: "no_equipment",
             impactLimit: "low",
             noiseLimit: "quiet",

@@ -58,6 +58,9 @@ import type {
 
 /** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限，防止配置误调撑爆模型上下文。 */
 export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
+/** exerciseResourceMuscleMatchRoleValues 是 searchExerciseResources 肌群字段集合选择的稳定执行枚举。 */
+export const exerciseResourceMuscleMatchRoleValues = ["primary", "any"] as const;
+export type ExerciseResourceMuscleMatchRole = (typeof exerciseResourceMuscleMatchRoleValues)[number];
 export type ExerciseResourceSummary = Pick<
   Exercise,
   | "id"
@@ -105,6 +108,7 @@ export type ExerciseResourceSearchInput = {
   impactLimit?: ExerciseImpactLevel;
   noiseLimit?: ExerciseNoiseLevel;
   muscles?: string[];
+  muscleMatchRole?: ExerciseResourceMuscleMatchRole;
   goalTag?: string;
   riskTag?: string;
   requiredExerciseIds?: string[];
@@ -1232,7 +1236,10 @@ function buildExerciseResourceWhere(
 
   const muscleFilters = uniqueStrings(input.muscles ?? []);
   if (muscleFilters.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "muscles")) {
-    candidateHardFilters.push(buildExerciseResourceMuscleWhere(muscleFilters));
+    candidateHardFilters.push(buildExerciseResourceMuscleWhere(
+      muscleFilters,
+      input.muscleMatchRole ?? "primary",
+    ));
   }
 
   if (input.goalTag && isExerciseResourceHardFilterApplied(filterApplication, "goalTag")) {
@@ -1366,14 +1373,19 @@ function buildEquipmentScopeWhere(scope: ExerciseEquipmentScope): Prisma.Exercis
   };
 }
 
-function buildExerciseResourceMuscleWhere(muscles: string[]): Prisma.ExerciseWhereInput {
+// buildExerciseResourceMuscleWhere 只根据结构化枚举选择匹配字段集合，不从用户原文推断推荐语义。
+function buildExerciseResourceMuscleWhere(
+  muscles: string[],
+  muscleMatchRole: ExerciseResourceMuscleMatchRole,
+): Prisma.ExerciseWhereInput {
+  const fields: Array<"primaryMuscles" | "primaryMusclesZh" | "secondaryMuscles" | "secondaryMusclesZh"> = muscleMatchRole === "any"
+    ? ["primaryMuscles", "primaryMusclesZh", "secondaryMuscles", "secondaryMusclesZh"]
+    : ["primaryMuscles", "primaryMusclesZh"];
+
   return {
-    OR: muscles.flatMap((muscle) => [
-      { primaryMuscles: { has: muscle } },
-      { primaryMusclesZh: { has: muscle } },
-      { secondaryMuscles: { has: muscle } },
-      { secondaryMusclesZh: { has: muscle } },
-    ]),
+    OR: muscles.flatMap((muscle) =>
+      fields.map((field) => ({ [field]: { has: muscle } })),
+    ),
   };
 }
 
