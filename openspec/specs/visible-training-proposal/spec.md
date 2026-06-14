@@ -27,7 +27,15 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 - **AND** 系统 MUST NOT 在校验失败后继续渲染或保存该训练方案
 
 ### Requirement: visibleTrainingProposal 必须声明 kind 并满足对应结构
-`visibleTrainingProposal.payload` SHALL 声明 `kind = "exercise_selection" | "routine" | "plan"`。系统 SHALL 按模型声明的 `kind` 校验结构自洽性；服务端 MUST NOT 通过用户自然语言关键词、正则、同义词表或固定短句模板替模型判断或改写 kind。模型可见合同 SHALL 要求用户可见正文与声明的 `kind` 保持一致，并正向引导 `routine` / `plan` 优先包含热身、主训练和拉伸。
+`visibleTrainingProposal.payload` SHALL 声明 `kind = "exercise_selection" | "routine" | "plan"`。系统 SHALL 按模型声明的 `kind` 校验结构自洽性；服务端 MUST NOT 通过用户自然语言关键词、正则、同义词表或固定短句模板替模型判断或改写 kind。模型可见合同 SHALL 要求用户可见正文与声明的 `kind` 保持一致：`exercise_selection` 的正文只解释动作推荐集合，不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数；`routine` / `plan` 的处方型正文必须能由对应 payload 的 `prescription` / `schedule` 支撑。模型可见合同 SHALL 正向引导 `routine` / `plan` 优先包含热身、主训练和拉伸。
+
+#### Scenario: 用户只要动作推荐
+- **WHEN** 模型判断用户目标只需要动作推荐集合
+- **THEN** `payload.kind` MAY 为 `exercise_selection`
+- **AND** `payload.exerciseItems` MUST 包含可被服务端复核的动作事实
+- **AND** payload MUST NOT 包含 `prescription` 或 `schedule`
+- **AND** 用户可见 `content` MUST NOT 主动生成组数、次数、时长、休息时间、训练频率、日程或等价处方参数
+- **AND** 用户可见 `content` MAY 解释推荐理由、目标肌群、适用场景、动作差异、动作注意事项或与用户目标的关系
 
 #### Scenario: 用户要一套训练编排
 - **WHEN** 模型判断用户目标需要一次可执行训练流程
@@ -76,7 +84,7 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 - **AND** 模型 MUST NOT 被要求在 `visibleTrainingProposal` 中复写完整动作详情
 
 ### Requirement: 编排处方必须绑定到动作项并对齐执行字段
-`visibleTrainingProposal.payload.exerciseItems[*].prescription` SHALL 只在 `kind = "routine"` 或 `kind = "plan"` 时出现，并 SHALL 与同一个动作项绑定。系统 MUST NOT 使用独立的处方数组、按 index join 的处方表、`restSeconds` 主合同字段或正文描述作为动作执行参数事实源。
+`visibleTrainingProposal.payload.exerciseItems[*].prescription` SHALL 只在 `kind = "routine"` 或 `kind = "plan"` 时出现，并 SHALL 与同一个动作项绑定。系统 MUST NOT 使用独立的处方数组、按 index join 的处方表、`restSeconds` 主合同字段或正文描述作为动作执行参数事实源。对于 `kind = "exercise_selection"`，用户可见正文中的组数、次数、时长、休息时间、训练频率、日程或等价表达同样 MUST NOT 被视为合法处方事实源。
 
 #### Scenario: 编排动作包含处方
 - **WHEN** `visibleTrainingProposal.payload.kind` 为 `routine` 或 `plan`
@@ -89,6 +97,8 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 #### Scenario: 推荐动作不需要处方
 - **WHEN** `visibleTrainingProposal.payload.kind` 为 `exercise_selection`
 - **THEN** 服务端 MUST 接受缺少 `prescription` 的 `training` 动作项
+- **AND** payload MUST NOT 包含 `prescription` 或 `schedule`
+- **AND** 用户可见 `content` MUST NOT 主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数
 - **AND** visible training proposal renderer / response adapter MUST 将该结果渲染为动作推荐而不是可执行编排
 
 #### Scenario: 处方与动作分离
@@ -431,3 +441,74 @@ LangChain Agent SHALL 基于当前可见事实、tool description、ToolMessage 
 - **THEN** `schedule.assignments` 中 `type = "training"` 的数量 SHOULD 与该频次一致
 - **AND** 如果模型无法在当前结构中可靠表达该频次，模型 SHOULD 继续合法 tool call、通过 `fitmate_final_response.content` 澄清，或失败收口
 - **AND** 系统 MUST NOT 通过服务端读取用户原文来改写 `schedule.assignments`
+
+### Requirement: 模型可见合同必须互斥表达 visibleTrainingProposal kind 选择
+`submitVisibleTrainingProposal` 的模型可见 tool description 和 schema description SHALL 用互斥、可判别的方式表达 `visibleTrainingProposal.payload.kind` 的选择边界。该说明 MUST 帮助模型根据用户目标、上下文和已获得事实区分纯动作推荐、单次可执行训练和多天训练计划；系统 MUST NOT 通过服务端关键词、正则、同义词表或固定短句模板替模型选择或改写 `payload.kind`。
+
+#### Scenario: 纯动作推荐使用 exercise_selection
+- **WHEN** 模型要向用户展示一组主训练动作推荐
+- **AND** 该输出不承诺组数、次数、时长、休息、热身、拉伸、训练日或周期安排
+- **THEN** 模型可见合同 MUST 表达 `payload.kind = "exercise_selection"` 可用于该结构
+- **AND** 模型可见合同 MUST 表达 `exercise_selection` 的 `exerciseItems[*].section` 只能是 `training`
+- **AND** 模型可见合同 MUST 表达 `exercise_selection` 不包含 `prescription` 或 `schedule`
+
+#### Scenario: 单次可执行训练使用 routine
+- **WHEN** 模型要交付单次可执行训练结构
+- **THEN** 模型可见合同 MUST 表达 `payload.kind = "routine"` 用于该结构
+- **AND** 模型可见合同 MUST 表达 `routine` 可以包含 `warmup`、`training` 和 `stretch`
+- **AND** 模型可见合同 MUST 表达 `routine` 至少需要 `training` 动作项
+- **AND** 模型可见合同 MUST 表达 `routine` 的每个 `exerciseItems[]` 动作项都必须包含 `prescription`
+- **AND** 模型可见合同 MUST 表达 `routine` 不包含 `schedule`
+
+#### Scenario: 多天训练计划使用 plan
+- **WHEN** 模型要交付多天、周期、训练日或休息日安排
+- **THEN** 模型可见合同 MUST 表达 `payload.kind = "plan"` 用于该结构
+- **AND** 模型可见合同 MUST 表达 `plan` 的每个 `exerciseItems[]` 动作项都必须包含 `prescription`
+- **AND** 模型可见合同 MUST 表达 `plan` 必须包含 `schedule`
+- **AND** 模型可见合同 MUST 表达 `schedule` 只表达同一套编排在周期内的训练日和休息日
+
+#### Scenario: 支持 section 不得塞进 exercise_selection
+- **WHEN** 模型准备提交的结构包含 `warmup` 或 `stretch` 动作项
+- **THEN** 模型可见合同 MUST 表达这些动作项不得放入 `exercise_selection`
+- **AND** 模型可见合同 MUST 引导模型选择能承载可执行编排的 `routine` 或 `plan`
+- **AND** 该说明 MUST NOT 写成针对某个用户原话或短句的触发规则
+
+### Requirement: 完整 routine 默认必须表达三段训练编排
+系统 SHALL 在模型可见的 `visibleTrainingProposal` 输出合同中表达完整单次训练 `routine` 的默认组成。除非用户明确只要求部分范围、明确排除热身或拉伸，或当前模型可见事实不足且无法继续补齐，否则完整 `routine` SHOULD 包含 `warmup`、`training`、`stretch` 三段；`training` section SHALL 承载用户的主训练目标，例如核心、胸部、下肢、全身或减脂主训练。
+
+#### Scenario: 主目标落在 training section
+- **WHEN** 用户请求一套以核心、胸部、下肢、全身或类似目标为主的可执行单次训练
+- **THEN** 模型可见合同 MUST 表达该主目标属于 `training` 段的训练内容
+- **AND** 模型可见合同 MUST NOT 将“核心”等主目标当作 `warmup`、`training`、`stretch` 之外的新 section
+- **AND** 最终 `visibleTrainingProposal.payload.kind` SHOULD 为 `routine`
+
+#### Scenario: 完整 routine 默认包含 warmup training stretch
+- **WHEN** 用户请求一套可执行单次训练编排
+- **AND** 用户没有明确要求只安排主训练、只安排动作列表或排除热身 / 拉伸
+- **THEN** 模型可见合同 MUST 引导模型默认按 `warmup`、`training`、`stretch` 三段规划
+- **AND** 每个最终进入 `exerciseItems` 的动作 MUST 使用与动作事实 `allowedSections` 相容的 `section`
+- **AND** 每个 `routine` 动作项 MUST 包含 `prescription`
+
+#### Scenario: 明确部分范围可以只交付部分 section
+- **WHEN** 用户明确要求只安排主训练动作、只给动作列表、不要热身、不要拉伸或只处理既有动作的组数次数
+- **THEN** 模型 MAY 交付只覆盖部分 section 的 `visibleTrainingProposal`
+- **AND** 最终回答 MUST 基于已校验结构说明当前交付范围
+- **AND** 如自然存在下一步，`suggestedQuestions` MAY 提供补齐未覆盖 section 的用户口吻消息
+
+### Requirement: accepted 训练方案摘要必须暴露 section 覆盖事实
+系统 SHALL 在 `submitVisibleTrainingProposal` accepted 后给模型可见的 tool result summary 中暴露已校验训练方案的 section 覆盖事实。该 summary 只表达当前结构化输出实际覆盖哪些 section，不得表达业务目标满足度、固定下一步动作或强制 tool workflow。
+
+#### Scenario: accepted summary 包含 section 覆盖
+- **WHEN** `submitVisibleTrainingProposal` 接受一个 `visibleTrainingProposal`
+- **THEN** 模型可见 summary MUST 包含 `sectionSummary`
+- **AND** 模型可见 summary MUST 包含 `availableSections`
+- **AND** 模型可见 summary MUST 包含 `missingSections`
+- **AND** 这些字段 MUST 来自已校验 payload 的 `exerciseItems[*].section`
+
+#### Scenario: accepted summary 不指挥下一步
+- **WHEN** accepted summary 包含 `missingSections`
+- **THEN** summary MUST NOT 包含 `nextActionHints`
+- **AND** summary MUST NOT 包含 `recommendedNextStep`
+- **AND** summary MUST NOT 表达缺少某 section 时必须继续调用某个业务 tool
+- **AND** summary MUST NOT 表达结构化输出已经满足或没有满足用户业务目标
+

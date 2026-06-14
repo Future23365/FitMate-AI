@@ -540,34 +540,21 @@ terminal failure finalizer system prompt SHALL 明确告知模型：主 LangChai
 - **AND** 服务端 MUST NOT 根据用户原文固定选择 tool、固定输出结构或固定回复策略
 - **AND** 具体业务名只可出现在对应 tool description、schema、observation / tool result summary、spec 或测试样例中
 
-### Requirement: 默认 prompt 必须区分业务 tool 预算和 activity report 预算
-系统 SHALL 在默认 LangChain Agent system prompt 的运行预算说明中区分业务 tool 调用预算和 `reportAgentActivity` 活动汇报预算。该说明 MUST 保持短句化，只表达稳定运行边界，不得写入具体用户 phrasing、具体 trace 条件或业务 tool 固定流程。
-
-#### Scenario: Prompt 说明业务工具调用预算
-- **WHEN** 默认 prompt 配置生成 system message
-- **THEN** system message MUST 说明业务工具调用有集中配置的次数上限
-- **AND** system message MUST NOT 把 `reportAgentActivity` 描述为会消耗业务 tool 预算
-- **AND** system message MUST NOT 要求模型为了消耗预算而调用工具
-
-#### Scenario: Prompt 说明活动汇报不是业务事实
-- **WHEN** 默认 prompt 配置生成 system message
-- **THEN** system message MUST 继续说明 `reportAgentActivity` 只用于当前请求活动条展示
-- **AND** system message MUST 说明 activity report 有独立次数上限或等价受控边界
-- **AND** system message MUST 说明 activity report 不支撑最终回答 grounding、不替代业务工具、不保存到聊天历史
-
 ### Requirement: 模型可见运行预算必须区分总预算和单 tool 上限
-系统 SHALL 在生产 LangChain Agent system prompt 或等价模型可见运行规则中说明整轮业务 tool 总预算、单个业务 tool 单轮调用上限和 activity report 上限。该说明 MUST 使用中文描述业务含义，技术字段名保持英文原样。
+系统 SHALL 在生产 LangChain Agent system prompt 或等价模型可见运行规则中说明整轮业务 tool 总预算和单个业务 tool 单轮调用上限。该说明 MUST 使用中文描述业务含义，技术字段名保持英文原样。模型可见说明 MAY 说明业务 tool arguments 支持 `runtimeMetadata.activitySummary` 作为当前请求内 UI 状态摘要，但 MUST NOT 把它描述为独立 tool、独立预算或业务事实来源。
 
 #### Scenario: system prompt 暴露新的预算边界
 - **WHEN** Runtime 构造生产 LangChain Agent system prompt
 - **THEN** 模型可见内容 MUST 说明本轮业务工具调用总预算为集中配置值
 - **AND** 模型可见内容 MUST 说明每个业务工具的单轮调用上限为集中配置值
-- **AND** 模型可见内容 MUST 说明 `reportAgentActivity` 不计入业务工具预算且有独立上限
+- **AND** 模型可见内容 MAY 说明 `runtimeMetadata.activitySummary` 不会产生额外业务 tool 调用
+- **AND** 模型可见内容 MUST NOT 说明 `reportAgentActivity` 有独立上限、独立预算或应该被单独调用
 
 #### Scenario: prompt 不新增业务流程特判
-- **WHEN** 本 change 更新运行预算说明
+- **WHEN** 本 change 更新运行预算或 runtime metadata 说明
 - **THEN** prompt MUST NOT 根据用户原文、关键词、短句模板或具体 phrasing 指示固定 tool 调用流程
 - **AND** prompt MUST NOT 把某个业务 tool 的异常 case 写成通用语义规则
+- **AND** prompt MUST NOT 要求模型为了刷新 UI 状态而在没有业务 tool 需求时调用工具
 
 ### Requirement: 最终正文格式必须使用聊天 Markdown 子集
 系统 SHALL 在模型可见 final response 合同中约束 `content` 输出格式。模型生成的用户可见正文 MUST 使用适合聊天气泡的 Markdown 子集，并避免会改变渲染结构或造成误解的高风险 Markdown / HTML 语法。
@@ -594,3 +581,80 @@ terminal failure finalizer system prompt SHALL 明确告知模型：主 LangChai
 - **THEN** 模型可见说明 MUST 禁止单独一行的 `---`、`***`、`___`、`<hr>` 或只由横线、星号、下划线组成的分隔行
 - **AND** 模型可见说明 MUST 要求需要分段时使用标题、编号列表、项目列表或空行
 - **AND** 模型可见说明 MUST NOT 要求 response adapter、renderer 或前端清洗这些分隔线
+
+### Requirement: 默认 prompt 必须避免对 exercise_selection 产生结构偏置
+默认 LangChain Agent system prompt SHALL 只表达结构化训练交付的高层边界，并把具体 `visibleTrainingProposal.payload.kind` 选择规则交给结构化收口 tool description、schema description 或等价模型可见说明。默认 prompt MUST NOT 将所有具体动作条目默认绑定到 `exercise_selection`，也 MUST NOT 内联完整 `visibleTrainingProposal` payload 规则。
+
+#### Scenario: 具体动作条目需要结构化训练结果
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达具体数据库动作条目不能只通过正文 content 替代结构化训练结果
+- **AND** system message MUST 表达结构化训练结果需要通过当前可见结构化收口工具和服务端 validator
+- **AND** system message MUST NOT 将所有具体动作条目默认描述为 `exercise_selection`
+
+#### Scenario: kind 选择由业务 tool 合同承载
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MAY 简短说明训练卡片、单次训练和多天计划属于结构化训练结果
+- **AND** system message MUST 指向当前结构化收口 tool 的 description/schema 作为具体结构选择依据
+- **AND** system message MUST NOT 内联 `exercise_selection`、`routine`、`plan` 的完整字段表、examples 或 validator 修复细节
+
+#### Scenario: 默认 prompt 不新增语义分流
+- **WHEN** 实现本 change
+- **THEN** 默认 prompt MUST NOT 根据用户原文、关键词、正则、同义词表、短句模板或具体业务 `toolName` 规定 `payload.kind`
+- **AND** `/api/chat` route、LangChain runtime、tool wrapper、validator 和 response adapter MUST NOT 新增服务端语义分流
+
+### Requirement: 完整 routine 合同必须按模型可见分层承载
+系统 SHALL 将完整 `routine` 的 section 组成合同放在业务 tool description、schema description、tool result summary 或等价模型可见业务合同中。默认 Agent system prompt MAY 保留“routine / plan 需通过结构化训练收口工具和服务端 validator 交付”的高层边界，但 MUST NOT 承载固定业务 tool 调用流程、关键词分流或详细 section coverage workflow。
+
+#### Scenario: 默认 system prompt 不写固定 section workflow
+- **WHEN** 默认 Agent system prompt 生成模型可见输入
+- **THEN** system prompt MUST NOT 表达缺少 `warmup` 或 `stretch` 时必须调用某个业务 tool
+- **AND** system prompt MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板决定 `payload.kind`
+- **AND** system prompt MUST NOT 根据具体业务 `toolName` 或 tool result 字段组合规定下一步
+
+#### Scenario: 业务合同层表达 routine 三段组成
+- **WHEN** LangChain runtime 构造生产模型请求
+- **THEN** 模型可见输入 MUST 在 `submitVisibleTrainingProposal` 的 tool description、schema description、tool result summary 或等价业务合同中表达完整 `routine` 默认由 `warmup`、`training`、`stretch` 组成
+- **AND** 模型可见输入 MUST 表达 `training` section 承载用户主训练目标
+- **AND** 模型可见输入 MUST 保留用户明确只要部分范围或事实不足时的合法收口出口
+- **AND** 描述性自然语言 MUST 使用中文，技术标识保持英文原样
+
+### Requirement: 动作推荐正文不得主动生成训练处方参数
+
+LangChain Agent system prompt SHALL 在模型可见回答规则中表达：当最终回答只是呈现动作推荐集合，而不是交付一次可执行训练 `routine` 或多天训练 `plan` 时，`fitmate_final_response.content` MUST 只解释推荐理由、目标肌群、适用场景、动作差异、动作注意事项或与用户目标的关系。该正文 MUST NOT 主动生成组数、次数、时长、休息时间、训练频率、日程或等价处方参数。
+
+#### Scenario: 只交付动作推荐集合
+- **WHEN** 模型判断用户目标只需要动作推荐集合
+- **AND** 最终结构化训练输出为 `payload.kind = "exercise_selection"`
+- **THEN** system prompt MUST 表达 `content` 可以解释推荐理由、目标肌群、适用场景、动作差异和动作注意事项
+- **AND** system prompt MUST 表达 `content` 不应主动输出组数、次数、时长、休息时间、训练频率或日程
+- **AND** system prompt MUST NOT 根据固定用户短句、关键词、正则、同义词表或具体 phrasing 触发该规则
+
+#### Scenario: 用户需要训练编排或计划
+- **WHEN** 模型判断用户目标需要一次可执行训练、组数次数、训练频率、休息时间、日程或多天计划
+- **THEN** system prompt MAY 表达这类处方型内容应由 `routine` 或 `plan` 的结构化训练输出支撑
+- **AND** system prompt MUST NOT 要求服务端根据用户原文替模型选择 `payload.kind`
+- **AND** system prompt MUST NOT 在 `/api/chat`、runtime、validator 或 response adapter 中引入自然语言分流
+
+### Requirement: LangChain Agent prompt 必须表达保守默认与澄清出口
+
+LangChain Agent system message SHALL 在模型可见策略中表达：当用户目标已经足以给出有用建议，但缺少器械、场地、时长、经验或其他偏好时，模型可以使用说明清楚的保守默认继续，也可以向用户追问一个最影响结果质量的关键问题。该规则 MUST 不绑定具体用户短句、业务 toolName 或字段组合。
+
+#### Scenario: 偏好缺失但目标可继续
+- **WHEN** 用户提供可理解的训练目标或动作推荐目标
+- **AND** 当前消息、上下文或用户记忆缺少器械、场地、时长、经验等偏好
+- **THEN** system message MUST 表达模型可以使用保守默认继续
+- **AND** system message MUST 表达模型也可以向用户追问一个关键补充问题
+- **AND** system message MUST NOT 要求服务端或模型根据固定用户短句选择唯一出口
+
+#### Scenario: 使用保守默认继续
+- **WHEN** 模型选择使用保守默认继续回答或调用工具
+- **THEN** system message MUST 表达保守默认只补齐当前任务所需的最小边界
+- **AND** system message MUST 表达正文应说明使用了什么默认口径
+- **AND** system message MUST 表达一个默认假设不得被当作更多未确认偏好、场地、时长、经验或细分目标事实
+
+#### Scenario: 宽泛身体目标代表性覆盖
+- **WHEN** 用户表达全身、上肢、下肢、核心或等价宽泛身体目标
+- **THEN** system message MUST 表达模型可以按代表性覆盖理解该目标
+- **AND** system message MUST 表达除非用户明确要求精确覆盖，否则不需要为了每个细分肌群都继续查询或补齐事实
+- **AND** system message MUST NOT 将该规则写成具体 phrasing 的触发模板
+
