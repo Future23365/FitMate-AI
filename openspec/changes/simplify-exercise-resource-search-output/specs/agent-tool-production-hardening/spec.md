@@ -1,0 +1,42 @@
+## MODIFIED Requirements
+
+### Requirement: 模型可见 tool 合同必须区分 input 字段和 output-only 字段
+系统 SHALL 确保 production tool manifest、schema summary、examples 和 Planner observation 明确区分可传入 input 字段与 output-only 摘要字段，避免模型把服务端输出统计、截断状态、分页控制或内部上限误当成下一轮 tool input。系统 MAY 为特定查询 tool 暴露命名清晰、受控上限的候选数量 input，例如 `candidateCountPerSection`；该字段 MUST 与 `limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned` 等分页 / output-only 字段区分。
+
+#### Scenario: output-only 字段不得出现在 input schema 或 examples
+- **WHEN** 系统构造 production tool manifest
+- **THEN** manifest 的 `inputJsonSchema` MUST 只包含该 tool 真实允许的 input 字段
+- **AND** manifest examples MUST NOT 把 output-only 字段放进 input 示例
+- **AND** manifest / schema summary MUST NOT 暗示 output-only 字段可以由 Planner 传入
+
+#### Scenario: observation 不暴露可复制的内部上限字段
+- **WHEN** tool result 被投影成 Planner 可见 observation
+- **THEN** observation MUST 使用安全投影或默认摘要
+- **AND** 服务端内部上限、分页控制或 output-only 统计字段 MUST 被移除，或被明确标注为 output summary
+- **AND** observation MUST NOT 包含可被模型直接复制成下一轮 input 的分页控制片段
+- **AND** observation MUST NOT 暴露 `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize` 或 `cursor`
+
+#### Scenario: 嵌套 observation 不得泄漏 output-only 字段
+- **WHEN** tool result observation 包含上游 query、历史 fact、摘要对象或嵌套 payload
+- **THEN** 嵌套对象中的 output-only 字段 MUST 同样被移除或明确标注为 output summary
+- **AND** `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize` 和 `cursor` MUST NOT 通过嵌套 `query` 或历史 fact 重新暴露成可复制 input
+- **AND** observation MUST 保留下一步决策需要的安全摘要，而不是回灌完整 handler output
+
+#### Scenario: 搜索动作资源工具不得开放分页控制 input
+- **WHEN** `searchExerciseResources` 或等价只读动作资源查询 tool 暴露给 production Planner
+- **THEN** 其模型可见 input 合同 MUST NOT 包含 `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize`、`cursor` 或等价分页字段
+- **AND** 其模型可见 input 合同 MAY 包含 `candidateCountPerSection`
+- **AND** `candidateCountPerSection` MUST 被描述为每个请求 section 的受控候选数量，不得被描述为分页、offset、cursor、全库读取或最终展示数量承诺
+- **AND** Action Validator MUST 继续拒绝 `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize`、`cursor` 和其他未知或不允许字段
+- **AND** 服务端内部 hard cap MUST 继续作为执行和输出摘要边界
+
+#### Scenario: 成功 tool result 的 final grounding 说明清晰
+- **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
+- **THEN** 模型可见合同 MUST 说明该结果可以通过 `final_answer.usedToolResultIds` 支撑成功回答
+- **AND** failed、diagnostic 或 `satisfied=false` 的结果 MUST 继续只能用于解释、澄清、阻断说明或 repair
+
+#### Scenario: 成功 tool result 的下一步状态迁移说明清晰
+- **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
+- **AND** 该 tool result 已为当前 run 提供后续可用事实、resource 或候选结果
+- **THEN** 模型可见 observation MUST 说明后续应基于既有 `toolResultId`、resource ref 或安全摘要继续决策
+- **AND** observation MUST NOT 暗示 Planner 需要再次用相同 input 调用同一 tool 才能取得同一事实
