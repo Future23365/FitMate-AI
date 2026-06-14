@@ -1,11 +1,12 @@
 import type { ExerciseSuitability } from "@/lib/shared/exercises/types";
 import type {
   ExerciseImpactLevel,
-  ExerciseKnownSetupComplexity,
   ExerciseNoiseLevel,
-  ExerciseRequiredEquipmentTag,
-  ExerciseSupportRequirementTag,
 } from "@/lib/shared/exercises/execution-taxonomy";
+import type {
+  ExerciseEquipmentScope,
+  ExerciseExecutionProfile,
+} from "@/lib/shared/exercises/execution-constraints";
 
 /** ExerciseResourceHardFilterPolicy 表达单个 section 的数据库 hard filter 执行口径。 */
 export type ExerciseResourceHardFilterPolicy = "training" | "support_section";
@@ -39,12 +40,10 @@ export type ExerciseResourceFilterPolicyInput = {
   level?: string;
   force?: string;
   mechanic?: string;
-  requiresExternalEquipment?: boolean;
-  requiredEquipmentTags?: ExerciseRequiredEquipmentTag[];
-  supportRequirementTags?: ExerciseSupportRequirementTag[];
-  setupComplexityMax?: ExerciseKnownSetupComplexity;
-  impactLevelMax?: ExerciseImpactLevel;
-  noiseLevelMax?: ExerciseNoiseLevel;
+  executionProfile?: ExerciseExecutionProfile;
+  equipmentScope?: ExerciseEquipmentScope;
+  impactLimit?: ExerciseImpactLevel;
+  noiseLimit?: ExerciseNoiseLevel;
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
@@ -52,7 +51,7 @@ export type ExerciseResourceFilterPolicyInput = {
   requiredExerciseIds?: string[];
 };
 
-type FilterValue = string | string[] | boolean | undefined;
+type FilterValue = string | string[] | boolean | ExerciseEquipmentScope | undefined;
 
 export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
   "suitabilities",
@@ -61,12 +60,10 @@ export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
   "level",
   "force",
   "mechanic",
-  "requiresExternalEquipment",
-  "requiredEquipmentTags",
-  "supportRequirementTags",
-  "setupComplexityMax",
-  "impactLevelMax",
-  "noiseLevelMax",
+  "executionProfile",
+  "equipmentScope",
+  "impactLimit",
+  "noiseLimit",
   "muscles",
   "goalTag",
   "riskTag",
@@ -80,12 +77,10 @@ export const EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE =
 const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
   "suitabilities",
   "exerciseNames",
-  "requiresExternalEquipment",
-  "requiredEquipmentTags",
-  "supportRequirementTags",
-  "setupComplexityMax",
-  "impactLevelMax",
-  "noiseLevelMax",
+  "executionProfile",
+  "equipmentScope",
+  "impactLimit",
+  "noiseLimit",
   "muscles",
   "requiredExerciseIds",
   "excludeExerciseIds",
@@ -98,12 +93,10 @@ const trainingAppliedHardFilters = new Set<ExerciseResourceFilterApplicationFiel
   "level",
   "force",
   "mechanic",
-  "requiresExternalEquipment",
-  "requiredEquipmentTags",
-  "supportRequirementTags",
-  "setupComplexityMax",
-  "impactLevelMax",
-  "noiseLevelMax",
+  "executionProfile",
+  "equipmentScope",
+  "impactLimit",
+  "noiseLimit",
   "muscles",
   "goalTag",
   "riskTag",
@@ -121,12 +114,10 @@ const fieldReaders: Array<{
   { field: "level", read: (input) => input.level },
   { field: "force", read: (input) => input.force },
   { field: "mechanic", read: (input) => input.mechanic },
-  { field: "requiresExternalEquipment", read: (input) => input.requiresExternalEquipment },
-  { field: "requiredEquipmentTags", read: (input) => input.requiredEquipmentTags },
-  { field: "supportRequirementTags", read: (input) => input.supportRequirementTags },
-  { field: "setupComplexityMax", read: (input) => input.setupComplexityMax },
-  { field: "impactLevelMax", read: (input) => input.impactLevelMax },
-  { field: "noiseLevelMax", read: (input) => input.noiseLevelMax },
+  { field: "executionProfile", read: (input) => input.executionProfile },
+  { field: "equipmentScope", read: (input) => input.equipmentScope },
+  { field: "impactLimit", read: (input) => input.impactLimit },
+  { field: "noiseLimit", read: (input) => input.noiseLimit },
   { field: "muscles", read: (input) => input.muscles },
   { field: "goalTag", read: (input) => input.goalTag },
   { field: "riskTag", read: (input) => input.riskTag },
@@ -207,6 +198,8 @@ function summarizeUnappliedFilterValue(
 ): Pick<ExerciseResourceUnappliedInputFilter, "valueSummary"> {
   const summary = Array.isArray(value)
     ? summarizeStringArray(value)
+    : isEquipmentScopeValue(value)
+      ? summarizeEquipmentScope(value)
     : String(value).trim();
 
   return summary ? { valueSummary: truncateSummary(summary) } : {};
@@ -224,4 +217,14 @@ function summarizeStringArray(values: string[]) {
 
 function truncateSummary(value: string) {
   return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+}
+
+function isEquipmentScopeValue(value: Exclude<FilterValue, undefined>): value is ExerciseEquipmentScope {
+  return typeof value === "object" && !Array.isArray(value) && "mode" in value && "tags" in value;
+}
+
+function summarizeEquipmentScope(value: ExerciseEquipmentScope) {
+  const tagSummary = value.tags.length > 0 ? value.tags.join(", ") : "empty";
+
+  return `${value.mode}: ${tagSummary}`;
 }

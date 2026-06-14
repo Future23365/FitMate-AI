@@ -63,10 +63,12 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("exerciseNames");
     expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(descriptions).toContain("不提供精确匹配数量、截断状态、过滤执行细节或下一步固定 workflow");
-    expect(descriptions).toContain("requiresExternalEquipment=false 表示已确认不需要外部训练器械");
-    expect(descriptions).toContain("requiredEquipmentTags 表示动作需要的外部训练器械 taxonomy tag");
-    expect(descriptions).toContain("supportRequirementTags 表示非训练器械的支撑、场地、固定设施、搭档或户外条件");
-    expect(descriptions).toContain("setupComplexityMax、impactLevelMax 和 noiseLevelMax 是上限筛选");
+    expect(descriptions).toContain("executionProfile 用于选择动作执行场景");
+    expect(descriptions).toContain("no_equipment");
+    expect(descriptions).toContain("完整无器械口径");
+    expect(descriptions).toContain("equipmentScope.mode=compatible_with_available");
+    expect(descriptions).toContain("equipmentScope.mode=must_use_any");
+    expect(descriptions).toContain("impactLimit 和 noiseLimit 是上限筛选");
     expect(descriptions).toContain("candidateGroups[]");
     expect(descriptions).toContain("candidateCountPerSection");
     expect(descriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
@@ -120,6 +122,12 @@ describe("production LangChain tool catalog", () => {
     expect(modelVisibleText).not.toContain("nextActionHints");
     expect(modelVisibleText).not.toContain("resolveExerciseResourceMentions");
     expect(modelVisibleText).not.toContain("zeroMatchMuscles");
+    expect(descriptions).not.toContain("requiresExternalEquipment=false");
+    expect(descriptions).not.toContain("requiredEquipmentTags 表示");
+    expect(descriptions).not.toContain("supportRequirementTags 表示");
+    expect(descriptions).not.toContain("setupComplexityMax");
+    expect(descriptions).not.toContain("impactLevelMax");
+    expect(descriptions).not.toContain("noiseLevelMax");
     expect(schemaDescriptions).not.toContain("\"q\"");
     expect(findings).toEqual([]);
   });
@@ -148,10 +156,13 @@ describe("production LangChain tool catalog", () => {
     expect(tools.map((tool) => tool.name)).toEqual(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames);
     expect(searchTool?.description).toContain("当前动作库 facet catalog 摘要");
     expect(searchTool?.description).toContain("胸部");
-    expect(searchTool?.description).toContain("requiresExternalEquipment");
-    expect(searchTool?.description).toContain("requiredEquipmentTags");
-    expect(searchTool?.description).toContain("supportRequirementTags");
-    expect(searchTool?.description).not.toContain("no_equipment");
+    expect(searchTool?.description).toContain("executionProfile");
+    expect(searchTool?.description).toContain("no_equipment");
+    expect(searchTool?.description).toContain("equipmentScope.tags");
+    expect(searchTool?.description).toContain("impactLimit");
+    expect(searchTool?.description).toContain("noiseLimit");
+    expect(searchTool?.description).not.toContain("requiresExternalEquipment");
+    expect(searchTool?.description).not.toContain("supportRequirementTags");
   });
 
   it("keeps search schema descriptions aligned with default and clarification boundaries", () => {
@@ -171,13 +182,17 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
     expect(schemaDescriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
-    expect(schemaDescriptions).toContain("false 表示只返回已确认不需要外部训练器械的动作");
-    expect(schemaDescriptions).toContain("外部训练器械 taxonomy tag 的 OR 查询数组");
-    expect(schemaDescriptions).toContain("none 表示已确认无额外支撑，不能与其他 support tag 同时出现");
-    expect(schemaDescriptions).toContain("准备复杂度上限筛选");
+    expect(schemaDescriptions).toContain("动作执行场景筛选");
+    expect(schemaDescriptions).toContain("完整无器械口径");
+    expect(schemaDescriptions).toContain("compatible_with_available");
+    expect(schemaDescriptions).toContain("must_use_any");
     expect(schemaDescriptions).toContain("冲击程度上限筛选");
     expect(schemaDescriptions).toContain("噪音程度上限筛选");
     expect(schemaDescriptions).not.toContain("zeroMatchMuscles");
+    expect(schemaDescriptions).not.toContain("requiresExternalEquipment");
+    expect(schemaDescriptions).not.toContain("requiredEquipmentTags");
+    expect(schemaDescriptions).not.toContain("supportRequirementTags");
+    expect(schemaDescriptions).not.toContain("setupComplexityMax");
   });
 
   it("exposes only controlled searchExerciseResources input fields", () => {
@@ -189,13 +204,17 @@ describe("production LangChain tool catalog", () => {
 
     expect(searchTool?.description).not.toContain("published");
     expect(inputSchemaJson).toContain("\"candidateCountPerSection\"");
-    expect(inputSchemaJson).toContain("\"requiresExternalEquipment\"");
-    expect(inputSchemaJson).toContain("\"requiredEquipmentTags\"");
-    expect(inputSchemaJson).toContain("\"supportRequirementTags\"");
-    expect(inputSchemaJson).toContain("\"setupComplexityMax\"");
-    expect(inputSchemaJson).toContain("\"impactLevelMax\"");
-    expect(inputSchemaJson).toContain("\"noiseLevelMax\"");
+    expect(inputSchemaJson).toContain("\"executionProfile\"");
+    expect(inputSchemaJson).toContain("\"equipmentScope\"");
+    expect(inputSchemaJson).toContain("\"impactLimit\"");
+    expect(inputSchemaJson).toContain("\"noiseLimit\"");
     for (const forbiddenField of [
+      "requiresExternalEquipment",
+      "requiredEquipmentTags",
+      "supportRequirementTags",
+      "setupComplexityMax",
+      "impactLevelMax",
+      "noiseLevelMax",
       "equipment",
       "homeRequirement",
       "limit",
@@ -222,11 +241,17 @@ describe("production LangChain tool catalog", () => {
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
       candidateCountPerSection: 24,
-      requiresExternalEquipment: false,
-      supportRequirementTags: ["none"],
-      setupComplexityMax: "zero_setup",
+      executionProfile: "no_equipment",
+      impactLimit: "low",
+      noiseLimit: "quiet",
       sort: "name_asc",
     }).success).toBe(true);
+    expect(searchTool?.inputSchema.safeParse({
+      muscles: ["胸部"],
+      executionProfile: "no_equipment",
+      equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+      sort: "name_asc",
+    }).success).toBe(false);
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
       candidateCountPerSection: 25,

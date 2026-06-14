@@ -14,15 +14,23 @@ import {
 } from "@/lib/server/exercises/exercise-repository";
 import {
   exerciseImpactLevelSchema,
-  exerciseKnownSetupComplexitySchema,
   exerciseNoiseLevelSchema,
   exerciseRequiredEquipmentTagSchema,
   exerciseSetupComplexitySchema,
   exerciseSupportRequirementTagSchema,
-  isExerciseImpactLevelAtMost,
-  isExerciseNoiseLevelAtMost,
-  isExerciseSetupComplexityAtMost,
 } from "@/lib/shared/exercises/execution-taxonomy";
+import {
+  exerciseEquipmentScopeModeValues,
+  exerciseExecutionProfileDescriptionsZh,
+  exerciseExecutionProfileValues,
+} from "@/lib/shared/exercises/execution-constraints";
+import {
+  matchesEquipmentScope,
+  matchesExecutionProfile,
+  matchesImpactLimit,
+  matchesNoiseLimit,
+  normalizeExerciseEquipmentScope,
+} from "@/lib/server/exercises/exercise-resource-execution-constraints";
 import {
   buildExerciseResourceFilterApplication,
   EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS,
@@ -47,26 +55,46 @@ const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-
 const catalogFacetDescription = "精确筛选值应优先从动作库 facet catalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
 const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 只在非 Planner 调试通道披露其未作为 hard filter 使用。`;
 
-const requiresExternalEquipmentFilterSchema = z.boolean()
+const executionProfileFilterSchema = z.enum(exerciseExecutionProfileValues)
   .optional()
-  .describe("是否需要外部训练器械的精确筛选；false 表示只返回已确认不需要外部训练器械的动作，null / unknown 数据不会被当作 false。字段来源可以是用户明确器械限制、当前上下文或模型基于目标做出的可解释结构化约束。");
-const requiredEquipmentTagsFilterSchema = z.array(exerciseRequiredEquipmentTagSchema)
-  .min(1)
-  .max(maxTaxonomyTags)
+  .describe([
+    "动作执行场景筛选；字段来源是用户明确的场地、器械、搭档或空间限制，或模型基于当前目标做出的可解释结构化约束。",
+    `合法值：${exerciseExecutionProfileValues.join(", ")}。`,
+    `no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
+    `home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}`,
+    `small_equipment 表示${exerciseExecutionProfileDescriptionsZh.small_equipment}`,
+    `gym_equipment 表示${exerciseExecutionProfileDescriptionsZh.gym_equipment}`,
+    `partner_required 表示${exerciseExecutionProfileDescriptionsZh.partner_required}`,
+    `outdoor_required 表示${exerciseExecutionProfileDescriptionsZh.outdoor_required}`,
+    "不要填写底层 execution taxonomy 字段；服务端会把该高层值确定性映射为数据库筛选条件。",
+  ].join(" "));
+
+const equipmentScopeValueSchema = z.object({
+  mode: z.enum(exerciseEquipmentScopeModeValues)
+    .describe("compatible_with_available 表示用户明确拥有或可用的器械集合，候选动作不得要求集合外器械；must_use_any 表示用户明确想找会使用 tags 中至少一种器械的动作。"),
+  tags: z.array(exerciseRequiredEquipmentTagSchema)
+    .max(maxTaxonomyTags)
+    .describe(`器械 canonical values 数组，只能来自 equipmentScope.tags facet；compatible_with_available 允许空数组并表示只允许不需要外部训练器械的动作，must_use_any 必须至少有一个 tag。${catalogFacetDescription}`),
+}).strict()
+  .superRefine((scope, ctx) => {
+    if (scope.mode === "must_use_any" && scope.tags.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tags"],
+        message: 'equipmentScope.mode = "must_use_any" 时 tags 必须至少包含一个器械 tag。',
+      });
+    }
+  })
+  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。不要把它当作底层器械 taxonomy 字段的别名。");
+
+const equipmentScopeFilterSchema = equipmentScopeValueSchema
   .optional()
-  .describe(`外部训练器械 taxonomy tag 的 OR 查询数组；只使用 execution taxonomy facet catalog 中的 canonical values，例如 dumbbell、resistance_band、machine。该字段表示候选动作需要的外部器械类型，不表示用户最终展示承诺。${catalogFacetDescription}`);
-const supportRequirementTagsFilterSchema = z.array(exerciseSupportRequirementTagSchema)
-  .min(1)
-  .max(maxTaxonomyTags)
-  .optional()
-  .describe(`非训练器械的支撑、场地或搭档条件 taxonomy tag 的 OR 查询数组；none 表示已确认无额外支撑，不能与其他 support tag 同时出现。该字段不表示外部训练器械。${catalogFacetDescription}`);
-const setupComplexityMaxFilterSchema = exerciseKnownSetupComplexitySchema
-  .optional()
-  .describe("准备复杂度上限筛选；只允许已知等级 zero_setup、floor_or_mat、home_support、small_equipment、gym_fixture、partner、outdoor，unknown 不匹配任何上限。字段来源可以是用户明确低门槛、居家、无需器械或场地限制，也可以是当前规划的可解释执行约束。");
-const impactLevelMaxFilterSchema = exerciseImpactLevelSchema
+  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。不要把它当作底层器械 taxonomy 字段的别名。");
+
+const impactLimitFilterSchema = exerciseImpactLevelSchema
   .optional()
   .describe("冲击程度上限筛选；low、medium、high 按从低到高匹配，未补齐的 null 不匹配任何上限。适合用户明确低冲击、膝关节压力或跳跃限制时使用。");
-const noiseLevelMaxFilterSchema = exerciseNoiseLevelSchema
+const noiseLimitFilterSchema = exerciseNoiseLevelSchema
   .optional()
   .describe("噪音程度上限筛选；quiet、normal、loud 按从安静到较吵匹配，未补齐的 null 不匹配任何上限。适合用户明确公寓、夜间或低噪音限制时使用。");
 
@@ -90,19 +118,17 @@ const appliedFilterSchema = z.object({
     "level",
     "force",
     "mechanic",
-    "requiresExternalEquipment",
-    "requiredEquipmentTags",
-    "supportRequirementTags",
-    "setupComplexityMax",
-    "impactLevelMax",
-    "noiseLevelMax",
+    "executionProfile",
+    "equipmentScope",
+    "impactLimit",
+    "noiseLimit",
     "muscles",
     "goalTag",
     "riskTag",
     "excludeExerciseIds",
     "requiredExerciseIds",
   ]),
-  value: z.union([z.string(), z.boolean(), z.array(z.string())]),
+  value: z.union([z.string(), z.boolean(), z.array(z.string()), equipmentScopeValueSchema]),
 }).strict();
 
 const filterApplicationFieldSchema = z.enum(EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS);
@@ -120,7 +146,7 @@ const filterApplicationSchema = z.object({
 }).strict();
 
 const filterSemanticSchema = z.object({
-  field: z.enum(["setupComplexityMax", "impactLevelMax", "noiseLevelMax"]),
+  field: z.enum(["executionProfile", "equipmentScope", "impactLimit", "noiseLimit"]),
   requestedValue: z.string(),
   databaseMapping: z.object({
     matchedValues: z.array(z.string()),
@@ -191,12 +217,10 @@ export const searchExerciseResourcesInputSchema = z.object({
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
-  requiresExternalEquipment: requiresExternalEquipmentFilterSchema,
-  requiredEquipmentTags: requiredEquipmentTagsFilterSchema,
-  supportRequirementTags: supportRequirementTagsFilterSchema,
-  setupComplexityMax: setupComplexityMaxFilterSchema,
-  impactLevelMax: impactLevelMaxFilterSchema,
-  noiseLevelMax: noiseLevelMaxFilterSchema,
+  executionProfile: executionProfileFilterSchema,
+  equipmentScope: equipmentScopeFilterSchema,
+  impactLimit: impactLimitFilterSchema,
+  noiseLimit: noiseLimitFilterSchema,
   muscles: z.array(textFilterValueSchema)
     .min(1)
     .max(maxMuscles)
@@ -220,19 +244,16 @@ export const searchExerciseResourcesInputSchema = z.object({
     .describe(`每个请求 section 最多返回多少个动作候选，取值 1 到 ${maxCandidateCountPerSection}；字段来源可以是用户明确数量要求，也可以是模型为了当前查询需要的受控候选规模。它不是分页、offset、cursor、全库读取能力或最终展示数量承诺。`),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict().superRefine((input, ctx) => {
-  if (input.requiresExternalEquipment === false && input.requiredEquipmentTags?.length) {
+  if (
+    (input.executionProfile === "no_equipment" || input.executionProfile === "home_support")
+    && input.equipmentScope?.mode === "must_use_any"
+  ) {
     ctx.addIssue({
       code: "custom",
-      path: ["requiredEquipmentTags"],
-      message: "requiresExternalEquipment = false 时不能同时填写 requiredEquipmentTags。",
-    });
-  }
-
-  if (input.supportRequirementTags?.includes("none") && input.supportRequirementTags.length > 1) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["supportRequirementTags"],
-      message: 'supportRequirementTags = ["none"] 必须与其他支撑或场地 tag 互斥。',
+      path: ["equipmentScope", "mode"],
+      message: input.executionProfile === "no_equipment"
+        ? 'executionProfile = "no_equipment" 表达完整无器械口径，不能同时要求动作使用外部器械。'
+        : 'executionProfile = "home_support" 表达居家无外部训练器械支撑口径，不能同时要求动作使用外部器械。',
     });
   }
 });
@@ -247,12 +268,10 @@ export const searchExerciseResourcesOutputSchema = z.object({
     level: z.string().optional(),
     force: z.string().optional(),
     mechanic: z.string().optional(),
-    requiresExternalEquipment: z.boolean().optional(),
-    requiredEquipmentTags: z.array(exerciseRequiredEquipmentTagSchema).optional(),
-    supportRequirementTags: z.array(exerciseSupportRequirementTagSchema).optional(),
-    setupComplexityMax: exerciseKnownSetupComplexitySchema.optional(),
-    impactLevelMax: exerciseImpactLevelSchema.optional(),
-    noiseLevelMax: exerciseNoiseLevelSchema.optional(),
+    executionProfile: z.enum(exerciseExecutionProfileValues).optional(),
+    equipmentScope: equipmentScopeValueSchema.optional(),
+    impactLimit: exerciseImpactLevelSchema.optional(),
+    noiseLimit: exerciseNoiseLevelSchema.optional(),
     muscles: z.array(z.string()).optional(),
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
@@ -315,11 +334,12 @@ export function createSearchExerciseResourcesLangChainTool(
     name: "searchExerciseResources",
     description: [
       "Purpose：只读查询 Exercise 动作库中的发布态动作候选事实，返回按查询口径分组的 candidateGroups[] 和 diagnostics。",
-      "Use When：需要基于结构化数据库 facet、execution taxonomy、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
+      "Use When：需要基于结构化数据库 facet、高层执行条件、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
       "Do Not Use When：不要用本 tool 生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程、保存结果、读取单个动作完整详情、分页或自然语言语义搜索。",
-      "Input Source：所有精确 facet 和 taxonomy 值应优先从动作库 facet catalog 选择；requiresExternalEquipment=false 表示已确认不需要外部训练器械，unknown / null 不会被当作 false。",
-      "Input Source：requiredEquipmentTags 表示动作需要的外部训练器械 taxonomy tag；supportRequirementTags 表示非训练器械的支撑、场地、固定设施、搭档或户外条件。supportRequirementTags=[\"none\"] 不能与其他 support tag 同时填写。",
-      "Input Source：setupComplexityMax、impactLevelMax 和 noiseLevelMax 是上限筛选；unknown 或 null 不匹配低门槛、低冲击或安静约束。",
+      `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
+      "Input Source：home_support 允许地面/垫子、椅子、墙面或台阶等常见居家支撑；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。",
+      "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
+      "Input Source：impactLimit 和 noiseLimit 是上限筛选；未知或未补齐值不匹配低冲击或安静约束。",
       "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令，也不由服务端根据用户原文分流。",
       "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量，默认使用服务端配置；它不是分页、offset、cursor、全库读取能力或最终展示数量承诺。",
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
@@ -341,12 +361,14 @@ export function createSearchExerciseResourcesLangChainTool(
       const requiredExerciseIds = normalizeRequiredExerciseIds(input.requiredExerciseIds);
       const muscles = normalizeFacetList(input.muscles);
       const exerciseNames = normalizeFacetList(input.exerciseNames);
+      const equipmentScope = normalizeExerciseEquipmentScope(input.equipmentScope);
       const candidateCountPerSection = input.candidateCountPerSection
         ?? agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection;
       const normalizedInput = {
         ...input,
         exerciseNames,
         muscles,
+        equipmentScope,
       };
       const suitabilities = normalizeSuitabilities(input.suitabilities);
       const filterApplications = suitabilities.map((suitability) => buildExerciseResourceFilterApplication({
@@ -366,12 +388,10 @@ export function createSearchExerciseResourcesLangChainTool(
           level: input.level,
           force: input.force,
           mechanic: input.mechanic,
-          requiresExternalEquipment: input.requiresExternalEquipment,
-          requiredEquipmentTags: input.requiredEquipmentTags,
-          supportRequirementTags: input.supportRequirementTags,
-          setupComplexityMax: input.setupComplexityMax,
-          impactLevelMax: input.impactLevelMax,
-          noiseLevelMax: input.noiseLevelMax,
+          executionProfile: input.executionProfile,
+          equipmentScope,
+          impactLimit: input.impactLimit,
+          noiseLimit: input.noiseLimit,
           muscles,
           goalTag: input.goalTag,
           riskTag: input.riskTag,
@@ -443,12 +463,10 @@ export function createSearchExerciseResourcesLangChainTool(
           level: firstResult.query.level,
           force: firstResult.query.force,
           mechanic: firstResult.query.mechanic,
-          requiresExternalEquipment: firstResult.query.requiresExternalEquipment,
-          requiredEquipmentTags: firstResult.query.requiredEquipmentTags,
-          supportRequirementTags: firstResult.query.supportRequirementTags,
-          setupComplexityMax: firstResult.query.setupComplexityMax,
-          impactLevelMax: firstResult.query.impactLevelMax,
-          noiseLevelMax: firstResult.query.noiseLevelMax,
+          executionProfile: firstResult.query.executionProfile,
+          equipmentScope: firstResult.query.equipmentScope,
+          impactLimit: firstResult.query.impactLimit,
+          noiseLimit: firstResult.query.noiseLimit,
           muscles: firstResult.query.muscles,
           goalTag: firstResult.query.goalTag,
           riskTag: firstResult.query.riskTag,
@@ -491,12 +509,10 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.level ? { level: output.query.level } : {}),
           ...(output.query.force ? { force: output.query.force } : {}),
           ...(output.query.mechanic ? { mechanic: output.query.mechanic } : {}),
-          ...(output.query.requiresExternalEquipment === undefined ? {} : { requiresExternalEquipment: output.query.requiresExternalEquipment }),
-          ...(output.query.requiredEquipmentTags ? { requiredEquipmentTags: output.query.requiredEquipmentTags } : {}),
-          ...(output.query.supportRequirementTags ? { supportRequirementTags: output.query.supportRequirementTags } : {}),
-          ...(output.query.setupComplexityMax ? { setupComplexityMax: output.query.setupComplexityMax } : {}),
-          ...(output.query.impactLevelMax ? { impactLevelMax: output.query.impactLevelMax } : {}),
-          ...(output.query.noiseLevelMax ? { noiseLevelMax: output.query.noiseLevelMax } : {}),
+          ...(output.query.executionProfile ? { executionProfile: output.query.executionProfile } : {}),
+          ...(output.query.equipmentScope ? { equipmentScope: output.query.equipmentScope } : {}),
+          ...(output.query.impactLimit ? { impactLimit: output.query.impactLimit } : {}),
+          ...(output.query.noiseLimit ? { noiseLimit: output.query.noiseLimit } : {}),
           ...(output.query.muscles ? { muscles: output.query.muscles } : {}),
           ...(output.query.goalTag ? { goalTag: output.query.goalTag } : {}),
           ...(output.query.riskTag ? { riskTag: output.query.riskTag } : {}),
@@ -522,6 +538,7 @@ export function createSearchExerciseResourcesLangChainTool(
     },
     toUserProjection: (output) => ({
       status: output.status,
+      query: toSearchResourceQueryProjection(output.query),
       suitabilities: output.query.suitabilities,
       candidateCountPerSection: output.query.candidateCountPerSection,
       totalMatches: output.query.totalMatches,
@@ -530,7 +547,6 @@ export function createSearchExerciseResourcesLangChainTool(
       excludedCount: output.query.excludedCount,
       appliedFilters: output.query.appliedFilters,
       filterApplications: toProjectionFilterApplications(output.query.filterApplications),
-      filterSemantics: output.query.filterSemantics,
       candidateGroups: mapCandidateGroups(output.groups, (exercise) => ({
         exerciseId: exercise.exerciseId,
         nameZh: exercise.nameZh,
@@ -545,10 +561,12 @@ export function createSearchExerciseResourcesLangChainTool(
     }),
     toTraceSummary: (output) => toLangChainJsonValue({
       status: output.status,
+      query: toSearchResourceQueryProjection(output.query),
       suitabilities: output.query.suitabilities,
       candidateCountPerSection: output.query.candidateCountPerSection,
       totalMatches: output.query.totalMatches,
       returnedCount: output.query.returnedCount,
+      filterSemantics: output.query.filterSemantics,
       candidateGroups: mapCandidateGroups(output.groups, () => undefined, { includeExercises: false }),
       diagnostics: output.diagnostics.map((diagnostic) => ({
         suitability: diagnostic.suitability,
@@ -645,6 +663,26 @@ function toProjectionFilterApplications(filterApplications: ExerciseResourceFilt
   }));
 }
 
+function toSearchResourceQueryProjection(query: SearchExerciseResourcesOutput["query"]) {
+  return {
+    suitabilities: query.suitabilities,
+    ...(query.exerciseNames ? { exerciseNames: query.exerciseNames } : {}),
+    ...(query.category ? { category: query.category } : {}),
+    ...(query.level ? { level: query.level } : {}),
+    ...(query.force ? { force: query.force } : {}),
+    ...(query.mechanic ? { mechanic: query.mechanic } : {}),
+    ...(query.executionProfile ? { executionProfile: query.executionProfile } : {}),
+    ...(query.equipmentScope ? { equipmentScope: query.equipmentScope } : {}),
+    ...(query.impactLimit ? { impactLimit: query.impactLimit } : {}),
+    ...(query.noiseLimit ? { noiseLimit: query.noiseLimit } : {}),
+    ...(query.muscles ? { muscles: query.muscles } : {}),
+    ...(query.goalTag ? { goalTag: query.goalTag } : {}),
+    ...(query.riskTag ? { riskTag: query.riskTag } : {}),
+    ...(query.requiredExerciseIds ? { requiredExerciseIds: query.requiredExerciseIds } : {}),
+    ...(query.excludeExerciseIds ? { excludeExerciseIds: query.excludeExerciseIds } : {}),
+  };
+}
+
 function collectAppliedFilters(
   input: SearchExerciseResourcesInput,
   filterApplications: ExerciseResourceFilterApplication[],
@@ -661,12 +699,10 @@ function collectAppliedFilters(
     level: input.level,
     force: input.force,
     mechanic: input.mechanic,
-    requiresExternalEquipment: input.requiresExternalEquipment,
-    requiredEquipmentTags: input.requiredEquipmentTags,
-    supportRequirementTags: input.supportRequirementTags,
-    setupComplexityMax: input.setupComplexityMax,
-    impactLevelMax: input.impactLevelMax,
-    noiseLevelMax: input.noiseLevelMax,
+    executionProfile: input.executionProfile,
+    equipmentScope: input.equipmentScope,
+    impactLimit: input.impactLimit,
+    noiseLimit: input.noiseLimit,
     muscles: input.muscles,
     goalTag: input.goalTag,
     riskTag: input.riskTag,
@@ -855,43 +891,17 @@ function collectRequiredExerciseFilterMismatches(
   if (input.mechanic && !equalsAnyText(input.mechanic, exercise.mechanic, exercise.mechanicZh)) {
     conflicts.push("mechanic");
   }
-  if (
-    input.requiresExternalEquipment !== undefined
-    && exercise.requiresExternalEquipment !== input.requiresExternalEquipment
-  ) {
-    conflicts.push("requiresExternalEquipment");
+  if (input.executionProfile && !matchesExecutionProfile(exercise, input.executionProfile)) {
+    conflicts.push("executionProfile");
   }
-  const requiredEquipmentTags = input.requiredEquipmentTags ? [...new Set(input.requiredEquipmentTags)] : [];
-  if (
-    requiredEquipmentTags.length > 0
-    && !requiredEquipmentTags.some((tag) => exercise.requiredEquipmentTags.includes(tag))
-  ) {
-    conflicts.push("requiredEquipmentTags");
+  if (input.equipmentScope && !matchesEquipmentScope(exercise, input.equipmentScope)) {
+    conflicts.push("equipmentScope");
   }
-  const supportRequirementTags = input.supportRequirementTags ? [...new Set(input.supportRequirementTags)] : [];
-  if (
-    supportRequirementTags.length > 0
-    && !supportRequirementTags.some((tag) => exercise.supportRequirementTags.includes(tag))
-  ) {
-    conflicts.push("supportRequirementTags");
+  if (input.impactLimit && !matchesImpactLimit(exercise.impactLevel, input.impactLimit)) {
+    conflicts.push("impactLimit");
   }
-  if (
-    input.setupComplexityMax
-    && !isExerciseSetupComplexityAtMost(exercise.setupComplexity, input.setupComplexityMax)
-  ) {
-    conflicts.push("setupComplexityMax");
-  }
-  if (
-    input.impactLevelMax
-    && !isExerciseImpactLevelAtMost(exercise.impactLevel, input.impactLevelMax)
-  ) {
-    conflicts.push("impactLevelMax");
-  }
-  if (
-    input.noiseLevelMax
-    && !isExerciseNoiseLevelAtMost(exercise.noiseLevel, input.noiseLevelMax)
-  ) {
-    conflicts.push("noiseLevelMax");
+  if (input.noiseLimit && !matchesNoiseLimit(exercise.noiseLevel, input.noiseLimit)) {
+    conflicts.push("noiseLimit");
   }
   const requestedMuscles = [...new Set(input.muscles ?? [])];
   if (
@@ -1039,12 +1049,10 @@ function formatFacetCatalogForDescription(catalog?: ExerciseResourceFacetCatalog
   return [
     "当前动作库 facet catalog 摘要：",
     `muscles: ${formatFacetValues(normalized.muscles)}`,
-    `requiresExternalEquipment: ${normalized.executionTaxonomy.requiresExternalEquipment.join(", ")}`,
-    `requiredEquipmentTags: ${formatFacetValues(normalized.executionTaxonomy.requiredEquipmentTags)}`,
-    `supportRequirementTags: ${formatFacetValues(normalized.executionTaxonomy.supportRequirementTags)}`,
-    `setupComplexities: ${formatFacetValues(normalized.executionTaxonomy.setupComplexities)}`,
-    `impactLevels: ${formatFacetValues(normalized.executionTaxonomy.impactLevels)}`,
-    `noiseLevels: ${formatFacetValues(normalized.executionTaxonomy.noiseLevels)}`,
+    `executionProfile: ${exerciseExecutionProfileValues.join(", ")}`,
+    `equipmentScope.tags: ${formatFacetValues(normalized.executionTaxonomy.requiredEquipmentTags)}`,
+    `impactLimit: ${formatFacetValues(normalized.executionTaxonomy.impactLevels)}`,
+    `noiseLimit: ${formatFacetValues(normalized.executionTaxonomy.noiseLevels)}`,
     `levels: ${formatFacetValues(normalized.levels)}`,
     `categories: ${formatFacetValues(normalized.categories)}`,
   ].join("\n");

@@ -254,7 +254,7 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 
 当前动作源数据的 execution taxonomy 补丁保存在 `data/exercise-execution-taxonomy.backfill.jsonl`，由 `scripts/backfill-exercise-execution-taxonomy.mjs` 通过 `npm run db:backfill-execution-taxonomy -- --apply` 写入 `Exercise` 表。该回填脚本只读取已提交的离线补丁和共享 taxonomy 校验，不调用 LLM，也不在运行时根据用户原文、关键词或旧字段即时推断 taxonomy。
 
-当前 Agent 只读动作查询 tool `searchExerciseResources` 已迁移到 execution taxonomy 合同：模型可见 input schema 不再接受 `equipment` / `homeRequirement`，改用 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexityMax`、`impactLevelMax` 和 `noiseLevelMax`。Repository 在数据库层下推这些 taxonomy filters；`setupComplexity = "unknown"`、`impactLevel = null` 和 `noiseLevel = null` 不匹配上限筛选。旧 `equipment` / `homeRequirement` 字段仍保留给 UI 展示、传统动作库筛选、seed 对照和人工审查，不再作为 Agent Planner 可填写筛选字段。
+当前 Agent 只读动作查询 tool `searchExerciseResources` 的模型可见 input schema 使用高层执行条件字段：`executionProfile`、`equipmentScope`、`impactLimit` 和 `noiseLimit`。服务端 adapter 将这些字段确定性映射为内部 execution taxonomy filters，并由 Repository 在数据库层下推；`setupComplexity = "unknown"`、`impactLevel = null` 和 `noiseLevel = null` 不匹配低门槛、低冲击或安静约束。旧 `equipment` / `homeRequirement` 字段仍保留给 UI 展示、传统动作库筛选、seed 对照和人工审查；底层 taxonomy 字段继续作为数据库事实和动作摘要事实存在，但不再作为 Agent Planner 可填写筛选字段。
 
 训练业务由 `lib/server/workouts/workout-persistence-service.ts` 承接：
 

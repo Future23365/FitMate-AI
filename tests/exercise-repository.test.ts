@@ -82,11 +82,9 @@ describe("exercise repository", () => {
       level: "intermediate",
       force: "push",
       mechanic: "compound",
-      requiresExternalEquipment: false,
-      supportRequirementTags: ["floor_or_mat"],
-      setupComplexityMax: "floor_or_mat",
-      impactLevelMax: "low",
-      noiseLevelMax: "quiet",
+      executionProfile: "no_equipment",
+      impactLimit: "low",
+      noiseLimit: "quiet",
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -108,7 +106,8 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"goalTags\":{\"has\":\"strength\"}");
     expect(serializedWhere).toContain("\"riskTags\":{\"has\":\"shoulder_pain\"}");
     expect(serializedWhere).toContain("\"requiresExternalEquipment\":false");
-    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"requiredEquipmentTags\":{\"isEmpty\":true}");
+    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"chair_or_wall\",\"gym_fixture\",\"partner\",\"outdoor_space\"]}");
     expect(serializedWhere).toContain("\"setupComplexity\":{\"in\":[\"zero_setup\",\"floor_or_mat\"]}");
     expect(serializedWhere).toContain("\"impactLevel\":{\"in\":[\"low\"]}");
     expect(serializedWhere).toContain("\"noiseLevel\":{\"in\":[\"quiet\"]}");
@@ -126,11 +125,9 @@ describe("exercise repository", () => {
         "level",
         "force",
         "mechanic",
-        "requiresExternalEquipment",
-        "supportRequirementTags",
-        "setupComplexityMax",
-        "impactLevelMax",
-        "noiseLevelMax",
+        "executionProfile",
+        "impactLimit",
+        "noiseLimit",
         "muscles",
         "goalTag",
         "riskTag",
@@ -161,11 +158,9 @@ describe("exercise repository", () => {
       level: "intermediate",
       force: "push",
       mechanic: "compound",
-      requiresExternalEquipment: false,
-      supportRequirementTags: ["floor_or_mat"],
-      setupComplexityMax: "floor_or_mat",
-      impactLevelMax: "low",
-      noiseLevelMax: "quiet",
+      executionProfile: "no_equipment",
+      impactLimit: "low",
+      noiseLimit: "quiet",
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -183,7 +178,8 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"allowedSections\":{\"has\":\"warmup\"}");
     expect(serializedWhere).toContain("\"contains\":\"胸部动态热身\"");
     expect(serializedWhere).toContain("\"requiresExternalEquipment\":false");
-    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"requiredEquipmentTags\":{\"isEmpty\":true}");
+    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"chair_or_wall\",\"gym_fixture\",\"partner\",\"outdoor_space\"]}");
     expect(serializedWhere).toContain("\"setupComplexity\":{\"in\":[\"zero_setup\",\"floor_or_mat\"]}");
     expect(serializedWhere).toContain("\"impactLevel\":{\"in\":[\"low\"]}");
     expect(serializedWhere).toContain("\"noiseLevel\":{\"in\":[\"quiet\"]}");
@@ -202,11 +198,9 @@ describe("exercise repository", () => {
       appliedHardFilters: expect.arrayContaining([
         "suitabilities",
         "exerciseNames",
-        "requiresExternalEquipment",
-        "supportRequirementTags",
-        "setupComplexityMax",
-        "impactLevelMax",
-        "noiseLevelMax",
+        "executionProfile",
+        "impactLimit",
+        "noiseLimit",
         "muscles",
         "requiredExerciseIds",
         "excludeExerciseIds",

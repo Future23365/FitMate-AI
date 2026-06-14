@@ -18,7 +18,6 @@ import {
   exerciseKnownSetupComplexityValues,
   exerciseNoiseLevelRank,
   exerciseRequiredEquipmentTagValues,
-  exerciseSetupComplexityRank,
   exerciseSupportRequirementTagValues,
   parseExerciseExecutionTaxonomy,
   type ExerciseImpactLevel,
@@ -28,6 +27,23 @@ import {
   type ExerciseRequiredEquipmentTag,
   type ExerciseSupportRequirementTag,
 } from "@/lib/shared/exercises/execution-taxonomy";
+import type {
+  ExerciseEquipmentScope,
+  ExerciseExecutionProfile,
+} from "@/lib/shared/exercises/execution-constraints";
+import {
+  describeEquipmentScopeMapping,
+  describeExecutionProfileMapping,
+  getImpactLimitMatchedValues,
+  getNoiseLimitMatchedValues,
+  getUnavailableEquipmentTags,
+  gymEquipmentRequiredEquipmentTags,
+  homeSupportExcludedSupportTags,
+  homeSupportProfileSetupComplexities,
+  noEquipmentExcludedSupportTags,
+  noEquipmentProfileSetupComplexities,
+  smallEquipmentExcludedSupportTags,
+} from "@/lib/server/exercises/exercise-resource-execution-constraints";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import type {
@@ -84,12 +100,10 @@ export type ExerciseResourceSearchInput = {
   level?: string;
   force?: string;
   mechanic?: string;
-  requiresExternalEquipment?: boolean;
-  requiredEquipmentTags?: ExerciseRequiredEquipmentTag[];
-  supportRequirementTags?: ExerciseSupportRequirementTag[];
-  setupComplexityMax?: ExerciseKnownSetupComplexity;
-  impactLevelMax?: ExerciseImpactLevel;
-  noiseLevelMax?: ExerciseNoiseLevel;
+  executionProfile?: ExerciseExecutionProfile;
+  equipmentScope?: ExerciseEquipmentScope;
+  impactLimit?: ExerciseImpactLevel;
+  noiseLimit?: ExerciseNoiseLevel;
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
@@ -103,11 +117,11 @@ export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchIn
 
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
-  value: string | string[] | boolean;
+  value: string | string[] | boolean | ExerciseEquipmentScope;
 };
 
 export type ExerciseResourceFilterSemantic = {
-  field: "setupComplexityMax" | "impactLevelMax" | "noiseLevelMax";
+  field: "executionProfile" | "equipmentScope" | "impactLimit" | "noiseLimit";
   requestedValue: string;
   databaseMapping: {
     matchedValues: string[];
@@ -1203,28 +1217,17 @@ function buildExerciseResourceWhere(
   if (isExerciseResourceHardFilterApplied(filterApplication, "mechanic")) {
     pushTextFacetFilter(candidateHardFilters, "mechanic", "mechanicZh", input.mechanic);
   }
-  if (
-    input.requiresExternalEquipment !== undefined
-    && isExerciseResourceHardFilterApplied(filterApplication, "requiresExternalEquipment")
-  ) {
-    candidateHardFilters.push({ requiresExternalEquipment: input.requiresExternalEquipment });
+  if (input.executionProfile && isExerciseResourceHardFilterApplied(filterApplication, "executionProfile")) {
+    candidateHardFilters.push(buildExecutionProfileWhere(input.executionProfile));
   }
-  const requiredEquipmentTags = uniqueStrings(input.requiredEquipmentTags ?? []) as ExerciseRequiredEquipmentTag[];
-  if (requiredEquipmentTags.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "requiredEquipmentTags")) {
-    candidateHardFilters.push({ requiredEquipmentTags: { hasSome: requiredEquipmentTags } });
+  if (input.equipmentScope && isExerciseResourceHardFilterApplied(filterApplication, "equipmentScope")) {
+    candidateHardFilters.push(buildEquipmentScopeWhere(input.equipmentScope));
   }
-  const supportRequirementTags = uniqueStrings(input.supportRequirementTags ?? []) as ExerciseSupportRequirementTag[];
-  if (supportRequirementTags.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "supportRequirementTags")) {
-    candidateHardFilters.push({ supportRequirementTags: { hasSome: supportRequirementTags } });
+  if (input.impactLimit && isExerciseResourceHardFilterApplied(filterApplication, "impactLimit")) {
+    candidateHardFilters.push({ impactLevel: { in: getImpactLimitMatchedValues(input.impactLimit) } });
   }
-  if (input.setupComplexityMax && isExerciseResourceHardFilterApplied(filterApplication, "setupComplexityMax")) {
-    candidateHardFilters.push({ setupComplexity: { in: getSetupComplexityValuesAtMost(input.setupComplexityMax) } });
-  }
-  if (input.impactLevelMax && isExerciseResourceHardFilterApplied(filterApplication, "impactLevelMax")) {
-    candidateHardFilters.push({ impactLevel: { in: getImpactLevelValuesAtMost(input.impactLevelMax) } });
-  }
-  if (input.noiseLevelMax && isExerciseResourceHardFilterApplied(filterApplication, "noiseLevelMax")) {
-    candidateHardFilters.push({ noiseLevel: { in: getNoiseLevelValuesAtMost(input.noiseLevelMax) } });
+  if (input.noiseLimit && isExerciseResourceHardFilterApplied(filterApplication, "noiseLimit")) {
+    candidateHardFilters.push({ noiseLevel: { in: getNoiseLimitMatchedValues(input.noiseLimit) } });
   }
 
   const muscleFilters = uniqueStrings(input.muscles ?? []);
@@ -1267,6 +1270,102 @@ function buildExerciseResourceWhere(
   return { AND: [...sharedHardFilters, ...candidateHardFilters] };
 }
 
+// buildExecutionProfileWhere 是高层执行场景到 Exercise taxonomy where 的唯一数据库下推 adapter。
+function buildExecutionProfileWhere(profile: ExerciseExecutionProfile): Prisma.ExerciseWhereInput {
+  switch (profile) {
+    case "no_equipment":
+      return {
+        AND: [
+          { requiresExternalEquipment: false },
+          { requiredEquipmentTags: { isEmpty: true } },
+          { setupComplexity: { in: [...noEquipmentProfileSetupComplexities] } },
+          { NOT: { supportRequirementTags: { hasSome: [...noEquipmentExcludedSupportTags] } } },
+        ],
+      };
+    case "home_support":
+      return {
+        AND: [
+          { requiresExternalEquipment: false },
+          { requiredEquipmentTags: { isEmpty: true } },
+          { setupComplexity: { in: [...homeSupportProfileSetupComplexities] } },
+          { NOT: { supportRequirementTags: { hasSome: [...homeSupportExcludedSupportTags] } } },
+        ],
+      };
+    case "small_equipment":
+      return {
+        AND: [
+          { requiresExternalEquipment: true },
+          { setupComplexity: "small_equipment" },
+          { NOT: { supportRequirementTags: { hasSome: [...smallEquipmentExcludedSupportTags] } } },
+        ],
+      };
+    case "gym_equipment":
+      return {
+        OR: [
+          { setupComplexity: "gym_fixture" },
+          { supportRequirementTags: { has: "gym_fixture" } },
+          { requiredEquipmentTags: { hasSome: [...gymEquipmentRequiredEquipmentTags] } },
+        ],
+      };
+    case "partner_required":
+      return {
+        OR: [
+          { setupComplexity: "partner" },
+          { supportRequirementTags: { has: "partner" } },
+        ],
+      };
+    case "outdoor_required":
+      return {
+        OR: [
+          { setupComplexity: "outdoor" },
+          { supportRequirementTags: { has: "outdoor_space" } },
+        ],
+      };
+  }
+}
+
+// buildEquipmentScopeWhere 区分可用器械上限与必须使用器械集合，避免把两种语义都降级为 hasSome。
+function buildEquipmentScopeWhere(scope: ExerciseEquipmentScope): Prisma.ExerciseWhereInput {
+  if (scope.mode === "must_use_any") {
+    return {
+      AND: [
+        { requiresExternalEquipment: true },
+        { requiredEquipmentTags: { hasSome: scope.tags } },
+      ],
+    };
+  }
+
+  if (scope.tags.length === 0) {
+    return {
+      AND: [
+        { requiresExternalEquipment: false },
+        { requiredEquipmentTags: { isEmpty: true } },
+      ],
+    };
+  }
+
+  const unavailableTags = getUnavailableEquipmentTags(scope.tags);
+
+  return {
+    OR: [
+      {
+        AND: [
+          { requiresExternalEquipment: false },
+          { requiredEquipmentTags: { isEmpty: true } },
+        ],
+      },
+      {
+        AND: [
+          { requiresExternalEquipment: true },
+          ...(unavailableTags.length > 0
+            ? [{ NOT: { requiredEquipmentTags: { hasSome: unavailableTags } } }]
+            : []),
+        ],
+      },
+    ],
+  };
+}
+
 function buildExerciseResourceMuscleWhere(muscles: string[]): Prisma.ExerciseWhereInput {
   return {
     OR: muscles.flatMap((muscle) => [
@@ -1294,24 +1393,6 @@ function pushTextFacetFilter(
       { [labelField]: value },
     ],
   });
-}
-
-function getSetupComplexityValuesAtMost(max: ExerciseKnownSetupComplexity) {
-  return exerciseKnownSetupComplexityValues.filter((value) =>
-    exerciseSetupComplexityRank[value] <= exerciseSetupComplexityRank[max],
-  );
-}
-
-function getImpactLevelValuesAtMost(max: ExerciseImpactLevel) {
-  return (Object.keys(exerciseImpactLevelRank) as ExerciseImpactLevel[]).filter((value) =>
-    exerciseImpactLevelRank[value] <= exerciseImpactLevelRank[max],
-  );
-}
-
-function getNoiseLevelValuesAtMost(max: ExerciseNoiseLevel) {
-  return (Object.keys(exerciseNoiseLevelRank) as ExerciseNoiseLevel[]).filter((value) =>
-    exerciseNoiseLevelRank[value] <= exerciseNoiseLevelRank[max],
-  );
 }
 
 function buildExerciseResourceNameWhere(exerciseNames: string[]): Prisma.ExerciseWhereInput {
@@ -1372,12 +1453,10 @@ function collectExerciseResourceAppliedFilters(
     "level",
     "force",
     "mechanic",
-    "requiresExternalEquipment",
-    "requiredEquipmentTags",
-    "supportRequirementTags",
-    "setupComplexityMax",
-    "impactLevelMax",
-    "noiseLevelMax",
+    "executionProfile",
+    "equipmentScope",
+    "impactLimit",
+    "noiseLimit",
     "muscles",
     "goalTag",
     "riskTag",
@@ -1397,30 +1476,39 @@ function collectExerciseResourceAppliedFilters(
 function collectExerciseResourceFilterSemantics(input: ExerciseResourceSearchInput): ExerciseResourceFilterSemantic[] {
   const semantics: ExerciseResourceFilterSemantic[] = [];
 
-  if (input.setupComplexityMax) {
+  if (input.executionProfile) {
     semantics.push({
-      field: "setupComplexityMax",
-      requestedValue: input.setupComplexityMax,
-      databaseMapping: { matchedValues: getSetupComplexityValuesAtMost(input.setupComplexityMax) },
-      note: "setupComplexityMax 按准备复杂度上限匹配已知 taxonomy；unknown 不匹配任何上限。",
+      field: "executionProfile",
+      requestedValue: input.executionProfile,
+      databaseMapping: { matchedValues: describeExecutionProfileMapping(input.executionProfile) },
+      note: "executionProfile 由服务端确定性映射为内部 execution taxonomy where 条件；该映射只用于 trace 诊断，不是 Planner input。",
     });
   }
 
-  if (input.impactLevelMax) {
+  if (input.equipmentScope) {
     semantics.push({
-      field: "impactLevelMax",
-      requestedValue: input.impactLevelMax,
-      databaseMapping: { matchedValues: getImpactLevelValuesAtMost(input.impactLevelMax) },
-      note: "impactLevelMax 按冲击等级上限匹配已知 taxonomy；null 不匹配任何上限。",
+      field: "equipmentScope",
+      requestedValue: `${input.equipmentScope.mode}:${input.equipmentScope.tags.join(",")}`,
+      databaseMapping: { matchedValues: describeEquipmentScopeMapping(input.equipmentScope) },
+      note: "equipmentScope 区分可用器械上限和必须使用器械集合；compatible_with_available 不使用 hasSome 近似子集语义。",
     });
   }
 
-  if (input.noiseLevelMax) {
+  if (input.impactLimit) {
     semantics.push({
-      field: "noiseLevelMax",
-      requestedValue: input.noiseLevelMax,
-      databaseMapping: { matchedValues: getNoiseLevelValuesAtMost(input.noiseLevelMax) },
-      note: "noiseLevelMax 按噪音等级上限匹配已知 taxonomy；null 不匹配任何上限。",
+      field: "impactLimit",
+      requestedValue: input.impactLimit,
+      databaseMapping: { matchedValues: getImpactLimitMatchedValues(input.impactLimit) },
+      note: "impactLimit 按冲击等级上限匹配已知 taxonomy；null 不匹配任何上限。",
+    });
+  }
+
+  if (input.noiseLimit) {
+    semantics.push({
+      field: "noiseLimit",
+      requestedValue: input.noiseLimit,
+      databaseMapping: { matchedValues: getNoiseLimitMatchedValues(input.noiseLimit) },
+      note: "noiseLimit 按噪音等级上限匹配已知 taxonomy；null 不匹配任何上限。",
     });
   }
 

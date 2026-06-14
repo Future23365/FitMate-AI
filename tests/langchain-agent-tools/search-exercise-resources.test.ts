@@ -11,12 +11,14 @@ import type {
 } from "@/lib/server/exercises/exercise-repository";
 
 const repositoryPath = "@/lib/server/exercises/exercise-repository";
+const prismaPath = "@/lib/server/db/prisma";
 
 describe("searchExerciseResources LangChain tool", () => {
   afterEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.doUnmock(repositoryPath);
+    vi.doUnmock(prismaPath);
   });
 
   it("returns candidate exercise facts with model/user/trace projections", async () => {
@@ -31,9 +33,9 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部"],
-        requiresExternalEquipment: false,
-        supportRequirementTags: ["none"],
-        setupComplexityMax: "zero_setup",
+        executionProfile: "no_equipment",
+        impactLimit: "low",
+        noiseLimit: "quiet",
         suitabilities: ["training"],
         sort: "name_asc",
       },
@@ -44,9 +46,9 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       muscles: ["胸部"],
-      requiresExternalEquipment: false,
-      supportRequirementTags: ["none"],
-      setupComplexityMax: "zero_setup",
+      executionProfile: "no_equipment",
+      impactLimit: "low",
+      noiseLimit: "quiet",
       suitability: "training",
       maxReturned: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
       sort: "name_asc",
@@ -85,9 +87,9 @@ describe("searchExerciseResources LangChain tool", () => {
       query: {
         suitabilities: ["training"],
         muscles: ["胸部"],
-        requiresExternalEquipment: false,
-        supportRequirementTags: ["none"],
-        setupComplexityMax: "zero_setup",
+        executionProfile: "no_equipment",
+        impactLimit: "low",
+        noiseLimit: "quiet",
       },
       candidateGroups: [
         {
@@ -256,7 +258,7 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部", "背部", "肩部"],
-        requiresExternalEquipment: false,
+        executionProfile: "no_equipment",
         suitabilities: ["training"],
         sort: "name_asc",
       },
@@ -374,7 +376,7 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部"],
-        requiresExternalEquipment: false,
+        executionProfile: "no_equipment",
         suitabilities: ["training"],
         requiredExerciseIds: ["Plank"],
         sort: "name_asc",
@@ -393,7 +395,7 @@ describe("searchExerciseResources LangChain tool", () => {
         suitability: "training",
         code: "required_exercise_filter_mismatch",
         exerciseId: "Plank",
-        conflictFields: ["requiresExternalEquipment", "muscles"],
+        conflictFields: ["executionProfile", "muscles"],
       }),
     ]);
     expect(modelMessage).not.toHaveProperty("positiveAnchorBoundary");
@@ -578,9 +580,24 @@ describe("searchExerciseResources LangChain tool", () => {
       { q: "俯卧撑" },
       { muscles: ["胸部"], equipment: "no_equipment" },
       { muscles: ["胸部"], homeRequirement: "无器械" },
-      { muscles: ["胸部"], requiresExternalEquipment: false, requiredEquipmentTags: ["dumbbell"] },
+      { muscles: ["胸部"], requiresExternalEquipment: false },
+      { muscles: ["胸部"], requiredEquipmentTags: ["dumbbell"] },
       { muscles: ["胸部"], supportRequirementTags: ["none", "floor_or_mat"] },
+      { muscles: ["胸部"], setupComplexityMax: "zero_setup" },
+      { muscles: ["胸部"], impactLevelMax: "low" },
+      { muscles: ["胸部"], noiseLevelMax: "quiet" },
+      { muscles: ["胸部"], where: { isPublished: true } },
+      { muscles: ["胸部"], OR: [{ id: "Pushups" }] },
       { muscles: ["胸部"], candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection + 1 },
+      {
+        muscles: ["胸部"],
+        executionProfile: "no_equipment",
+        equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+      },
+      {
+        muscles: ["胸部"],
+        equipmentScope: { mode: "must_use_any", tags: [] },
+      },
     ]) {
       const result = await executeLangChainToolWrapper(
         tool,
@@ -657,6 +674,113 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(findCandidateGroup(modelMessage, "training").exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).not.toContain("ExcludedPushup");
   });
 
+  it.each([
+    "no_equipment",
+    "home_support",
+    "small_equipment",
+    "gym_equipment",
+    "partner_required",
+    "outdoor_required",
+  ] as const)("passes executionProfile %s through handler and query summary", async (executionProfile) => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: executionProfile === "outdoor_required"
+          ? []
+          : [createExerciseSummary({ id: `${executionProfile}_exercise`, nameZh: executionProfile })],
+        totalMatches: executionProfile === "outdoor_required" ? 0 : 1,
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        executionProfile,
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      executionProfile,
+      suitability: "training",
+    }));
+    expect(modelMessage.query).toMatchObject({
+      suitabilities: ["training"],
+      executionProfile,
+    });
+
+    if (executionProfile === "outdoor_required") {
+      expect(modelMessage.diagnostics).toEqual([
+        expect.objectContaining({ code: "no_candidates" }),
+      ]);
+    } else {
+      expect(findCandidateGroup(modelMessage, "training").exercises[0]).toMatchObject({
+        exerciseId: `${executionProfile}_exercise`,
+      });
+    }
+  });
+
+  it("passes equipmentScope, impactLimit and noiseLimit through handler and projections", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [
+          createExerciseSummary({
+            id: "Dumbbell_Row",
+            nameZh: "哑铃划船",
+            nameEn: "Dumbbell Row",
+            requiresExternalEquipment: true,
+            requiredEquipmentTags: ["dumbbell"],
+            setupComplexity: "small_equipment",
+            impactLevel: "low",
+            noiseLevel: "quiet",
+          }),
+        ],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+        impactLimit: "low",
+        noiseLimit: "quiet",
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+      impactLimit: "low",
+      noiseLimit: "quiet",
+    }));
+    expect(modelMessage.query).toMatchObject({
+      equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+      impactLimit: "low",
+      noiseLimit: "quiet",
+    });
+    expect(result.record.userProjection).toMatchObject({
+      query: expect.objectContaining({
+        equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+        impactLimit: "low",
+        noiseLimit: "quiet",
+      }),
+    });
+    expect(result.record.traceSummary).toMatchObject({
+      query: expect.objectContaining({
+        equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+        impactLimit: "low",
+        noiseLimit: "quiet",
+      }),
+    });
+  });
+
   it("keeps each requested suitability as a separate candidate group without coverage gaps", async () => {
     const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
@@ -717,11 +841,14 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("服务端不根据用户原文分流");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(modelVisibleText).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
-    expect(modelVisibleText).toContain("requiresExternalEquipment=false 表示已确认不需要外部训练器械");
-    expect(modelVisibleText).toContain("requiredEquipmentTags 表示动作需要的外部训练器械 taxonomy tag");
-    expect(modelVisibleText).toContain("supportRequirementTags 表示非训练器械的支撑、场地、固定设施、搭档或户外条件");
-    expect(modelVisibleText).toContain("setupComplexityMax、impactLevelMax 和 noiseLevelMax 是上限筛选");
-    expect(modelVisibleText).toContain("unknown 或 null 不匹配低门槛、低冲击或安静约束");
+    expect(modelVisibleText).toContain("executionProfile 用于选择动作执行场景");
+    expect(modelVisibleText).toContain("no_equipment");
+    expect(modelVisibleText).toContain("完整无器械口径");
+    expect(modelVisibleText).toContain("equipmentScope.mode=compatible_with_available");
+    expect(modelVisibleText).toContain("动作不得要求集合外器械");
+    expect(modelVisibleText).toContain("equipmentScope.mode=must_use_any");
+    expect(modelVisibleText).toContain("impactLimit 和 noiseLimit 是上限筛选");
+    expect(modelVisibleText).toContain("未知或未补齐值不匹配低冲击或安静约束");
     expect(modelVisibleText).toContain("candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要");
     expect(modelVisibleText).toContain("exerciseNames");
     expect(modelVisibleText).toContain("模型已经结构化提取出的点名动作名称数组");
@@ -734,6 +861,177 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).not.toContain("zeroMatchMuscles");
     expect(modelVisibleText).not.toContain("sectionSummary、availableSections、missingSections");
     expect(modelVisibleText).not.toContain("groups.<section>");
+    expect(modelVisibleText).not.toContain("requiresExternalEquipment=false");
+    expect(modelVisibleText).not.toContain("requiredEquipmentTags 表示");
+    expect(modelVisibleText).not.toContain("supportRequirementTags 表示");
+    expect(modelVisibleText).not.toContain("setupComplexityMax");
+    expect(modelVisibleText).not.toContain("impactLevelMax");
+    expect(modelVisibleText).not.toContain("noiseLevelMax");
+  });
+});
+
+describe("searchExerciseResources repository execution constraints", () => {
+  it.each([
+    [
+      "no_equipment",
+      {
+        AND: [
+          { requiresExternalEquipment: false },
+          { requiredEquipmentTags: { isEmpty: true } },
+          { setupComplexity: { in: ["zero_setup", "floor_or_mat"] } },
+          { NOT: { supportRequirementTags: { hasSome: ["chair_or_wall", "gym_fixture", "partner", "outdoor_space"] } } },
+        ],
+      },
+    ],
+    [
+      "home_support",
+      {
+        AND: [
+          { requiresExternalEquipment: false },
+          { requiredEquipmentTags: { isEmpty: true } },
+          { setupComplexity: { in: ["zero_setup", "floor_or_mat", "home_support"] } },
+          { NOT: { supportRequirementTags: { hasSome: ["gym_fixture", "partner", "outdoor_space"] } } },
+        ],
+      },
+    ],
+    [
+      "small_equipment",
+      {
+        AND: [
+          { requiresExternalEquipment: true },
+          { setupComplexity: "small_equipment" },
+          { NOT: { supportRequirementTags: { hasSome: ["gym_fixture", "partner", "outdoor_space"] } } },
+        ],
+      },
+    ],
+    [
+      "gym_equipment",
+      {
+        OR: [
+          { setupComplexity: "gym_fixture" },
+          { supportRequirementTags: { has: "gym_fixture" } },
+          { requiredEquipmentTags: { hasSome: ["machine", "cable"] } },
+        ],
+      },
+    ],
+    [
+      "partner_required",
+      {
+        OR: [
+          { setupComplexity: "partner" },
+          { supportRequirementTags: { has: "partner" } },
+        ],
+      },
+    ],
+    [
+      "outdoor_required",
+      {
+        OR: [
+          { setupComplexity: "outdoor" },
+          { supportRequirementTags: { has: "outdoor_space" } },
+        ],
+      },
+    ],
+  ] as const)("maps executionProfile %s to taxonomy where filters", async (executionProfile, expectedWhere) => {
+    const { where, result } = await captureRepositoryWhere({ executionProfile });
+
+    expect(where).toMatchObject({
+      AND: [
+        { allowedSections: { has: "training" } },
+        expectedWhere,
+      ],
+    });
+    expect(result.filterSemantics).toEqual([
+      expect.objectContaining({
+        field: "executionProfile",
+        requestedValue: executionProfile,
+      }),
+    ]);
+  });
+
+  it("maps compatible_with_available to equipment subset semantics", async () => {
+    const { where } = await captureRepositoryWhere({
+      equipmentScope: { mode: "compatible_with_available", tags: ["dumbbell"] },
+    });
+
+    expect(where).toMatchObject({
+      AND: [
+        { allowedSections: { has: "training" } },
+        {
+          OR: [
+            {
+              AND: [
+                { requiresExternalEquipment: false },
+                { requiredEquipmentTags: { isEmpty: true } },
+              ],
+            },
+            {
+              AND: [
+                { requiresExternalEquipment: true },
+                { NOT: { requiredEquipmentTags: { hasSome: expect.arrayContaining(["resistance_band"]) } } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(where)).not.toContain('"requiredEquipmentTags":{"hasSome":["dumbbell"]}');
+  });
+
+  it("maps empty compatible_with_available to confirmed no external equipment", async () => {
+    const { where } = await captureRepositoryWhere({
+      equipmentScope: { mode: "compatible_with_available", tags: [] },
+    });
+
+    expect(where).toMatchObject({
+      AND: [
+        { allowedSections: { has: "training" } },
+        {
+          AND: [
+            { requiresExternalEquipment: false },
+            { requiredEquipmentTags: { isEmpty: true } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("maps must_use_any to equipment overlap semantics", async () => {
+    const { where } = await captureRepositoryWhere({
+      equipmentScope: { mode: "must_use_any", tags: ["dumbbell"] },
+    });
+
+    expect(where).toMatchObject({
+      AND: [
+        { allowedSections: { has: "training" } },
+        {
+          AND: [
+            { requiresExternalEquipment: true },
+            { requiredEquipmentTags: { hasSome: ["dumbbell"] } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("maps impactLimit and noiseLimit to known value upper bounds without null matches", async () => {
+    const { where, result } = await captureRepositoryWhere({
+      impactLimit: "medium",
+      noiseLimit: "normal",
+    });
+
+    expect(where).toMatchObject({
+      AND: [
+        { allowedSections: { has: "training" } },
+        { impactLevel: { in: ["low", "medium"] } },
+        { noiseLevel: { in: ["quiet", "normal"] } },
+      ],
+    });
+    expect(JSON.stringify(where)).not.toContain("null");
+    expect(result.filterSemantics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "impactLimit", requestedValue: "medium" }),
+      expect.objectContaining({ field: "noiseLimit", requestedValue: "normal" }),
+    ]));
   });
 });
 
@@ -764,6 +1062,35 @@ async function importToolWithRepositoryImplementation(input: {
   };
 }
 
+async function captureRepositoryWhere(
+  input: Partial<ExerciseResourceSearchInput>,
+) {
+  vi.resetModules();
+  const count = vi.fn().mockResolvedValue(0);
+  const findMany = vi.fn().mockResolvedValue([]);
+  vi.doMock(prismaPath, () => ({
+    isDatabaseConfigured: () => true,
+    getPrismaClient: () => ({
+      exercise: {
+        count,
+        findMany,
+      },
+    }),
+  }));
+  const repository = await import("@/lib/server/exercises/exercise-repository");
+  const result = await repository.searchExerciseResourceSummaries({
+    suitability: "training",
+    maxReturned: 3,
+    sort: "name_asc",
+    ...input,
+  });
+
+  return {
+    where: count.mock.calls[0]?.[0]?.where,
+    result,
+  };
+}
+
 function createSearchResult(input: {
   query: ExerciseResourceSearchInput;
   exercises?: ExerciseResourceSummary[];
@@ -780,14 +1107,14 @@ function createSearchResult(input: {
     query: input.query,
     appliedFilters: [],
     filterApplication,
-    filterSemantics: input.query.setupComplexityMax
+    filterSemantics: input.query.executionProfile
       ? [{
-        field: "setupComplexityMax",
-        requestedValue: input.query.setupComplexityMax,
+        field: "executionProfile",
+        requestedValue: input.query.executionProfile,
         databaseMapping: {
-          matchedValues: ["zero_setup"],
+          matchedValues: ["requiresExternalEquipment=false"],
         },
-        note: "setupComplexityMax 按准备复杂度上限匹配已知 taxonomy；unknown 不匹配任何上限。",
+        note: "executionProfile 由服务端确定性映射为内部 execution taxonomy where 条件；该映射只用于 trace 诊断，不是 Planner input。",
       }]
       : [],
     diagnostics: input.diagnostics ?? [],

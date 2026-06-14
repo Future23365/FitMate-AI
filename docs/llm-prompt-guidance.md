@@ -706,13 +706,13 @@ enum
 不推荐：
 
 ```txt
-requiresExternalEquipment 可以写 false，也可以写 no_equipment 或 无器械。
+executionProfile 可以写 no_equipment，也可以写 无器械 或 bodyweight。
 ```
 
 推荐：
 
 ```txt
-无外部训练器械必须写 requiresExternalEquipment = false。
+完整无器械执行场景必须写 executionProfile = "no_equipment"。
 用户可见文本可以说“无器械”。
 ```
 
@@ -963,8 +963,10 @@ metadata 中如果给模型枚举或 catalog，应尽量是规范值。
 
 ```txt
 facetCatalog.muscles
-facetCatalog.requiredEquipmentTags
-facetCatalog.supportRequirementTags
+facetCatalog.executionProfile
+facetCatalog.equipmentScope.tags
+facetCatalog.impactLimit
+facetCatalog.noiseLimit
 facetCatalog.level
 ```
 
