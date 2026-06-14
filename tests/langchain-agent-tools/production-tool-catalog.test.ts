@@ -79,6 +79,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("impactLimit 和 noiseLimit 是上限筛选");
     expect(descriptions).toContain("candidateGroups[]");
     expect(descriptions).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(descriptions).toContain("存在能满足当前目标的可选择子集");
+    expect(descriptions).toContain("候选池不要求完全纯净，也不要求先排除未选候选");
     expect(descriptions).toContain("不要求最终输出使用全部候选");
     expect(descriptions).toContain("candidateCountPerSection");
     expect(descriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
@@ -93,6 +95,11 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不替模型生成 prescription");
     expect(descriptions).toContain("可以从当前模型可见候选事实中选择子集构造");
     expect(descriptions).toContain("不要求使用候选池中的全部动作");
+    expect(descriptions).toContain("不交付组数次数休息或训练日程");
+    expect(descriptions).toContain("payload.kind 应选择 exercise_selection");
+    expect(descriptions).toContain("不需要获取全部候选");
+    expect(descriptions).toContain("不需要扩大候选数量");
+    expect(descriptions).toContain("不需要把未选候选排除");
     expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
     expect(descriptions).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");

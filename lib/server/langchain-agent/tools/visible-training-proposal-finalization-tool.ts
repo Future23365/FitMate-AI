@@ -79,6 +79,7 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
     description: [
       "Purpose：提交模型已经构造好的 visibleTrainingProposal 结构化训练结果，让服务端 validator 校验并生成用户可见投影。",
       "Use When：最终回答会向用户呈现一个或多个具体训练动作，且这些动作来自模型可见、可被服务端数据库复核的受控动作事实；或当前回答要交付单次训练 routine / 多天训练 plan。",
+      "Use When：当前回答只交付动作推荐集合、不交付组数次数休息或训练日程，但会向用户展示具体数据库动作条目时，也属于本 tool 的结构化收口场景；payload.kind 应选择 exercise_selection。",
       "Content Boundary：content 只解释已由 payload 承载并通过服务端 validator 的动作事实、推荐理由、目标肌群、适用场景、动作差异、动作注意事项或默认口径；content 不能替代 payload 中的动作、prescription 或 schedule 事实。",
       "Kind Selection：payload.kind=exercise_selection 只用于纯主训练动作推荐集合；exerciseItems[].section 必须全部是 training；不得包含 prescription 或 schedule。",
       "Kind Selection：payload.kind=routine 用于单次可执行训练；可以包含 warmup、training、stretch；至少包含 training；每个 exerciseItems[] 动作项都必须包含 prescription；不得包含 schedule。",
@@ -89,6 +90,7 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Input Source：payload.exerciseItems[] 可以从当前模型可见候选事实中选择子集构造；不要求使用候选池中的全部动作，也不要求先排除未使用动作。",
       "Output Meaning：accepted 表示 payload 已通过服务端 validator 并生成用户可见投影；rejected 表示结构或确定性事实校验失败。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
       "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不替模型生成 prescription、不保存计划、不写入用户数据；所选 exerciseItems[].exerciseId 来自模型可见受控动作事实，并满足当前 payload.kind、section 和 validator 边界时，可以提交结构化训练结果；如果提交 routine 或 plan，模型必须在 payload 中提供 prescription。",
+      "Grounding Rules：payload.kind=exercise_selection 可以从当前候选事实中选择贴合目标的子集；不需要获取全部候选、不需要扩大候选数量、不需要把未选候选排除。",
       "accepted summary 会暴露已校验 payload 的 sectionSummary、availableSections、missingSections；这些字段只描述当前结构覆盖事实。",
       "accepted 表示结构已通过服务端 validator 并生成可渲染投影；rejected 只表示结构或确定性事实校验失败。",
     ].join("\n"),
