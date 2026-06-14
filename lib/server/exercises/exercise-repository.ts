@@ -14,8 +14,19 @@ import {
   type ExerciseResourceFilterApplication,
 } from "@/lib/server/exercises/exercise-resource-filter-policy";
 import {
+  exerciseImpactLevelRank,
+  exerciseKnownSetupComplexityValues,
+  exerciseNoiseLevelRank,
+  exerciseRequiredEquipmentTagValues,
+  exerciseSetupComplexityRank,
+  exerciseSupportRequirementTagValues,
   parseExerciseExecutionTaxonomy,
+  type ExerciseImpactLevel,
   type ExerciseExecutionTaxonomy,
+  type ExerciseKnownSetupComplexity,
+  type ExerciseNoiseLevel,
+  type ExerciseRequiredEquipmentTag,
+  type ExerciseSupportRequirementTag,
 } from "@/lib/shared/exercises/execution-taxonomy";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
@@ -31,13 +42,6 @@ import type {
 
 /** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限，防止配置误调撑爆模型上下文。 */
 export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
-/** EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES 是 Planner 可见的无外部器械 canonical 查询值，不是 homeRequirement facet。 */
-export const EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES = ["no_equipment"] as const;
-
-const bodyweightEquipmentValues = ["body only", "bodyweight"] as const;
-const bodyweightEquipmentZhValues = ["自重"] as const;
-const removedHomeRequirementNoEquipmentValues = ["none", "no_equipment", "无器械"] as const;
-
 export type ExerciseResourceSummary = Pick<
   Exercise,
   | "id"
@@ -55,6 +59,12 @@ export type ExerciseResourceSummary = Pick<
   | "equipmentZh"
   | "homeRequirement"
   | "homeRequirementZh"
+  | "requiresExternalEquipment"
+  | "requiredEquipmentTags"
+  | "supportRequirementTags"
+  | "setupComplexity"
+  | "impactLevel"
+  | "noiseLevel"
   | "primaryMuscles"
   | "primaryMusclesZh"
   | "secondaryMuscles"
@@ -74,8 +84,12 @@ export type ExerciseResourceSearchInput = {
   level?: string;
   force?: string;
   mechanic?: string;
-  equipment?: string;
-  homeRequirement?: string;
+  requiresExternalEquipment?: boolean;
+  requiredEquipmentTags?: ExerciseRequiredEquipmentTag[];
+  supportRequirementTags?: ExerciseSupportRequirementTag[];
+  setupComplexityMax?: ExerciseKnownSetupComplexity;
+  impactLevelMax?: ExerciseImpactLevel;
+  noiseLevelMax?: ExerciseNoiseLevel;
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
@@ -89,15 +103,14 @@ export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchIn
 
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
-  value: string | string[];
+  value: string | string[] | boolean;
 };
 
 export type ExerciseResourceFilterSemantic = {
-  field: "equipment";
+  field: "setupComplexityMax" | "impactLevelMax" | "noiseLevelMax";
   requestedValue: string;
   databaseMapping: {
-    equipment: string[];
-    equipmentZh: string[];
+    matchedValues: string[];
   };
   note: string;
 };
@@ -123,8 +136,14 @@ export type ExerciseResourceFacetCatalog = {
   levels: string[];
   forces: string[];
   mechanics: string[];
-  equipment: string[];
-  homeRequirements: string[];
+  executionTaxonomy: {
+    requiresExternalEquipment: boolean[];
+    requiredEquipmentTags: ExerciseRequiredEquipmentTag[];
+    supportRequirementTags: ExerciseSupportRequirementTag[];
+    setupComplexities: ExerciseKnownSetupComplexity[];
+    impactLevels: ExerciseImpactLevel[];
+    noiseLevels: ExerciseNoiseLevel[];
+  };
   goalTags: string[];
   riskTags: string[];
   suitabilities: ExerciseSuitability[];
@@ -230,6 +249,12 @@ const exerciseResourceSummarySelect = {
   equipmentZh: true,
   homeRequirement: true,
   homeRequirementZh: true,
+  requiresExternalEquipment: true,
+  requiredEquipmentTags: true,
+  supportRequirementTags: true,
+  setupComplexity: true,
+  impactLevel: true,
+  noiseLevel: true,
   primaryMuscles: true,
   primaryMusclesZh: true,
   secondaryMuscles: true,
@@ -318,6 +343,12 @@ const exerciseResourceFacetCatalogSelect = {
   equipmentZh: true,
   homeRequirement: true,
   homeRequirementZh: true,
+  requiresExternalEquipment: true,
+  requiredEquipmentTags: true,
+  supportRequirementTags: true,
+  setupComplexity: true,
+  impactLevel: true,
+  noiseLevel: true,
   primaryMuscles: true,
   primaryMusclesZh: true,
   secondaryMuscles: true,
@@ -1056,46 +1087,35 @@ export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResour
     levels: collectDistinctFacetValues(records, ["level", "levelZh"]),
     forces: collectDistinctFacetValues(records, ["force", "forceZh"]),
     mechanics: collectDistinctFacetValues(records, ["mechanic", "mechanicZh"]),
-    equipment: collectDistinctFacetValues(records, ["equipment", "equipmentZh"]),
-    homeRequirements: collectDistinctFacetValues(records, ["homeRequirement", "homeRequirementZh"]),
+    executionTaxonomy: {
+      requiresExternalEquipment: collectDistinctBooleanFacetValues(records, "requiresExternalEquipment"),
+      requiredEquipmentTags: collectCanonicalFacetValues(records, ["requiredEquipmentTags"], exerciseRequiredEquipmentTagValues),
+      supportRequirementTags: collectCanonicalFacetValues(records, ["supportRequirementTags"], exerciseSupportRequirementTagValues),
+      setupComplexities: collectCanonicalFacetValues(records, ["setupComplexity"], exerciseKnownSetupComplexityValues),
+      impactLevels: collectCanonicalFacetValues(records, ["impactLevel"], Object.keys(exerciseImpactLevelRank) as ExerciseImpactLevel[]),
+      noiseLevels: collectCanonicalFacetValues(records, ["noiseLevel"], Object.keys(exerciseNoiseLevelRank) as ExerciseNoiseLevel[]),
+    },
     goalTags: collectDistinctFacetValues(records, ["goalTags"]),
     riskTags: collectDistinctFacetValues(records, ["riskTags"]),
     suitabilities: collectDistinctSuitabilities(records),
   });
 }
 
-/** normalizeExerciseResourceFacetCatalogForPlanner 收紧 Planner 可见 facet，避免把无器械暴露成 homeRequirement。 */
+/** normalizeExerciseResourceFacetCatalogForPlanner 收紧 Planner 可见 facet，只暴露可填写的 taxonomy canonical values。 */
 export function normalizeExerciseResourceFacetCatalogForPlanner(
   catalog: ExerciseResourceFacetCatalog,
 ): ExerciseResourceFacetCatalog {
   return {
     ...catalog,
-    equipment: addNoEquipmentQueryValues(catalog.equipment.filter((value) => value.trim() !== "无器械")),
-    homeRequirements: catalog.homeRequirements.filter((value) => !isRemovedNoEquipmentHomeRequirementValue(value)),
+    executionTaxonomy: {
+      requiresExternalEquipment: [...new Set(catalog.executionTaxonomy.requiresExternalEquipment)].sort((left, right) => Number(left) - Number(right)),
+      requiredEquipmentTags: filterCanonicalValues(catalog.executionTaxonomy.requiredEquipmentTags, exerciseRequiredEquipmentTagValues),
+      supportRequirementTags: filterCanonicalValues(catalog.executionTaxonomy.supportRequirementTags, exerciseSupportRequirementTagValues),
+      setupComplexities: filterCanonicalValues(catalog.executionTaxonomy.setupComplexities, exerciseKnownSetupComplexityValues),
+      impactLevels: filterCanonicalValues(catalog.executionTaxonomy.impactLevels, Object.keys(exerciseImpactLevelRank) as ExerciseImpactLevel[]),
+      noiseLevels: filterCanonicalValues(catalog.executionTaxonomy.noiseLevels, Object.keys(exerciseNoiseLevelRank) as ExerciseNoiseLevel[]),
+    },
   };
-}
-
-/** isNoEquipmentResourceQueryValue 判断 tool 合同层无器械查询值，不读取用户原文做语义推断。 */
-export function isNoEquipmentResourceQueryValue(value: string) {
-  const normalized = normalizeFacetKey(value);
-  return normalized === "no_equipment" || value.trim() === "无器械";
-}
-
-/** isRemovedNoEquipmentHomeRequirementValue 标识不再对 Planner 暴露的旧居家条件值。 */
-export function isRemovedNoEquipmentHomeRequirementValue(value: string) {
-  const normalized = normalizeFacetKey(value);
-  return removedHomeRequirementNoEquipmentValues.some((removedValue) => (
-    normalizeFacetKey(removedValue) === normalized || removedValue === value.trim()
-  ));
-}
-
-/** isBodyweightExerciseResourceEquipment 复用 repository 的无器械映射边界，供 requiredExerciseIds 诊断使用。 */
-export function isBodyweightExerciseResourceEquipment(input: Pick<ExerciseResourceSummary, "equipment" | "equipmentZh">) {
-  return Boolean(
-    input.equipment && bodyweightEquipmentValues.some((value) => normalizeFacetKey(value) === normalizeFacetKey(input.equipment ?? ""))
-  ) || Boolean(
-    input.equipmentZh && bodyweightEquipmentZhValues.includes(input.equipmentZh as (typeof bodyweightEquipmentZhValues)[number])
-  );
 }
 
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
@@ -1183,11 +1203,28 @@ function buildExerciseResourceWhere(
   if (isExerciseResourceHardFilterApplied(filterApplication, "mechanic")) {
     pushTextFacetFilter(candidateHardFilters, "mechanic", "mechanicZh", input.mechanic);
   }
-  if (isExerciseResourceHardFilterApplied(filterApplication, "equipment")) {
-    pushEquipmentResourceFilter(candidateHardFilters, input.equipment);
+  if (
+    input.requiresExternalEquipment !== undefined
+    && isExerciseResourceHardFilterApplied(filterApplication, "requiresExternalEquipment")
+  ) {
+    candidateHardFilters.push({ requiresExternalEquipment: input.requiresExternalEquipment });
   }
-  if (isExerciseResourceHardFilterApplied(filterApplication, "homeRequirement")) {
-    pushTextFacetFilter(candidateHardFilters, "homeRequirement", "homeRequirementZh", input.homeRequirement);
+  const requiredEquipmentTags = uniqueStrings(input.requiredEquipmentTags ?? []) as ExerciseRequiredEquipmentTag[];
+  if (requiredEquipmentTags.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "requiredEquipmentTags")) {
+    candidateHardFilters.push({ requiredEquipmentTags: { hasSome: requiredEquipmentTags } });
+  }
+  const supportRequirementTags = uniqueStrings(input.supportRequirementTags ?? []) as ExerciseSupportRequirementTag[];
+  if (supportRequirementTags.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "supportRequirementTags")) {
+    candidateHardFilters.push({ supportRequirementTags: { hasSome: supportRequirementTags } });
+  }
+  if (input.setupComplexityMax && isExerciseResourceHardFilterApplied(filterApplication, "setupComplexityMax")) {
+    candidateHardFilters.push({ setupComplexity: { in: getSetupComplexityValuesAtMost(input.setupComplexityMax) } });
+  }
+  if (input.impactLevelMax && isExerciseResourceHardFilterApplied(filterApplication, "impactLevelMax")) {
+    candidateHardFilters.push({ impactLevel: { in: getImpactLevelValuesAtMost(input.impactLevelMax) } });
+  }
+  if (input.noiseLevelMax && isExerciseResourceHardFilterApplied(filterApplication, "noiseLevelMax")) {
+    candidateHardFilters.push({ noiseLevel: { in: getNoiseLevelValuesAtMost(input.noiseLevelMax) } });
   }
 
   const muscleFilters = uniqueStrings(input.muscles ?? []);
@@ -1243,8 +1280,8 @@ function buildExerciseResourceMuscleWhere(muscles: string[]): Prisma.ExerciseWhe
 
 function pushTextFacetFilter(
   and: Prisma.ExerciseWhereInput[],
-  valueField: keyof Pick<Exercise, "category" | "level" | "force" | "mechanic" | "equipment" | "homeRequirement">,
-  labelField: keyof Pick<Exercise, "categoryZh" | "levelZh" | "forceZh" | "mechanicZh" | "equipmentZh" | "homeRequirementZh">,
+  valueField: keyof Pick<Exercise, "category" | "level" | "force" | "mechanic">,
+  labelField: keyof Pick<Exercise, "categoryZh" | "levelZh" | "forceZh" | "mechanicZh">,
   value: string | undefined,
 ) {
   if (!value) {
@@ -1259,26 +1296,22 @@ function pushTextFacetFilter(
   });
 }
 
-function pushEquipmentResourceFilter(and: Prisma.ExerciseWhereInput[], value: string | undefined) {
-  if (!value) {
-    return;
-  }
-
-  if (isNoEquipmentResourceQueryValue(value)) {
-    and.push(buildNoEquipmentResourceWhere());
-    return;
-  }
-
-  pushTextFacetFilter(and, "equipment", "equipmentZh", value);
+function getSetupComplexityValuesAtMost(max: ExerciseKnownSetupComplexity) {
+  return exerciseKnownSetupComplexityValues.filter((value) =>
+    exerciseSetupComplexityRank[value] <= exerciseSetupComplexityRank[max],
+  );
 }
 
-function buildNoEquipmentResourceWhere(): Prisma.ExerciseWhereInput {
-  return {
-    OR: [
-      { equipment: { in: [...bodyweightEquipmentValues] } },
-      { equipmentZh: { in: [...bodyweightEquipmentZhValues] } },
-    ],
-  };
+function getImpactLevelValuesAtMost(max: ExerciseImpactLevel) {
+  return (Object.keys(exerciseImpactLevelRank) as ExerciseImpactLevel[]).filter((value) =>
+    exerciseImpactLevelRank[value] <= exerciseImpactLevelRank[max],
+  );
+}
+
+function getNoiseLevelValuesAtMost(max: ExerciseNoiseLevel) {
+  return (Object.keys(exerciseNoiseLevelRank) as ExerciseNoiseLevel[]).filter((value) =>
+    exerciseNoiseLevelRank[value] <= exerciseNoiseLevelRank[max],
+  );
 }
 
 function buildExerciseResourceNameWhere(exerciseNames: string[]): Prisma.ExerciseWhereInput {
@@ -1339,8 +1372,12 @@ function collectExerciseResourceAppliedFilters(
     "level",
     "force",
     "mechanic",
-    "equipment",
-    "homeRequirement",
+    "requiresExternalEquipment",
+    "requiredEquipmentTags",
+    "supportRequirementTags",
+    "setupComplexityMax",
+    "impactLevelMax",
+    "noiseLevelMax",
     "muscles",
     "goalTag",
     "riskTag",
@@ -1358,31 +1395,40 @@ function collectExerciseResourceAppliedFilters(
 }
 
 function collectExerciseResourceFilterSemantics(input: ExerciseResourceSearchInput): ExerciseResourceFilterSemantic[] {
-  if (!input.equipment || !isNoEquipmentResourceQueryValue(input.equipment)) {
-    return [];
+  const semantics: ExerciseResourceFilterSemantic[] = [];
+
+  if (input.setupComplexityMax) {
+    semantics.push({
+      field: "setupComplexityMax",
+      requestedValue: input.setupComplexityMax,
+      databaseMapping: { matchedValues: getSetupComplexityValuesAtMost(input.setupComplexityMax) },
+      note: "setupComplexityMax 按准备复杂度上限匹配已知 taxonomy；unknown 不匹配任何上限。",
+    });
   }
 
-  return [{
-    field: "equipment",
-    requestedValue: input.equipment,
-    databaseMapping: {
-      equipment: [...bodyweightEquipmentValues],
-      equipmentZh: [...bodyweightEquipmentZhValues],
-    },
-    note: "equipment=no_equipment 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
-  }];
+  if (input.impactLevelMax) {
+    semantics.push({
+      field: "impactLevelMax",
+      requestedValue: input.impactLevelMax,
+      databaseMapping: { matchedValues: getImpactLevelValuesAtMost(input.impactLevelMax) },
+      note: "impactLevelMax 按冲击等级上限匹配已知 taxonomy；null 不匹配任何上限。",
+    });
+  }
+
+  if (input.noiseLevelMax) {
+    semantics.push({
+      field: "noiseLevelMax",
+      requestedValue: input.noiseLevelMax,
+      databaseMapping: { matchedValues: getNoiseLevelValuesAtMost(input.noiseLevelMax) },
+      note: "noiseLevelMax 按噪音等级上限匹配已知 taxonomy；null 不匹配任何上限。",
+    });
+  }
+
+  return semantics;
 }
 
 function uniqueStrings(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
-}
-
-function addNoEquipmentQueryValues(values: string[]) {
-  return sortFacetValues([...new Set([...values, ...EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES])]);
-}
-
-function normalizeFacetKey(value: string) {
-  return value.trim().toLowerCase();
 }
 
 type ExerciseResourceFacetCatalogRecord = Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceFacetCatalogSelect }>;
@@ -1414,6 +1460,41 @@ function collectDistinctFacetValues(
   return sortFacetValues([...values]);
 }
 
+function collectDistinctBooleanFacetValues(
+  records: ExerciseResourceFacetCatalogRecord[],
+  field: keyof ExerciseResourceFacetCatalogRecord,
+) {
+  const values = new Set<boolean>();
+
+  for (const record of records) {
+    const value = record[field];
+    if (typeof value === "boolean") {
+      values.add(value);
+    }
+  }
+
+  return [...values].sort();
+}
+
+function collectCanonicalFacetValues<TValue extends string>(
+  records: ExerciseResourceFacetCatalogRecord[],
+  fields: Array<keyof ExerciseResourceFacetCatalogRecord>,
+  canonicalOrder: readonly TValue[],
+) {
+  const values = new Set(collectDistinctFacetValues(records, fields));
+
+  return canonicalOrder.filter((value) => values.has(value));
+}
+
+function filterCanonicalValues<TValue extends string>(
+  values: readonly TValue[],
+  canonicalOrder: readonly TValue[],
+) {
+  const valueSet = new Set(values);
+
+  return canonicalOrder.filter((value) => valueSet.has(value));
+}
+
 function collectDistinctSuitabilities(records: ExerciseResourceFacetCatalogRecord[]): ExerciseSuitability[] {
   const values = new Set(records.flatMap((record) => record.allowedSections));
   const canonicalOrder: ExerciseSuitability[] = ["warmup", "training", "stretch"];
@@ -1429,6 +1510,7 @@ function mapExerciseResourceSummary(
   exercise: Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>,
 ): ExerciseResourceSummary {
   const metadata = normalizeExerciseMetadata(exercise);
+  const executionTaxonomy = mapExerciseExecutionTaxonomy(exercise);
 
   return {
     id: exercise.id,
@@ -1446,6 +1528,7 @@ function mapExerciseResourceSummary(
     equipmentZh: exercise.equipmentZh,
     homeRequirement: exercise.homeRequirement,
     homeRequirementZh: exercise.homeRequirementZh,
+    ...executionTaxonomy,
     primaryMuscles: exercise.primaryMuscles,
     primaryMusclesZh: exercise.primaryMusclesZh,
     secondaryMuscles: exercise.secondaryMuscles,

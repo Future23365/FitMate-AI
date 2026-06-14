@@ -31,7 +31,9 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部"],
-        equipment: "no_equipment",
+        requiresExternalEquipment: false,
+        supportRequirementTags: ["none"],
+        setupComplexityMax: "zero_setup",
         suitabilities: ["training"],
         sort: "name_asc",
       },
@@ -42,7 +44,9 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       muscles: ["胸部"],
-      equipment: "no_equipment",
+      requiresExternalEquipment: false,
+      supportRequirementTags: ["none"],
+      setupComplexityMax: "zero_setup",
       suitability: "training",
       maxReturned: agentRuntimeConfig.tools.searchExerciseResources.defaultCandidateCountPerSection,
       sort: "name_asc",
@@ -81,7 +85,9 @@ describe("searchExerciseResources LangChain tool", () => {
       query: {
         suitabilities: ["training"],
         muscles: ["胸部"],
-        equipment: "no_equipment",
+        requiresExternalEquipment: false,
+        supportRequirementTags: ["none"],
+        setupComplexityMax: "zero_setup",
       },
       candidateGroups: [
         {
@@ -93,6 +99,14 @@ describe("searchExerciseResources LangChain tool", () => {
               nameEn: "Pushups",
               equipmentZh: "自重",
               homeRequirementZh: "无器械",
+              executionTaxonomy: {
+                requiresExternalEquipment: false,
+                requiredEquipmentTags: [],
+                supportRequirementTags: ["none"],
+                setupComplexity: "zero_setup",
+                impactLevel: "low",
+                noiseLevel: "quiet",
+              },
               primaryMusclesZh: ["胸部"],
               secondaryMusclesZh: ["肱三头肌"],
               imageUrl: "/push-up.png",
@@ -133,6 +147,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage).not.toHaveProperty("published");
     expect(modelMessage.query).not.toHaveProperty("candidateCountPerSection");
     expect(modelMessage.query).not.toHaveProperty("sort");
+    expect(modelMessage.query).not.toHaveProperty("equipment");
+    expect(modelMessage.query).not.toHaveProperty("homeRequirement");
     const modelJson = JSON.stringify(modelMessage);
     expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMessage);
     expect(modelJson).not.toContain("instructionsZh");
@@ -240,7 +256,7 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部", "背部", "肩部"],
-        equipment: "no_equipment",
+        requiresExternalEquipment: false,
         suitabilities: ["training"],
         sort: "name_asc",
       },
@@ -341,6 +357,10 @@ describe("searchExerciseResources LangChain tool", () => {
       nameEn: "Plank",
       primaryMusclesZh: ["腹肌"],
       primaryMuscles: ["abdominals"],
+      requiresExternalEquipment: true,
+      requiredEquipmentTags: ["dumbbell"],
+      supportRequirementTags: ["floor_or_mat"],
+      setupComplexity: "small_equipment",
     });
     const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
       getByIdsImplementation: async () => [requiredExercise],
@@ -354,7 +374,7 @@ describe("searchExerciseResources LangChain tool", () => {
       tool,
       {
         muscles: ["胸部"],
-        equipment: "no_equipment",
+        requiresExternalEquipment: false,
         suitabilities: ["training"],
         requiredExerciseIds: ["Plank"],
         sort: "name_asc",
@@ -373,7 +393,7 @@ describe("searchExerciseResources LangChain tool", () => {
         suitability: "training",
         code: "required_exercise_filter_mismatch",
         exerciseId: "Plank",
-        conflictFields: ["muscles"],
+        conflictFields: ["requiresExternalEquipment", "muscles"],
       }),
     ]);
     expect(modelMessage).not.toHaveProperty("positiveAnchorBoundary");
@@ -556,7 +576,10 @@ describe("searchExerciseResources LangChain tool", () => {
     for (const input of [
       { muscles: ["胸部"], limit: 10 },
       { q: "俯卧撑" },
+      { muscles: ["胸部"], equipment: "no_equipment" },
       { muscles: ["胸部"], homeRequirement: "无器械" },
+      { muscles: ["胸部"], requiresExternalEquipment: false, requiredEquipmentTags: ["dumbbell"] },
+      { muscles: ["胸部"], supportRequirementTags: ["none", "floor_or_mat"] },
       { muscles: ["胸部"], candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection + 1 },
     ]) {
       const result = await executeLangChainToolWrapper(
@@ -694,8 +717,12 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("服务端不根据用户原文分流");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(modelVisibleText).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
-    expect(modelVisibleText).toContain("homeRequirement 只表示环境、场地或支撑条件");
-    expect(modelVisibleText).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
+    expect(modelVisibleText).toContain("requiresExternalEquipment=false 表示已确认不需要外部训练器械");
+    expect(modelVisibleText).toContain("requiredEquipmentTags 表示动作需要的外部训练器械 taxonomy tag");
+    expect(modelVisibleText).toContain("supportRequirementTags 表示非训练器械的支撑、场地、固定设施、搭档或户外条件");
+    expect(modelVisibleText).toContain("setupComplexityMax、impactLevelMax 和 noiseLevelMax 是上限筛选");
+    expect(modelVisibleText).toContain("unknown 或 null 不匹配低门槛、低冲击或安静约束");
+    expect(modelVisibleText).toContain("candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要");
     expect(modelVisibleText).toContain("exerciseNames");
     expect(modelVisibleText).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(modelVisibleText).toContain("不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段");
@@ -719,9 +746,6 @@ async function importToolWithRepositoryImplementation(input: {
   const getExerciseResourceSummariesByIds = vi.fn(input.getByIdsImplementation ?? (async () => []));
   vi.doMock(repositoryPath, () => ({
     getExerciseResourceSummariesByIds,
-    isBodyweightExerciseResourceEquipment: (exercise: Pick<ExerciseResourceSummary, "equipment" | "equipmentZh">) => exercise.equipment === "body only" || exercise.equipmentZh === "自重",
-    isNoEquipmentResourceQueryValue: (value: string) => value === "no_equipment" || value === "无器械",
-    isRemovedNoEquipmentHomeRequirementValue: (value: string) => ["none", "no_equipment", "无器械"].includes(value),
     normalizeExerciseResourceFacetCatalogForPlanner: (catalog: unknown) => catalog,
     searchExerciseResourceSummaries,
   }));
@@ -756,15 +780,14 @@ function createSearchResult(input: {
     query: input.query,
     appliedFilters: [],
     filterApplication,
-    filterSemantics: input.query.equipment === "no_equipment"
+    filterSemantics: input.query.setupComplexityMax
       ? [{
-        field: "equipment",
-        requestedValue: "no_equipment",
+        field: "setupComplexityMax",
+        requestedValue: input.query.setupComplexityMax,
         databaseMapping: {
-          equipment: ["body only", "bodyweight"],
-          equipmentZh: ["自重"],
+          matchedValues: ["zero_setup"],
         },
-        note: "no_equipment 映射到自重动作。",
+        note: "setupComplexityMax 按准备复杂度上限匹配已知 taxonomy；unknown 不匹配任何上限。",
       }]
       : [],
     diagnostics: input.diagnostics ?? [],
@@ -851,6 +874,12 @@ function createExerciseSummary(overrides: Partial<ExerciseResourceSummary> = {})
     equipmentZh: overrides.equipmentZh ?? "自重",
     homeRequirement: overrides.homeRequirement ?? "none",
     homeRequirementZh: overrides.homeRequirementZh ?? "无器械",
+    requiresExternalEquipment: overrides.requiresExternalEquipment ?? false,
+    requiredEquipmentTags: overrides.requiredEquipmentTags ?? [],
+    supportRequirementTags: overrides.supportRequirementTags ?? ["none"],
+    setupComplexity: overrides.setupComplexity ?? "zero_setup",
+    impactLevel: overrides.impactLevel ?? "low",
+    noiseLevel: overrides.noiseLevel ?? "quiet",
     primaryMuscles: overrides.primaryMuscles ?? ["chest"],
     primaryMusclesZh: overrides.primaryMusclesZh ?? ["胸部"],
     secondaryMuscles: overrides.secondaryMuscles ?? ["triceps"],

@@ -464,7 +464,7 @@ function createTerminalToolLoopFailureMiddleware(
   })];
 }
 
-/** findTerminalToolLoopFailure 只识别通用连续业务 tool 超限，不依赖具体业务 toolName 或用户 phrasing。 */
+/** findTerminalToolLoopFailure 只识别通用连续业务 tool 超限，不依赖具体业务 toolName 或用户措辞。 */
 function findTerminalToolLoopFailure(
   toolExecutions: readonly LangChainAgentToolExecution[],
 ) {

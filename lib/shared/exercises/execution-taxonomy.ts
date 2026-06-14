@@ -138,6 +138,20 @@ export const exerciseSetupComplexityRank: Record<ExerciseKnownSetupComplexity, n
   outdoor: 6,
 };
 
+/** exerciseImpactLevelRank 固定 impactLevelMax 使用的排序，null 不进入排序。 */
+export const exerciseImpactLevelRank: Record<ExerciseImpactLevel, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+
+/** exerciseNoiseLevelRank 固定 noiseLevelMax 使用的排序，null 不进入排序。 */
+export const exerciseNoiseLevelRank: Record<ExerciseNoiseLevel, number> = {
+  quiet: 0,
+  normal: 1,
+  loud: 2,
+};
+
 /** exerciseExecutionTaxonomySchema 校验 Exercise 执行条件字段的字段级不变量。 */
 export const exerciseExecutionTaxonomySchema = z
   .object({
@@ -218,6 +232,30 @@ export function isExerciseSetupComplexityAtMost(
   }
 
   return exerciseSetupComplexityRank[value] <= exerciseSetupComplexityRank[max];
+}
+
+/** isExerciseImpactLevelAtMost 只比较已知冲击等级，null 永远不匹配上限。 */
+export function isExerciseImpactLevelAtMost(
+  value: ExerciseImpactLevel | null,
+  max: ExerciseImpactLevel,
+) {
+  if (value === null) {
+    return false;
+  }
+
+  return exerciseImpactLevelRank[value] <= exerciseImpactLevelRank[max];
+}
+
+/** isExerciseNoiseLevelAtMost 只比较已知噪音等级，null 永远不匹配上限。 */
+export function isExerciseNoiseLevelAtMost(
+  value: ExerciseNoiseLevel | null,
+  max: ExerciseNoiseLevel,
+) {
+  if (value === null) {
+    return false;
+  }
+
+  return exerciseNoiseLevelRank[value] <= exerciseNoiseLevelRank[max];
 }
 
 /** parseExerciseExecutionTaxonomy 供导入、测试和后续 repository 复用同一字段级校验。 */

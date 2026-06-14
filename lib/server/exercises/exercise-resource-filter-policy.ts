@@ -1,4 +1,11 @@
 import type { ExerciseSuitability } from "@/lib/shared/exercises/types";
+import type {
+  ExerciseImpactLevel,
+  ExerciseKnownSetupComplexity,
+  ExerciseNoiseLevel,
+  ExerciseRequiredEquipmentTag,
+  ExerciseSupportRequirementTag,
+} from "@/lib/shared/exercises/execution-taxonomy";
 
 /** ExerciseResourceHardFilterPolicy 表达单个 section 的数据库 hard filter 执行口径。 */
 export type ExerciseResourceHardFilterPolicy = "training" | "support_section";
@@ -32,8 +39,12 @@ export type ExerciseResourceFilterPolicyInput = {
   level?: string;
   force?: string;
   mechanic?: string;
-  equipment?: string;
-  homeRequirement?: string;
+  requiresExternalEquipment?: boolean;
+  requiredEquipmentTags?: ExerciseRequiredEquipmentTag[];
+  supportRequirementTags?: ExerciseSupportRequirementTag[];
+  setupComplexityMax?: ExerciseKnownSetupComplexity;
+  impactLevelMax?: ExerciseImpactLevel;
+  noiseLevelMax?: ExerciseNoiseLevel;
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
@@ -41,7 +52,7 @@ export type ExerciseResourceFilterPolicyInput = {
   requiredExerciseIds?: string[];
 };
 
-type FilterValue = string | string[] | undefined;
+type FilterValue = string | string[] | boolean | undefined;
 
 export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
   "suitabilities",
@@ -50,8 +61,12 @@ export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
   "level",
   "force",
   "mechanic",
-  "equipment",
-  "homeRequirement",
+  "requiresExternalEquipment",
+  "requiredEquipmentTags",
+  "supportRequirementTags",
+  "setupComplexityMax",
+  "impactLevelMax",
+  "noiseLevelMax",
   "muscles",
   "goalTag",
   "riskTag",
@@ -65,8 +80,12 @@ export const EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE =
 const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
   "suitabilities",
   "exerciseNames",
-  "equipment",
-  "homeRequirement",
+  "requiresExternalEquipment",
+  "requiredEquipmentTags",
+  "supportRequirementTags",
+  "setupComplexityMax",
+  "impactLevelMax",
+  "noiseLevelMax",
   "muscles",
   "requiredExerciseIds",
   "excludeExerciseIds",
@@ -79,8 +98,12 @@ const trainingAppliedHardFilters = new Set<ExerciseResourceFilterApplicationFiel
   "level",
   "force",
   "mechanic",
-  "equipment",
-  "homeRequirement",
+  "requiresExternalEquipment",
+  "requiredEquipmentTags",
+  "supportRequirementTags",
+  "setupComplexityMax",
+  "impactLevelMax",
+  "noiseLevelMax",
   "muscles",
   "goalTag",
   "riskTag",
@@ -98,8 +121,12 @@ const fieldReaders: Array<{
   { field: "level", read: (input) => input.level },
   { field: "force", read: (input) => input.force },
   { field: "mechanic", read: (input) => input.mechanic },
-  { field: "equipment", read: (input) => input.equipment },
-  { field: "homeRequirement", read: (input) => input.homeRequirement },
+  { field: "requiresExternalEquipment", read: (input) => input.requiresExternalEquipment },
+  { field: "requiredEquipmentTags", read: (input) => input.requiredEquipmentTags },
+  { field: "supportRequirementTags", read: (input) => input.supportRequirementTags },
+  { field: "setupComplexityMax", read: (input) => input.setupComplexityMax },
+  { field: "impactLevelMax", read: (input) => input.impactLevelMax },
+  { field: "noiseLevelMax", read: (input) => input.noiseLevelMax },
   { field: "muscles", read: (input) => input.muscles },
   { field: "goalTag", read: (input) => input.goalTag },
   { field: "riskTag", read: (input) => input.riskTag },

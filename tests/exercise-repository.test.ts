@@ -82,8 +82,11 @@ describe("exercise repository", () => {
       level: "intermediate",
       force: "push",
       mechanic: "compound",
-      equipment: "no_equipment",
-      homeRequirement: "floor",
+      requiresExternalEquipment: false,
+      supportRequirementTags: ["floor_or_mat"],
+      setupComplexityMax: "floor_or_mat",
+      impactLevelMax: "low",
+      noiseLevelMax: "quiet",
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -104,7 +107,11 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"mechanic\":\"compound\"");
     expect(serializedWhere).toContain("\"goalTags\":{\"has\":\"strength\"}");
     expect(serializedWhere).toContain("\"riskTags\":{\"has\":\"shoulder_pain\"}");
-    expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
+    expect(serializedWhere).toContain("\"requiresExternalEquipment\":false");
+    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"setupComplexity\":{\"in\":[\"zero_setup\",\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"impactLevel\":{\"in\":[\"low\"]}");
+    expect(serializedWhere).toContain("\"noiseLevel\":{\"in\":[\"quiet\"]}");
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
     expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-training\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-training\"]}");
@@ -119,8 +126,11 @@ describe("exercise repository", () => {
         "level",
         "force",
         "mechanic",
-        "equipment",
-        "homeRequirement",
+        "requiresExternalEquipment",
+        "supportRequirementTags",
+        "setupComplexityMax",
+        "impactLevelMax",
+        "noiseLevelMax",
         "muscles",
         "goalTag",
         "riskTag",
@@ -151,8 +161,11 @@ describe("exercise repository", () => {
       level: "intermediate",
       force: "push",
       mechanic: "compound",
-      equipment: "no_equipment",
-      homeRequirement: "floor",
+      requiresExternalEquipment: false,
+      supportRequirementTags: ["floor_or_mat"],
+      setupComplexityMax: "floor_or_mat",
+      impactLevelMax: "low",
+      noiseLevelMax: "quiet",
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -169,9 +182,11 @@ describe("exercise repository", () => {
     expect(serializedWhere).not.toContain("isPublished");
     expect(serializedWhere).toContain("\"allowedSections\":{\"has\":\"warmup\"}");
     expect(serializedWhere).toContain("\"contains\":\"胸部动态热身\"");
-    expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
-    expect(serializedWhere).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
-    expect(serializedWhere).toContain("\"homeRequirement\":\"floor\"");
+    expect(serializedWhere).toContain("\"requiresExternalEquipment\":false");
+    expect(serializedWhere).toContain("\"supportRequirementTags\":{\"hasSome\":[\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"setupComplexity\":{\"in\":[\"zero_setup\",\"floor_or_mat\"]}");
+    expect(serializedWhere).toContain("\"impactLevel\":{\"in\":[\"low\"]}");
+    expect(serializedWhere).toContain("\"noiseLevel\":{\"in\":[\"quiet\"]}");
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
     expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-warmup\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-warmup\"]}");
@@ -187,8 +202,11 @@ describe("exercise repository", () => {
       appliedHardFilters: expect.arrayContaining([
         "suitabilities",
         "exerciseNames",
-        "equipment",
-        "homeRequirement",
+        "requiresExternalEquipment",
+        "supportRequirementTags",
+        "setupComplexityMax",
+        "impactLevelMax",
+        "noiseLevelMax",
         "muscles",
         "requiredExerciseIds",
         "excludeExerciseIds",
@@ -351,6 +369,12 @@ function createRepositoryExerciseRecord(overrides: Record<string, unknown> = {})
     equipmentZh: overrides.equipmentZh ?? "自重",
     homeRequirement: overrides.homeRequirement ?? "floor",
     homeRequirementZh: overrides.homeRequirementZh ?? "地面/瑜伽垫",
+    requiresExternalEquipment: overrides.requiresExternalEquipment ?? false,
+    requiredEquipmentTags: overrides.requiredEquipmentTags ?? [],
+    supportRequirementTags: overrides.supportRequirementTags ?? ["floor_or_mat"],
+    setupComplexity: overrides.setupComplexity ?? "floor_or_mat",
+    impactLevel: overrides.impactLevel ?? "low",
+    noiseLevel: overrides.noiseLevel ?? "quiet",
     primaryMuscles: overrides.primaryMuscles ?? ["chest"],
     primaryMusclesZh: overrides.primaryMusclesZh ?? ["胸部"],
     secondaryMuscles: overrides.secondaryMuscles ?? ["triceps"],
