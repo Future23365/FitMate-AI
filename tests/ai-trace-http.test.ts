@@ -250,7 +250,31 @@ describe("AI trace store and HTTP request helpers", () => {
   it("saves full trace logs as a lightweight report plus long text mapping", async () => {
     const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(5000)}`;
     const longDetailText = `完整 runtime 详情 ${"保留 input output metadata 方便复盘。".repeat(3000)}`;
+    const longToolSummary = `ToolMessage 摘要 ${"候选动作事实进入模型。".repeat(800)}`;
     const diagnosticPayloadText = `保留可排查 payload ${"exercise ".repeat(120)}`;
+    const toolOutputVisibility = {
+      modelVisibleSummary: {
+        visibility: "llm_visible",
+        modelVisible: true,
+        label: "LLM 可见 / ToolMessage 内容",
+        consumer: "LangChain ToolMessage -> LLM",
+        note: "此区块会作为 tool result 摘要回填给模型。",
+      },
+      userProjection: {
+        visibility: "user_projection",
+        modelVisible: false,
+        label: "用户投影 / 前端投影",
+        consumer: "前端投影，不回填模型",
+        note: "此区块供用户可见投影或前端事件消费，不进入模型上下文。",
+      },
+      traceSummary: {
+        visibility: "debug_only",
+        modelVisible: false,
+        label: "debug-only / 调试摘要",
+        consumer: "trace / log 调试，不回填模型",
+        note: "此区块只用于开发排查。",
+      },
+    };
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
       payload: {
@@ -275,6 +299,19 @@ describe("AI trace store and HTTP request helpers", () => {
             preview: "保留可排查 payload",
             textFile: "codex_logs/ai_trace_texts.jsonl",
           },
+          {
+            contentRef: "text_0003",
+            path: "$.langChainToolExecutions[0].modelVisibleSummary",
+            kind: "generic_long_text",
+            originalLength: longToolSummary.length,
+            hash: "fnv1a:44444444",
+            preview: "ToolMessage 摘要",
+            visibility: toolOutputVisibility.modelVisibleSummary,
+            visibilityByPath: {
+              "$.langChainToolExecutions[0].modelVisibleSummary": toolOutputVisibility.modelVisibleSummary,
+            },
+            textFile: "codex_logs/ai_trace_texts.jsonl",
+          },
         ],
         longTexts: [
           {
@@ -294,6 +331,19 @@ describe("AI trace store and HTTP request helpers", () => {
             hash: "fnv1a:22222222",
             preview: "保留可排查 payload",
             content: diagnosticPayloadText,
+          },
+          {
+            contentRef: "text_0003",
+            path: "$.langChainToolExecutions[0].modelVisibleSummary",
+            kind: "generic_long_text",
+            originalLength: longToolSummary.length,
+            hash: "fnv1a:44444444",
+            preview: "ToolMessage 摘要",
+            visibility: toolOutputVisibility.modelVisibleSummary,
+            visibilityByPath: {
+              "$.langChainToolExecutions[0].modelVisibleSummary": toolOutputVisibility.modelVisibleSummary,
+            },
+            content: longToolSummary,
           },
         ],
         plannerModelCalls: [
@@ -319,31 +369,73 @@ describe("AI trace store and HTTP request helpers", () => {
             response: { tokenUsage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } },
           },
         ],
+        langChainToolExecutions: [
+          {
+            toolCallId: "call_search_1",
+            toolName: "searchExerciseResources",
+            status: "succeeded",
+            modelVisibleSummary: {
+              contentRef: "text_0003",
+              path: "$.langChainToolExecutions[0].modelVisibleSummary",
+              kind: "generic_long_text",
+              originalLength: longToolSummary.length,
+              hash: "fnv1a:44444444",
+              preview: "ToolMessage 摘要",
+              visibility: toolOutputVisibility.modelVisibleSummary,
+              textFile: "codex_logs/ai_trace_texts.jsonl",
+            },
+            userProjection: { resourceType: "exercise_search_results" },
+            traceSummary: { totalMatches: 12, returnedCount: 3, truncated: true },
+            outputVisibility: toolOutputVisibility,
+            candidateDiagnosticsVisibility: {
+              fields: ["totalMatches", "returnedCount", "truncated"],
+              visibility: "debug_only",
+              modelVisible: false,
+            },
+            enteredModelContext: true,
+            enteredModelContextMeaning: "enteredModelContext=true 仅表示 modelVisibleSummary 已作为 ToolMessage 进入模型上下文。",
+          },
+        ],
         detailRefs: [
           {
             detailRef: "detail_0001",
-            path: "$.runtimeTraceEvents[0]",
-            kind: "runtime_event_detail",
+            path: "$.langChainToolExecutions[0]",
+            kind: "tool_execution_detail",
             hash: "fnv1a:33333333",
-            summary: { type: "tool_call", toolName: "readFixture", toolResultId: "tr_1" },
+            summary: {
+              type: "tool_call",
+              toolName: "searchExerciseResources",
+              toolResultId: "tr_1",
+              outputVisibility: toolOutputVisibility,
+            },
+            visibility: toolOutputVisibility,
             detailFile: "codex_logs/ai_trace_texts.jsonl",
           },
         ],
         details: [
           {
             detailRef: "detail_0001",
-            path: "$.runtimeTraceEvents[0]",
-            kind: "runtime_event_detail",
+            path: "$.langChainToolExecutions[0]",
+            kind: "tool_execution_detail",
             hash: "fnv1a:33333333",
-            summary: { type: "tool_call", toolName: "readFixture", toolResultId: "tr_1" },
+            summary: {
+              type: "tool_call",
+              toolName: "searchExerciseResources",
+              toolResultId: "tr_1",
+              outputVisibility: toolOutputVisibility,
+            },
+            visibility: toolOutputVisibility,
             content: {
               id: "step-tool",
               type: "tool_call",
               input: { text: "hello" },
               output: {
                 type: "tool_execution",
-                toolName: "readFixture",
+                toolName: "searchExerciseResources",
                 toolResultId: "tr_1",
+                modelVisibleSummary: longToolSummary,
+                traceSummary: { totalMatches: 12, returnedCount: 3, truncated: true },
+                outputVisibility: toolOutputVisibility,
                 payload: {
                   exerciseId: "Pushups",
                   authorization: "Bearer secret-token",
@@ -386,9 +478,14 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).not.toContain(longModelText);
     expect(savedContent).not.toContain(longDetailText);
     expect(savedContent).toContain("plannerModelCalls");
+    expect(savedContent).toContain("langChainToolExecutions");
     expect(savedContent).toContain("tokenUsageSummary");
     expect(savedContent).toContain("detailRefs");
     expect(savedContent).toContain("\"detailRef\": \"detail_0001\"");
+    expect(savedContent).toContain("\"visibility\": \"llm_visible\"");
+    expect(savedContent).toContain("\"visibility\": \"debug_only\"");
+    expect(savedContent).toContain("\"modelVisible\": false");
+    expect(savedContent).toContain("\"totalMatches\": 12");
     expect(savedContent).toContain("\"prompt_tokens\": 10");
     expect(savedContent).not.toContain("rawTrace");
     expect(savedContent).not.toContain("\"trace\":");
@@ -405,6 +502,8 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(longTextContent).toContain("\"recordType\":\"text_chunk\"");
     expect(longTextContent).toContain("\"recordType\":\"detail\"");
     expect(longTextContent).toContain("\"recordType\":\"detail_chunk\"");
+    expect(longTextContent).toContain("\"visibility\":{\"visibility\":\"llm_visible\"");
+    expect(longTextContent).toContain("\"visibility\":{\"modelVisibleSummary\"");
     expect(longTextContent).toContain(diagnosticPayloadText.slice(0, 80));
     expect(longTextContent).not.toContain("Bearer secret-token");
     expect(longTextContent).not.toContain("...[truncated]");
@@ -413,6 +512,7 @@ describe("AI trace store and HTTP request helpers", () => {
     const detailChunks = mappingRecords.filter((record) => record.recordType === "detail_chunk" && record.parentRef === "detail_0001");
     const contentRefRecords = mappingRecords.filter((record) => record.contentRef === "text_0001");
     const detailRefRecords = mappingRecords.filter((record) => record.detailRef === "detail_0001");
+    const toolSummaryRefRecords = mappingRecords.filter((record) => record.contentRef === "text_0003");
 
     expect(textChunks.length).toBeGreaterThan(1);
     expect(textChunks.map((record) => record.content).join("")).toBe(longModelText);
@@ -422,6 +522,21 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(detailContent).toContain("\"authorization\": \"[redacted]\"");
     expect(contentRefRecords).toHaveLength(1);
     expect(detailRefRecords).toHaveLength(1);
+    expect(toolSummaryRefRecords).toHaveLength(1);
+    expect(toolSummaryRefRecords[0]).toMatchObject({
+      visibility: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+      visibilityByPath: {
+        "$.langChainToolExecutions[0].modelVisibleSummary": expect.objectContaining({
+          visibility: "llm_visible",
+          modelVisible: true,
+        }),
+      },
+    });
+    expect(detailRefRecords[0]).toMatchObject({
+      visibility: expect.objectContaining({
+        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      }),
+    });
     expect(textChunks.every((record) => record.contentRef === undefined)).toBe(true);
     expect(detailChunks.every((record) => record.detailRef === undefined)).toBe(true);
     expect(Math.max(...longTextContent.split("\n").map((line) => line.length))).toBeLessThan(2600);

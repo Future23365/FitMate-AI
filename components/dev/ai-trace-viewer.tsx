@@ -95,6 +95,26 @@ type TraceLogDetailKind =
   | "tool_execution_detail"
   | "runtime_event_detail";
 
+type ToolExecutionVisibilityField = "modelVisibleSummary" | "userProjection" | "traceSummary";
+type ToolExecutionVisibilityKind = "llm_visible" | "user_projection" | "debug_only";
+
+export type ToolExecutionVisibilityMetadata = {
+  visibility: ToolExecutionVisibilityKind;
+  modelVisible: boolean;
+  label: string;
+  consumer: string;
+  note: string;
+};
+
+export type ToolExecutionVisibilitySection = ToolExecutionVisibilityMetadata & {
+  field: ToolExecutionVisibilityField;
+  title: string;
+  value: unknown;
+  diagnosticFields?: string[];
+  enteredModelContext?: boolean;
+  enteredModelContextMeaning?: string;
+};
+
 export type TraceLogLongTextRef = {
   contentRef: string;
   path: string;
@@ -103,6 +123,8 @@ export type TraceLogLongTextRef = {
   originalLength: number;
   hash: string;
   preview: string;
+  visibility?: ToolExecutionVisibilityMetadata;
+  visibilityByPath?: Record<string, ToolExecutionVisibilityMetadata>;
   textFile: "codex_logs/ai_trace_texts.jsonl";
 };
 
@@ -117,6 +139,7 @@ export type TraceLogDetailRef = {
   kind: TraceLogDetailKind;
   hash: string;
   summary: Record<string, unknown>;
+  visibility?: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata>;
   detailFile: "codex_logs/ai_trace_texts.jsonl";
 };
 
@@ -135,6 +158,31 @@ type TraceLogDetailState = {
 
 const traceLogLongTextThreshold = 600;
 const traceLogLongTextPreviewEdgeLength = 120;
+
+// toolExecutionVisibilityDefinitions 是 trace 页面和导出共享的消费方边界合同。
+const toolExecutionVisibilityDefinitions: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata> = {
+  modelVisibleSummary: {
+    visibility: "llm_visible",
+    modelVisible: true,
+    label: "LLM 可见 / ToolMessage 内容",
+    consumer: "LangChain ToolMessage -> LLM",
+    note: "此区块会作为 tool result 摘要回填给模型。",
+  },
+  userProjection: {
+    visibility: "user_projection",
+    modelVisible: false,
+    label: "用户投影 / 前端投影",
+    consumer: "前端投影，不回填模型",
+    note: "此区块供用户可见投影或前端事件消费，不进入模型上下文。",
+  },
+  traceSummary: {
+    visibility: "debug_only",
+    modelVisible: false,
+    label: "debug-only / 调试摘要",
+    consumer: "trace / log 调试，不回填模型",
+    note: "此区块只用于开发排查；候选数量、截断状态等诊断字段不是模型可见事实。",
+  },
+};
 
 // AiTraceViewer 是开发态模块化 trace 壳，按 LangChain 主链职责展示可保存诊断。
 export function AiTraceViewer() {
@@ -703,6 +751,8 @@ function TraceStepCard({
   step: AiTraceStep;
   tokenUsage: TokenUsage | null;
 }) {
+  const toolVisibilityRecords = readStepToolExecutionVisibilityRecords(step);
+
   return (
     <details className="group p-4" open={index === 0}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
@@ -725,6 +775,7 @@ function TraceStepCard({
         <span className="text-xs text-slate-400 group-open:hidden">展开</span>
         <span className="hidden text-xs text-slate-400 group-open:inline">收起</span>
       </summary>
+      <ToolExecutionVisibilityPanels records={toolVisibilityRecords} />
       <div className="mt-4 grid gap-3 xl:grid-cols-2">
         <JsonBlock title="Input" value={step.input} />
         <JsonBlock title="Output" value={step.output} />
@@ -732,6 +783,85 @@ function TraceStepCard({
         <JsonBlock title="Error" value={step.error} />
       </div>
     </details>
+  );
+}
+
+function ToolExecutionVisibilityPanels({
+  records,
+}: {
+  records: Array<{ id: string; execution: Record<string, unknown>; source: string }>;
+}) {
+  if (records.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {records.map((record, index) => {
+        const toolName = readString(record.execution.toolName) ?? `tool execution ${index + 1}`;
+        const status = readString(record.execution.status) ?? "-";
+        const enteredModelContext = record.execution.enteredModelContext === true;
+
+        return (
+          <section className="rounded-lg border border-blue-100 bg-blue-50/40 p-3" key={record.id}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-blue-800">
+                  Tool 输出可见性边界：{toolName}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {record.source} · status={status} · enteredModelContext={String(enteredModelContext)}
+                  {"，"}仅表示 `modelVisibleSummary` 已作为 ToolMessage 回填模型，不表示完整 execution record 进入模型。
+                </p>
+              </div>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                modelVisibleSummary only
+              </span>
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              {createToolExecutionVisibilitySections(record.execution).map((section) => (
+                <ToolExecutionVisibilitySectionCard key={`${record.id}:${section.field}`} section={section} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function ToolExecutionVisibilitySectionCard({ section }: { section: ToolExecutionVisibilitySection }) {
+  const hasCandidateDiagnostics = section.field === "traceSummary" && (section.diagnosticFields?.length ?? 0) > 0;
+
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-100 bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-slate-800">{section.label}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${
+          section.modelVisible
+            ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+            : "bg-slate-50 text-slate-600 ring-slate-200"
+        }`}>
+          {section.visibility}
+        </span>
+        <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">
+          modelVisible: {String(section.modelVisible)}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{section.note}</p>
+      {hasCandidateDiagnostics ? (
+        <p className="mt-1 text-xs leading-5 text-blue-700">
+          候选数量诊断字段 {section.diagnosticFields?.join(", ")} 均为 debug-only / not model-visible。
+        </p>
+      ) : null}
+      {section.enteredModelContextMeaning ? (
+        <p className="mt-1 text-xs leading-5 text-emerald-700">{section.enteredModelContextMeaning}</p>
+      ) : null}
+      <pre className="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-2 text-[11px] leading-5 text-slate-700 ring-1 ring-slate-100">
+        {typeof section.value === "undefined" ? "undefined" : JSON.stringify(section.value, null, 2)}
+      </pre>
+    </div>
   );
 }
 
@@ -1447,6 +1577,89 @@ function readToolExecutions(value: unknown) {
   });
 }
 
+// readStepToolExecutionVisibilityRecords 找出页面中需要以消费方边界展示的 LangChain tool execution。
+function readStepToolExecutionVisibilityRecords(step: AiTraceStep) {
+  const output = isRecord(step.output) ? step.output : {};
+  const records: Array<{ id: string; execution: Record<string, unknown>; source: string }> = [];
+  const runtimeToolExecutions = Array.isArray(output.toolExecutions)
+    ? output.toolExecutions.filter((item): item is Record<string, unknown> => isRecord(item))
+    : [];
+
+  runtimeToolExecutions.forEach((execution, index) => {
+    if (!hasToolExecutionVisibilityBoundary(execution)) {
+      return;
+    }
+
+    records.push({
+      id: `${step.id}:runtime-tool-execution:${index}`,
+      execution,
+      source: "runtime summary toolExecutions",
+    });
+  });
+
+  if (hasToolExecutionVisibilityBoundary(output)) {
+    records.push({
+      id: `${step.id}:step-output`,
+      execution: output,
+      source: "step output",
+    });
+  }
+
+  return records;
+}
+
+function hasToolExecutionVisibilityBoundary(execution: Record<string, unknown>) {
+  return (
+    Object.prototype.hasOwnProperty.call(execution, "modelVisibleSummary") ||
+    Object.prototype.hasOwnProperty.call(execution, "userProjection") ||
+    Object.prototype.hasOwnProperty.call(execution, "traceSummary") ||
+    Object.prototype.hasOwnProperty.call(execution, "enteredModelContext")
+  );
+}
+
+// createToolExecutionVisibilitySections 为页面分区和测试暴露同一套可见性派生语义。
+export function createToolExecutionVisibilitySections(execution: Record<string, unknown>): ToolExecutionVisibilitySection[] {
+  return (Object.keys(toolExecutionVisibilityDefinitions) as ToolExecutionVisibilityField[]).map((field) => {
+    const visibility = toolExecutionVisibilityDefinitions[field];
+    const value = execution[field];
+
+    return {
+      field,
+      title: visibility.label,
+      ...visibility,
+      value,
+      diagnosticFields: field === "traceSummary" ? readCandidateDiagnosticFields(value) : undefined,
+      enteredModelContext: field === "modelVisibleSummary" ? execution.enteredModelContext === true : undefined,
+      enteredModelContextMeaning: field === "modelVisibleSummary"
+        ? formatEnteredModelContextMeaning(execution.enteredModelContext === true)
+        : undefined,
+    };
+  });
+}
+
+// createToolExecutionOutputVisibility 是导出报告中的稳定字段级可见性合同，不携带 payload 本身。
+function createToolExecutionOutputVisibility() {
+  return {
+    modelVisibleSummary: toolExecutionVisibilityDefinitions.modelVisibleSummary,
+    userProjection: toolExecutionVisibilityDefinitions.userProjection,
+    traceSummary: toolExecutionVisibilityDefinitions.traceSummary,
+  };
+}
+
+function formatEnteredModelContextMeaning(enteredModelContext: boolean) {
+  return enteredModelContext
+    ? "enteredModelContext=true 仅表示 modelVisibleSummary 已作为 ToolMessage 进入模型上下文。"
+    : "enteredModelContext 未标记为 true；不得据此推断完整 execution record 进入模型。";
+}
+
+function readCandidateDiagnosticFields(value: unknown) {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  return ["totalMatches", "returnedCount", "truncated"].filter((field) => Object.prototype.hasOwnProperty.call(value, field));
+}
+
 function uniqueStrings(values: readonly string[]) {
   return Array.from(new Set(values));
 }
@@ -1950,6 +2163,8 @@ function createLangChainRuntimeSummaryReport(summary: Record<string, unknown>) {
 }
 
 function createLangChainToolExecutionReport(execution: Record<string, unknown>) {
+  const outputVisibility = createToolExecutionOutputVisibility();
+
   return {
     toolCallId: readString(execution.toolCallId),
     toolName: readString(execution.toolName),
@@ -1957,8 +2172,17 @@ function createLangChainToolExecutionReport(execution: Record<string, unknown>) 
     durationMs: readNumber(execution.durationMs),
     inputSummary: execution.inputSummary,
     modelVisibleSummary: execution.modelVisibleSummary,
+    userProjection: execution.userProjection,
     traceSummary: execution.traceSummary,
+    outputVisibility,
+    candidateDiagnosticsVisibility: {
+      fields: readCandidateDiagnosticFields(execution.traceSummary),
+      visibility: outputVisibility.traceSummary.visibility,
+      modelVisible: outputVisibility.traceSummary.modelVisible,
+      note: "traceSummary 中的候选数量诊断字段只用于 debug-only 排查，不回填模型。",
+    },
     enteredModelContext: execution.enteredModelContext,
+    enteredModelContextMeaning: formatEnteredModelContextMeaning(execution.enteredModelContext === true),
     sequence: readNumber(execution.sequence),
     modelCallIndex: readNumber(execution.modelCallIndex),
     runtimeStep: readNumber(execution.runtimeStep),
@@ -1983,21 +2207,35 @@ function createLangChainToolExecutionReports(
   return summaries
     .flatMap((summary) => (Array.isArray(summary.toolExecutions) ? summary.toolExecutions : []))
     .filter((execution): execution is Record<string, unknown> => isRecord(execution))
-    .map((execution, index) => ({
-      ...createLangChainToolExecutionReport(execution),
-      detailRef: createTraceLogDetailEntry(detailState, {
-        path: `$.langChainToolExecutions[${index}]`,
-        kind: "tool_execution_detail",
-        summary: {
-          toolName: readString(execution.toolName),
-          status: readString(execution.status),
-          toolCallId: readString(execution.toolCallId),
-          runtimeStep: readNumber(execution.runtimeStep),
-          modelCallIndex: readNumber(execution.modelCallIndex),
-        },
-        content: execution,
-      }),
-    }));
+    .map((execution, index) => {
+      const outputVisibility = createToolExecutionOutputVisibility();
+      const report = createLangChainToolExecutionReport(execution);
+      const enteredModelContextMeaning = formatEnteredModelContextMeaning(execution.enteredModelContext === true);
+
+      return {
+        ...report,
+        detailRef: createTraceLogDetailEntry(detailState, {
+          path: `$.langChainToolExecutions[${index}]`,
+          kind: "tool_execution_detail",
+          visibility: outputVisibility,
+          summary: {
+            toolName: readString(execution.toolName),
+            status: readString(execution.status),
+            toolCallId: readString(execution.toolCallId),
+            runtimeStep: readNumber(execution.runtimeStep),
+            modelCallIndex: readNumber(execution.modelCallIndex),
+            outputVisibility,
+            enteredModelContextMeaning,
+          },
+          content: {
+            ...execution,
+            outputVisibility,
+            candidateDiagnosticsVisibility: report.candidateDiagnosticsVisibility,
+            enteredModelContextMeaning,
+          },
+        }),
+      };
+    });
 }
 
 function createLangChainRuntimeReports(
@@ -2155,6 +2393,7 @@ function createTraceLogDetailEntry(
     path: string;
     kind: TraceLogDetailKind;
     summary: Record<string, unknown>;
+    visibility?: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata>;
     content: unknown;
   },
 ): TraceLogDetailRef {
@@ -2165,6 +2404,7 @@ function createTraceLogDetailEntry(
     kind: input.kind,
     hash: hashLongText(serialized),
     summary: input.summary,
+    ...(input.visibility ? { visibility: input.visibility } : {}),
     detailFile: "codex_logs/ai_trace_texts.jsonl",
   };
 
@@ -2323,6 +2563,7 @@ function createLongTextMappingRef(
   } = {},
 ) {
   const originalLength = options.originalLength ?? value.length;
+  const visibility = inferToolExecutionPathVisibility(path);
 
   if (!options.force && value.length <= traceLogLongTextThreshold && originalLength <= traceLogLongTextThreshold) {
     return value;
@@ -2335,6 +2576,12 @@ function createLongTextMappingRef(
     if (!existing.paths.includes(path)) {
       existing.paths.push(path);
     }
+    if (visibility) {
+      existing.visibilityByPath = {
+        ...(existing.visibilityByPath ?? {}),
+        [path]: visibility,
+      };
+    }
 
     return {
       contentRef: existing.contentRef,
@@ -2343,6 +2590,7 @@ function createLongTextMappingRef(
       originalLength: existing.originalLength,
       hash: existing.hash,
       preview: existing.preview,
+      ...(visibility ? { visibility } : {}),
       textFile: existing.textFile,
     };
   }
@@ -2355,6 +2603,7 @@ function createLongTextMappingRef(
     originalLength,
     hash,
     preview: options.preview ?? createLongTextPreview(value),
+    ...(visibility ? { visibility, visibilityByPath: { [path]: visibility } } : {}),
     textFile: "codex_logs/ai_trace_texts.jsonl",
   };
 
@@ -2368,6 +2617,37 @@ function createLongTextMappingRef(
   state.byHash.set(hash, entry);
 
   return ref;
+}
+
+function inferToolExecutionPathVisibility(path: string) {
+  const visibilityField = readToolExecutionVisibilityFieldFromPath(path);
+
+  return visibilityField ? toolExecutionVisibilityDefinitions[visibilityField] : undefined;
+}
+
+function readToolExecutionVisibilityFieldFromPath(path: string): ToolExecutionVisibilityField | undefined {
+  if (
+    !path.includes("langChainToolExecutions") &&
+    !path.includes("toolExecutions") &&
+    !path.includes("tool_execution_detail") &&
+    !path.includes("$.details")
+  ) {
+    return undefined;
+  }
+
+  if (path.includes(".modelVisibleSummary")) {
+    return "modelVisibleSummary";
+  }
+
+  if (path.includes(".userProjection")) {
+    return "userProjection";
+  }
+
+  if (path.includes(".traceSummary")) {
+    return "traceSummary";
+  }
+
+  return undefined;
 }
 
 function readTraceLongTextEnvelope(value: unknown) {

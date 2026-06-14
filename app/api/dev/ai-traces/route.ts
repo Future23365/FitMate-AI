@@ -22,6 +22,8 @@ type SavedTraceLongTextRecord = {
   originalLength: number;
   hash: string;
   preview: unknown;
+  visibility?: unknown;
+  visibilityByPath?: unknown;
   content: unknown;
 };
 
@@ -31,6 +33,7 @@ type SavedTraceDetailRecord = {
   kind: string;
   hash: string;
   summary: unknown;
+  visibility?: unknown;
   content: unknown;
 };
 
@@ -397,6 +400,12 @@ function normalizeTraceLongTextRecord(item: Record<string, unknown>): SavedTrace
     originalLength: typeof item.originalLength === "number" ? item.originalLength : 0,
     hash: getString(item.hash) ?? "",
     preview,
+    visibility: item.visibility === undefined
+      ? undefined
+      : redactJsonValue(item.visibility, { sensitiveKeyPatterns: traceLogSensitiveKeyPatterns }),
+    visibilityByPath: item.visibilityByPath === undefined
+      ? undefined
+      : redactJsonValue(item.visibilityByPath, { sensitiveKeyPatterns: traceLogSensitiveKeyPatterns }),
     content,
   };
 }
@@ -420,6 +429,9 @@ function normalizeTraceDetailRecord(item: Record<string, unknown>): SavedTraceDe
     kind: getString(item.kind) ?? "generic_detail",
     hash: getString(item.hash) ?? "",
     summary,
+    visibility: item.visibility === undefined
+      ? undefined
+      : redactJsonValue(item.visibility, { sensitiveKeyPatterns: traceLogSensitiveKeyPatterns }),
     content,
   };
 }
@@ -440,6 +452,8 @@ function createTextMappingRecords(record: SavedTraceLongTextRecord) {
       originalLength: record.originalLength,
       hash: record.hash,
       preview: record.preview,
+      visibility: record.visibility,
+      visibilityByPath: record.visibilityByPath,
       contentLength: content.length,
       chunkSize: traceMappingChunkContentLength,
       chunkCount: chunks.length,
@@ -466,6 +480,7 @@ function createDetailMappingRecords(record: SavedTraceDetailRecord) {
       kind: record.kind,
       hash: record.hash,
       summary: record.summary,
+      visibility: record.visibility,
       contentType: "json",
       contentLength: content.length,
       chunkSize: traceMappingChunkContentLength,

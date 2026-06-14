@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAgentLoopTimeline,
   createTraceLogPayload,
+  createToolExecutionVisibilitySections,
   extractTraceLogLongTexts,
   groupTraceSteps,
 } from "@/components/dev/ai-trace-viewer";
@@ -900,6 +901,210 @@ describe("AI trace viewer step grouping", () => {
         contentRef: "text_0001",
         paths: ["$.plannerModelCalls[0].request.input.messages[0].content"],
         content: modelVisibleContent,
+      }),
+    ]);
+  });
+
+  it("derives explicit visibility sections for LangChain tool execution outputs", () => {
+    const sections = createToolExecutionVisibilitySections({
+      toolName: "searchExerciseResources",
+      modelVisibleSummary: "{\"candidateGroups\":[{\"exercises\":[\"俯卧撑\"]}]}",
+      userProjection: { resourceType: "exercise_search_results" },
+      traceSummary: { totalMatches: 8, returnedCount: 3, truncated: true },
+      enteredModelContext: true,
+    });
+
+    expect(sections).toMatchObject([
+      {
+        field: "modelVisibleSummary",
+        visibility: "llm_visible",
+        modelVisible: true,
+        label: "LLM 可见 / ToolMessage 内容",
+        enteredModelContext: true,
+        enteredModelContextMeaning: expect.stringContaining("仅表示 modelVisibleSummary"),
+      },
+      {
+        field: "userProjection",
+        visibility: "user_projection",
+        modelVisible: false,
+        label: "用户投影 / 前端投影",
+      },
+      {
+        field: "traceSummary",
+        visibility: "debug_only",
+        modelVisible: false,
+        label: "debug-only / 调试摘要",
+        diagnosticFields: ["totalMatches", "returnedCount", "truncated"],
+      },
+    ]);
+  });
+
+  it("exports tool execution visibility metadata without moving debug diagnostics into model-visible summaries", () => {
+    const modelVisibleSummary = JSON.stringify({
+      candidateGroups: [
+        { exercises: [{ exerciseId: "push-up", name: "俯卧撑" }] },
+      ],
+    });
+    const trace: AiTrace = {
+      id: "trace-tool-visibility",
+      runId: "run-tool-visibility",
+      route: "/api/chat",
+      title: "Tool visibility trace",
+      status: "success",
+      createdAt: "2026-06-12T05:00:00.000Z",
+      steps: [
+        createStep({
+          id: "runtime-summary",
+          type: "runtime_event",
+          name: "LangChain Agent Runtime 摘要",
+          output: {
+            traceSummary: {
+              runtimeVersion: "langchain-agent-runtime-v1",
+              model: "deepseek-v4-flash",
+              toolNames: ["searchExerciseResources"],
+              providerToolCalls: [
+                { id: "call_search_1", name: "searchExerciseResources", argsSummary: { query: "胸部" } },
+              ],
+              modelCallCount: 1,
+              toolCallCount: 1,
+              messageCount: 3,
+              durationMs: 90,
+            },
+            toolExecutions: [
+              {
+                sequence: 1,
+                modelCallIndex: 1,
+                runtimeStep: 1,
+                toolCallId: "call_search_1",
+                toolName: "searchExerciseResources",
+                status: "succeeded",
+                modelVisibleSummary,
+                userProjection: {
+                  resourceType: "exercise_search_results",
+                  results: [{ exerciseId: "push-up", name: "俯卧撑" }],
+                },
+                traceSummary: {
+                  totalMatches: 12,
+                  returnedCount: 1,
+                  truncated: true,
+                },
+                enteredModelContext: true,
+              },
+            ],
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "langchain_runtime",
+          },
+        }),
+      ],
+    };
+
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
+    const toolExecutions = payload.langChainToolExecutions as Array<Record<string, unknown>>;
+    const toolExecution = toolExecutions[0];
+    const detailRef = toolExecution.detailRef as Record<string, unknown>;
+    const detailRefs = payload.detailRefs as Array<Record<string, unknown>>;
+    const details = payload.details as Array<Record<string, unknown>>;
+    const detailHeader = detailRefs.find((item) => item.detailRef === detailRef.detailRef) as Record<string, unknown>;
+    const detail = details.find((item) => item.detailRef === detailRef.detailRef) as Record<string, unknown>;
+
+    expect(toolExecution).toMatchObject({
+      toolName: "searchExerciseResources",
+      modelVisibleSummary,
+      userProjection: expect.objectContaining({ resourceType: "exercise_search_results" }),
+      traceSummary: { totalMatches: 12, returnedCount: 1, truncated: true },
+      outputVisibility: {
+        modelVisibleSummary: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+        userProjection: expect.objectContaining({ visibility: "user_projection", modelVisible: false }),
+        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      },
+      candidateDiagnosticsVisibility: {
+        fields: ["totalMatches", "returnedCount", "truncated"],
+        visibility: "debug_only",
+        modelVisible: false,
+      },
+      enteredModelContextMeaning: expect.stringContaining("仅表示 modelVisibleSummary"),
+    });
+    expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("totalMatches");
+    expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("returnedCount");
+    expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("truncated");
+    expect(detailRef).toMatchObject({
+      kind: "tool_execution_detail",
+      visibility: {
+        modelVisibleSummary: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      },
+      summary: expect.objectContaining({
+        outputVisibility: expect.objectContaining({
+          traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        }),
+      }),
+    });
+    expect(detailHeader).toMatchObject({
+      visibility: expect.objectContaining({
+        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      }),
+    });
+    expect(detail.content).toMatchObject({
+      traceSummary: { totalMatches: 12, returnedCount: 1, truncated: true },
+      outputVisibility: expect.objectContaining({
+        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      }),
+    });
+  });
+
+  it("keeps visibility metadata on contentRef headers when tool output sections are externalized", () => {
+    const longModelVisibleSummary = `模型可见摘要 ${"只包含候选动作事实。".repeat(90)}`;
+    const longTraceDiagnostic = `调试摘要 ${"totalMatches=12 returnedCount=3 truncated=true。".repeat(60)}`;
+
+    const payload = extractTraceLogLongTexts({
+      langChainToolExecutions: [
+        {
+          toolName: "searchExerciseResources",
+          modelVisibleSummary: longModelVisibleSummary,
+          traceSummary: {
+            totalMatches: 12,
+            returnedCount: 3,
+            truncated: true,
+            diagnostic: longTraceDiagnostic,
+          },
+        },
+      ],
+    }) as Record<string, unknown>;
+    const toolExecutions = payload.langChainToolExecutions as Array<Record<string, unknown>>;
+    const toolExecution = toolExecutions[0];
+    const modelVisibleRef = toolExecution.modelVisibleSummary as Record<string, unknown>;
+    const traceSummary = toolExecution.traceSummary as Record<string, unknown>;
+    const traceDiagnosticRef = traceSummary.diagnostic as Record<string, unknown>;
+    const longTextRefs = payload.longTextRefs as Array<Record<string, unknown>>;
+
+    expect(modelVisibleRef).toMatchObject({
+      contentRef: "text_0001",
+      visibility: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+    });
+    expect(traceDiagnosticRef).toMatchObject({
+      contentRef: "text_0002",
+      visibility: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+    });
+    expect(longTextRefs).toEqual([
+      expect.objectContaining({
+        contentRef: "text_0001",
+        visibilityByPath: {
+          "$.langChainToolExecutions[0].modelVisibleSummary": expect.objectContaining({
+            visibility: "llm_visible",
+            modelVisible: true,
+          }),
+        },
+      }),
+      expect.objectContaining({
+        contentRef: "text_0002",
+        visibilityByPath: {
+          "$.langChainToolExecutions[0].traceSummary.diagnostic": expect.objectContaining({
+            visibility: "debug_only",
+            modelVisible: false,
+          }),
+        },
       }),
     ]);
   });
