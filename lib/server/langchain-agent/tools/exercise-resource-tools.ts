@@ -61,9 +61,10 @@ const executionProfileFilterSchema = z.enum(exerciseExecutionProfileValues)
   .optional()
   .describe([
     "动作执行场景筛选；字段来源是用户明确的场地、器械、搭档或空间限制，或模型基于当前目标做出的可解释结构化约束。",
+    '宽泛动作推荐、动作筛选或结构化训练结果候选缺少明确器械、场地或可用设施偏好时，默认使用 no_equipment 作为低门槛无器械口径。',
     `合法值：${exerciseExecutionProfileValues.join(", ")}。`,
     `no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
-    `home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}`,
+    `home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用。`,
     `small_equipment 表示${exerciseExecutionProfileDescriptionsZh.small_equipment}`,
     `gym_equipment 表示${exerciseExecutionProfileDescriptionsZh.gym_equipment}`,
     `partner_required 表示${exerciseExecutionProfileDescriptionsZh.partner_required}`,
@@ -349,8 +350,8 @@ export function createSearchExerciseResourcesLangChainTool(
       "Purpose：只读查询 Exercise 动作库中的发布态动作候选事实，返回按查询口径分组的 candidateGroups[] 和 diagnostics。",
       "Use When：需要基于动作库 facet、高层执行条件、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
       "Do Not Use When：不要用本 tool 生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程、保存结果、读取单个动作完整详情、分页或自然语言语义搜索。",
-      `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
-      "Input Source：home_support 允许地面/垫子、椅子、墙面或台阶等常见居家支撑；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。",
+      `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；宽泛动作推荐、动作筛选或结构化训练结果候选缺少明确器械、场地或可用设施偏好时，默认使用 no_equipment 作为低门槛无器械口径；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
+      `Input Source：home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。`,
       "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
       "Input Source：impactLimit 和 noiseLimit 是上限筛选；适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用。",
       "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令。",

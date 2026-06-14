@@ -79,6 +79,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("executionProfile 用于选择动作执行场景");
     expect(descriptions).toContain("no_equipment");
     expect(descriptions).toContain("完整无器械口径");
+    expect(descriptions).toContain("默认使用 no_equipment 作为低门槛无器械口径");
+    expect(descriptions).toContain("仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用");
     expect(descriptions).toContain("equipmentScope.mode=compatible_with_available");
     expect(descriptions).toContain("equipmentScope.mode=must_use_any");
     expect(descriptions).toContain("impactLimit 和 noiseLimit 是上限筛选");
@@ -123,6 +125,11 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain('默认 "primary"');
     expect(schemaDescriptions).toContain("只匹配 primaryMuscles / primaryMusclesZh");
     expect(schemaDescriptions).toContain("匹配 primaryMuscles / primaryMusclesZh / secondaryMuscles / secondaryMusclesZh");
+    expect(systemPrompt).toContain("默认按低门槛无器械条件继续");
+    expect(systemPrompt).toContain("动作可在地面或瑜伽垫完成");
+    expect(systemPrompt).toContain("不代表用户长期偏好");
+    expect(systemPrompt).toContain("不先做无执行场景的宽泛查询");
+    expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
     expect(systemPrompt).not.toContain("缺少 stretch");
@@ -221,7 +228,9 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain('默认 "primary"');
     expect(schemaDescriptions).toContain('"any" 返回的是参与候选');
     expect(schemaDescriptions).toContain("动作执行场景筛选");
+    expect(schemaDescriptions).toContain("默认使用 no_equipment 作为低门槛无器械口径");
     expect(schemaDescriptions).toContain("完整无器械口径");
+    expect(schemaDescriptions).toContain("仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用");
     expect(schemaDescriptions).toContain("compatible_with_available");
     expect(schemaDescriptions).toContain("must_use_any");
     expect(schemaDescriptions).toContain("冲击程度上限筛选");

@@ -951,6 +951,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("executionProfile 用于选择动作执行场景");
     expect(modelVisibleText).toContain("no_equipment");
     expect(modelVisibleText).toContain("完整无器械口径");
+    expect(modelVisibleText).toContain("默认使用 no_equipment 作为低门槛无器械口径");
+    expect(modelVisibleText).toContain("仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用");
     expect(modelVisibleText).toContain("equipmentScope.mode=compatible_with_available");
     expect(modelVisibleText).toContain("动作不得要求集合外器械");
     expect(modelVisibleText).toContain("equipmentScope.mode=must_use_any");
