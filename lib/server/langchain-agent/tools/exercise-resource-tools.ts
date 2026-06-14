@@ -52,8 +52,8 @@ const maxTaxonomyTags = 8;
 const maxMuscles = 20;
 const maxCandidateCountPerSection = agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
-const catalogFacetDescription = "精确筛选值应优先从动作库 facet catalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
-const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 只在非 Planner 调试通道披露其未作为 hard filter 使用。`;
+const catalogFacetDescription = "精确筛选值应优先从动作库 facet catalog 的对应数组中选择。";
+const structuredFacetDescription = `${catalogFacetDescription}该字段用于缩小动作候选范围。`;
 
 const executionProfileFilterSchema = z.enum(exerciseExecutionProfileValues)
   .optional()
@@ -66,7 +66,6 @@ const executionProfileFilterSchema = z.enum(exerciseExecutionProfileValues)
     `gym_equipment 表示${exerciseExecutionProfileDescriptionsZh.gym_equipment}`,
     `partner_required 表示${exerciseExecutionProfileDescriptionsZh.partner_required}`,
     `outdoor_required 表示${exerciseExecutionProfileDescriptionsZh.outdoor_required}`,
-    "不要填写底层 execution taxonomy 字段；服务端会把该高层值确定性映射为数据库筛选条件。",
   ].join(" "));
 
 const equipmentScopeValueSchema = z.object({
@@ -85,18 +84,18 @@ const equipmentScopeValueSchema = z.object({
       });
     }
   })
-  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。不要把它当作底层器械 taxonomy 字段的别名。");
+  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。");
 
 const equipmentScopeFilterSchema = equipmentScopeValueSchema
   .optional()
-  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。不要把它当作底层器械 taxonomy 字段的别名。");
+  .describe("用户可用或指定使用的器械集合约束；用于区分“我只有这些器械”和“给我找使用这些器械的动作”。");
 
 const impactLimitFilterSchema = exerciseImpactLevelSchema
   .optional()
-  .describe("冲击程度上限筛选；low、medium、high 按从低到高匹配，未补齐的 null 不匹配任何上限。适合用户明确低冲击、膝关节压力或跳跃限制时使用。");
+  .describe("冲击程度上限筛选；合法值为 low、medium、high。适合用户明确低冲击、膝关节压力或跳跃限制时使用。");
 const noiseLimitFilterSchema = exerciseNoiseLevelSchema
   .optional()
-  .describe("噪音程度上限筛选；quiet、normal、loud 按从安静到较吵匹配，未补齐的 null 不匹配任何上限。适合用户明确公寓、夜间或低噪音限制时使用。");
+  .describe("噪音程度上限筛选；合法值为 quiet、normal、loud。适合用户明确公寓、夜间或低噪音限制时使用。");
 
 const exerciseNamesFilterSchema = z.array(
   z.string()
@@ -208,15 +207,15 @@ const suitabilityGroupSchema = z.object({
 /** searchExerciseResourcesInputSchema 定义动作库事实查询输入，不接受分页、limit、userId 或自然语言分流参数。 */
 export const searchExerciseResourcesInputSchema = z.object({
   exerciseNames: exerciseNamesFilterSchema,
-  category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${trainingPolicyFacetDescription}`),
+  category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${structuredFacetDescription}`),
   suitabilities: z.array(exerciseAllowedSectionSchema)
     .min(1)
     .max(3)
     .optional()
-    .describe("动作候选用途查询口径数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。模型需要主训练、热身或拉伸候选时自行选择对应值；该字段不是最终训练编排命令，服务端不根据用户原文分流。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。"),
-  level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
-  force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
-  mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
+    .describe("动作候选用途查询口径数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。模型需要主训练、热身或拉伸候选时自行选择对应值；该字段不是最终训练编排命令。"),
+  level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${structuredFacetDescription}`),
+  force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${structuredFacetDescription}`),
+  mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${structuredFacetDescription}`),
   executionProfile: executionProfileFilterSchema,
   equipmentScope: equipmentScopeFilterSchema,
   impactLimit: impactLimitFilterSchema,
@@ -225,9 +224,9 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。多值查询用于获得代表性候选覆盖并会尽量均衡返回各请求肌群的候选；成功 result 的 Planner-visible summary 只暴露候选动作事实，不回显各肌群零命中桶、精确命中数或截断状态。${catalogFacetDescription}`),
-  goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${trainingPolicyFacetDescription}`),
-  riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${trainingPolicyFacetDescription}`),
+    .describe(`一个或多个主肌群或辅助肌群 facet 值；单个肌群也写成一项数组。多值查询用于获得覆盖多个请求肌群的候选。${catalogFacetDescription}`),
+  goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${structuredFacetDescription}`),
+  riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${structuredFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
     .max(maxExcludeExerciseIds)
     .optional()
@@ -241,7 +240,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxCandidateCountPerSection)
     .optional()
-    .describe(`每个请求 section 最多返回多少个动作候选，取值 1 到 ${maxCandidateCountPerSection}；字段来源可以是用户明确数量要求，也可以是模型为了当前查询需要的受控候选规模。它不是分页、offset、cursor、全库读取能力或最终展示数量承诺。`),
+    .describe(`每个请求 section 最多返回多少个动作候选，取值 1 到 ${maxCandidateCountPerSection}；字段来源可以是用户明确数量要求，也可以是模型为了当前查询需要的受控候选规模。它不是分页、offset、cursor 或最终展示数量承诺。`),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict().superRefine((input, ctx) => {
   if (
@@ -334,20 +333,20 @@ export function createSearchExerciseResourcesLangChainTool(
     name: "searchExerciseResources",
     description: [
       "Purpose：只读查询 Exercise 动作库中的发布态动作候选事实，返回按查询口径分组的 candidateGroups[] 和 diagnostics。",
-      "Use When：需要基于结构化数据库 facet、高层执行条件、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
+      "Use When：需要基于动作库 facet、高层执行条件、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
       "Do Not Use When：不要用本 tool 生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程、保存结果、读取单个动作完整详情、分页或自然语言语义搜索。",
       `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
       "Input Source：home_support 允许地面/垫子、椅子、墙面或台阶等常见居家支撑；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。",
       "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
-      "Input Source：impactLimit 和 noiseLimit 是上限筛选；未知或未补齐值不匹配低冲击或安静约束。",
-      "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令，也不由服务端根据用户原文分流。",
-      "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量，默认使用服务端配置；它不是分页、offset、cursor、全库读取能力或最终展示数量承诺。",
+      "Input Source：impactLimit 和 noiseLimit 是上限筛选；适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用。",
+      "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令。",
+      "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量；它不是分页、offset、cursor 或最终展示数量承诺。",
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
       "Output Meaning：candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要；null 或 unknown 表示事实未补齐，不能当作低门槛事实。",
-      "Output Meaning：多 muscles 查询用于获得代表性候选覆盖，并会尽量均衡返回各请求肌群的候选；成功 result 的 Planner-visible summary 只提供候选动作事实和中性 diagnostics，不提供精确匹配数量、截断状态、过滤执行细节或下一步固定 workflow。",
+      "Output Meaning：多 muscles 查询用于获得覆盖多个请求肌群的候选；结果只提供候选动作事实和中性 diagnostics，不提供最终训练编排或下一步固定 workflow。",
       "当模型已经从用户请求、上下文或 tool result summary 中结构化提取动作名称时，使用 exerciseNames 查询动作名称字段；exerciseNames 不接受完整用户消息，也不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入候选列表；excludeExerciseIds 是负向排除，用于替换或避免重复。",
-      "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；最终 visibleTrainingProposal 的 exerciseId、发布态和 section 合法性仍由服务端数据库事实复核。",
+      "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；本 tool 不直接生成 visibleTrainingProposal。",
       formatFacetCatalogForDescription(options.facetCatalog),
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,

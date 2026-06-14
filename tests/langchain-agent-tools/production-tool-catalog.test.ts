@@ -42,6 +42,10 @@ describe("production LangChain tool catalog", () => {
       .filter((sample) => sample.kind === "schema_description")
       .map((sample) => sample.text)
       .join("\n");
+    const searchSchemaDescriptions = modelVisibleSamples
+      .filter((sample) => sample.id.startsWith("searchExerciseResources.input_schema."))
+      .map((sample) => sample.text)
+      .join("\n");
     const finalizationDescriptions = modelVisibleSamples
       .filter((sample) => sample.kind === "finalization_tool_description")
       .map((sample) => sample.text)
@@ -52,6 +56,10 @@ describe("production LangChain tool catalog", () => {
       schemaDescriptions,
       finalizationDescriptions,
     ].join("\n");
+    const searchModelVisibleText = [
+      searchDescription,
+      searchSchemaDescriptions,
+    ].join("\n");
     const findings = lintAgentModelVisibleTextSamples(modelVisibleSamples);
 
     expect(schemaDescriptions).toContain("当前业务 tool call 的用户可见 UI 状态短句");
@@ -61,8 +69,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
     expect(descriptions).toContain("exerciseNames");
-    expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
-    expect(descriptions).toContain("不提供精确匹配数量、截断状态、过滤执行细节或下一步固定 workflow");
+    expect(descriptions).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
+    expect(descriptions).toContain("不提供最终训练编排或下一步固定 workflow");
     expect(descriptions).toContain("executionProfile 用于选择动作执行场景");
     expect(descriptions).toContain("no_equipment");
     expect(descriptions).toContain("完整无器械口径");
@@ -71,7 +79,7 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("impactLimit 和 noiseLimit 是上限筛选");
     expect(descriptions).toContain("candidateGroups[]");
     expect(descriptions).toContain("candidateCountPerSection");
-    expect(descriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
+    expect(descriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(descriptions).toContain("Kind Selection");
     expect(descriptions).toContain("exercise_selection");
     expect(descriptions).toContain("纯主训练动作推荐集合");
@@ -122,6 +130,14 @@ describe("production LangChain tool catalog", () => {
     expect(modelVisibleText).not.toContain("nextActionHints");
     expect(modelVisibleText).not.toContain("resolveExerciseResourceMentions");
     expect(modelVisibleText).not.toContain("zeroMatchMuscles");
+    expect(searchModelVisibleText).not.toContain("服务端");
+    expect(searchModelVisibleText).not.toContain("数据库筛选");
+    expect(searchModelVisibleText).not.toContain("底层");
+    expect(searchModelVisibleText).not.toContain("确定性映射");
+    expect(searchModelVisibleText).not.toContain("hard filter");
+    expect(searchModelVisibleText).not.toContain("support_section");
+    expect(searchModelVisibleText).not.toContain("where 条件");
+    expect(searchModelVisibleText).not.toContain("全库读取能力");
     expect(descriptions).not.toContain("requiresExternalEquipment=false");
     expect(descriptions).not.toContain("requiredEquipmentTags 表示");
     expect(descriptions).not.toContain("supportRequirementTags 表示");
@@ -174,13 +190,11 @@ describe("production LangChain tool catalog", () => {
       .map((sample) => sample.text)
       .join("\n");
 
-    expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
-    expect(schemaDescriptions).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
+    expect(schemaDescriptions).toContain("多值查询用于获得覆盖多个请求肌群的候选");
     expect(schemaDescriptions).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
-    expect(schemaDescriptions).toContain("服务端不根据用户原文分流");
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
-    expect(schemaDescriptions).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
+    expect(schemaDescriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(schemaDescriptions).toContain("动作执行场景筛选");
     expect(schemaDescriptions).toContain("完整无器械口径");
@@ -193,6 +207,12 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).not.toContain("requiredEquipmentTags");
     expect(schemaDescriptions).not.toContain("supportRequirementTags");
     expect(schemaDescriptions).not.toContain("setupComplexityMax");
+    expect(schemaDescriptions).not.toContain("服务端");
+    expect(schemaDescriptions).not.toContain("数据库筛选");
+    expect(schemaDescriptions).not.toContain("底层");
+    expect(schemaDescriptions).not.toContain("确定性映射");
+    expect(schemaDescriptions).not.toContain("hard filter");
+    expect(schemaDescriptions).not.toContain("support_section");
   });
 
   it("exposes only controlled searchExerciseResources input fields", () => {

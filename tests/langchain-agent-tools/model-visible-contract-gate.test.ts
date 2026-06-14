@@ -308,7 +308,7 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
               databaseMapping: {
                 matchedValues: ["requiresExternalEquipment=false", "requiredEquipmentTags isEmpty"],
               },
-              note: "executionProfile 由服务端确定性映射为内部 execution taxonomy where 条件；该映射只用于 trace 诊断，不是 Planner input。",
+              note: "executionProfile 已按动作库执行条件应用约束；该字段仅用于 trace 诊断。",
             }],
           totalMatches: 1,
           returnedCount: 1,

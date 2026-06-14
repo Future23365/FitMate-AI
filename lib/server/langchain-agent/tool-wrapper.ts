@@ -80,7 +80,7 @@ export const toolCallRuntimeMetadataSchema = z.object({
   activitySummary: z.string()
     .optional()
     .describe("当前业务 tool call 的用户可见 UI 状态短句；只描述正在做什么，不是调用理由、业务事实、tool output 或最终回答依据。建议中文 8-40 个字，不写 toolName、trace、schema、数据库 id、错误码或完成态承诺。"),
-}).strict().describe("可选 request-local runtime metadata，只服务当前请求的 UI 进度和 trace 诊断；服务端会在业务 schema 校验和 handler 执行前剥离。");
+}).strict().describe("可选 request-local runtime metadata，只服务当前请求的 UI 进度和 trace 诊断；不属于业务 tool input，也不能作为业务事实或最终回答依据。");
 
 /** defineLangChainToolWrapper 定义生产 LangChain tool 的服务端 wrapper 合同，统一 schema、权限上下文、摘要和 trace 边界。 */
 export function defineLangChainToolWrapper<SchemaT extends z.ZodObject, OutputT>(

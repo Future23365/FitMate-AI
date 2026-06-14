@@ -166,7 +166,7 @@ export function getNoiseLimitMatchedValues(max: ExerciseNoiseLevel) {
   );
 }
 
-/** describeExecutionProfileMapping 输出 trace 诊断用的内部 taxonomy 映射摘要，不作为 Planner input。 */
+/** describeExecutionProfileMapping 输出 trace 诊断用的执行条件摘要。 */
 export function describeExecutionProfileMapping(profile: ExerciseExecutionProfile) {
   switch (profile) {
     case "no_equipment":

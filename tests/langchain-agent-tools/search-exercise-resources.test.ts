@@ -833,14 +833,13 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(modelVisibleText).toContain("候选用途查询口径，不是最终训练编排命令");
     expect(modelVisibleText).toContain("candidateCountPerSection");
-    expect(modelVisibleText).toContain("不是分页、offset、cursor、全库读取能力或最终展示数量承诺");
+    expect(modelVisibleText).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
-    expect(modelVisibleText).toContain("服务端不根据用户原文分流");
-    expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
-    expect(modelVisibleText).toContain("不回显各肌群零命中桶、精确命中数或截断状态");
+    expect(modelVisibleText).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
+    expect(modelVisibleText).toContain("不提供最终训练编排或下一步固定 workflow");
     expect(modelVisibleText).toContain("executionProfile 用于选择动作执行场景");
     expect(modelVisibleText).toContain("no_equipment");
     expect(modelVisibleText).toContain("完整无器械口径");
@@ -848,11 +847,21 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("动作不得要求集合外器械");
     expect(modelVisibleText).toContain("equipmentScope.mode=must_use_any");
     expect(modelVisibleText).toContain("impactLimit 和 noiseLimit 是上限筛选");
-    expect(modelVisibleText).toContain("未知或未补齐值不匹配低冲击或安静约束");
+    expect(modelVisibleText).toContain("适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用");
     expect(modelVisibleText).toContain("candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要");
     expect(modelVisibleText).toContain("exerciseNames");
     expect(modelVisibleText).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(modelVisibleText).toContain("不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段");
+    expect(modelVisibleText).not.toContain("服务端不根据用户原文分流");
+    expect(modelVisibleText).not.toContain("服务端配置");
+    expect(modelVisibleText).not.toContain("服务端数据库");
+    expect(modelVisibleText).not.toContain("数据库筛选");
+    expect(modelVisibleText).not.toContain("底层");
+    expect(modelVisibleText).not.toContain("确定性映射");
+    expect(modelVisibleText).not.toContain("hard filter");
+    expect(modelVisibleText).not.toContain("support_section");
+    expect(modelVisibleText).not.toContain("where 条件");
+    expect(modelVisibleText).not.toContain("全库读取能力");
     expect(modelVisibleText).not.toContain("全身");
     expect(modelVisibleText).not.toContain("当用户说");
     expect(modelVisibleText).not.toContain("关键词");
@@ -1114,7 +1123,7 @@ function createSearchResult(input: {
         databaseMapping: {
           matchedValues: ["requiresExternalEquipment=false"],
         },
-        note: "executionProfile 由服务端确定性映射为内部 execution taxonomy where 条件；该映射只用于 trace 诊断，不是 Planner input。",
+        note: "executionProfile 已按动作库执行条件应用约束；该字段仅用于 trace 诊断。",
       }]
       : [],
     diagnostics: input.diagnostics ?? [],
