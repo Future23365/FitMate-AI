@@ -117,24 +117,24 @@ enum UserExerciseFeedbackKind {
 }
 
 model User {
-  id              String                 @id @default(cuid())
-  email           String?                @unique
-  displayName     String?
-  deletedAt       DateTime?              @db.Timestamptz(3)
-  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime               @updatedAt @db.Timestamptz(3)
-  identities      UserIdentity[]
-  profile         UserProfile?
-  routines        WorkoutRoutine[]
-  schedules       WorkoutSchedule[]
-  results         WorkoutSessionResult[]
-  chatSessions    ChatSession[]
-  artifacts       ConversationArtifact[]
-  artifactIndexes ArtifactIndex[]
-  businessFacts   ConversationBusinessFact[]
+  id                    String                     @id @default(cuid())
+  email                 String?                    @unique
+  displayName           String?
+  deletedAt             DateTime?                  @db.Timestamptz(3)
+  createdAt             DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                   @updatedAt @db.Timestamptz(3)
+  identities            UserIdentity[]
+  profile               UserProfile?
+  routines              WorkoutRoutine[]
+  schedules             WorkoutSchedule[]
+  results               WorkoutSessionResult[]
+  chatSessions          ChatSession[]
+  artifacts             ConversationArtifact[]
+  artifactIndexes       ArtifactIndex[]
+  businessFacts         ConversationBusinessFact[]
   aiTokenUsageSummaries AiTokenUsageSummary[]
-  memories        UserMemory[]
-  exerciseFeedback UserExerciseFeedback[]
+  memories              UserMemory[]
+  exerciseFeedback      UserExerciseFeedback[]
 
   @@index([deletedAt])
 }
@@ -172,56 +172,68 @@ model UserProfile {
 }
 
 model Exercise {
-  id                 String               @id
-  source             String
-  sourceUrl          String
-  sourceId           String
-  license            String
-  nameEn             String
-  nameZh             String
-  category           String?
-  categoryZh         String?
-  level              String?
-  levelZh            String?
-  force              String?
-  forceZh            String?
-  mechanic           String?
-  mechanicZh         String?
-  equipment          String?
-  equipmentZh        String?
-  homeRequirement    String
-  homeRequirementZh  String
-  primaryMuscles     String[]             @default([])
-  primaryMusclesZh   String[]             @default([])
-  secondaryMuscles   String[]             @default([])
-  secondaryMusclesZh String[]             @default([])
-  instructionsEn     String[]             @default([])
-  instructionsZh     String[]             @default([])
-  images             String[]             @default([])
-  imageUrls          String[]             @default([])
-  allowedSections    String[]             @default([])
-  intensityRole      String?
-  movementPattern    String?
-  difficulty         String?
-  riskTags           String[]             @default([])
-  contraindications  String[]             @default([])
-  regressionExerciseIds String[]          @default([])
-  progressionExerciseIds String[]         @default([])
-  substitutionGroupId String?
-  goalTags           String[]             @default([])
-  embeddingText      String?
-  embedding          Json?
-  reviewStatus       ExerciseReviewStatus @default(machine_translated)
-  isPublished        Boolean              @default(false)
-  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
-  workoutItems       WorkoutRoutineItem[]
-  userFeedback       UserExerciseFeedback[]
+  id                        String                 @id
+  source                    String
+  sourceUrl                 String
+  sourceId                  String
+  license                   String
+  nameEn                    String
+  nameZh                    String
+  category                  String?
+  categoryZh                String?
+  level                     String?
+  levelZh                   String?
+  force                     String?
+  forceZh                   String?
+  mechanic                  String?
+  mechanicZh                String?
+  equipment                 String?
+  equipmentZh               String?
+  homeRequirement           String
+  homeRequirementZh         String
+  requiresExternalEquipment Boolean?
+  requiredEquipmentTags     String[]               @default([])
+  supportRequirementTags    String[]               @default([])
+  setupComplexity           String                 @default("unknown")
+  impactLevel               String?
+  noiseLevel                String?
+  primaryMuscles            String[]               @default([])
+  primaryMusclesZh          String[]               @default([])
+  secondaryMuscles          String[]               @default([])
+  secondaryMusclesZh        String[]               @default([])
+  instructionsEn            String[]               @default([])
+  instructionsZh            String[]               @default([])
+  images                    String[]               @default([])
+  imageUrls                 String[]               @default([])
+  allowedSections           String[]               @default([])
+  intensityRole             String?
+  movementPattern           String?
+  difficulty                String?
+  riskTags                  String[]               @default([])
+  contraindications         String[]               @default([])
+  regressionExerciseIds     String[]               @default([])
+  progressionExerciseIds    String[]               @default([])
+  substitutionGroupId       String?
+  goalTags                  String[]               @default([])
+  embeddingText             String?
+  embedding                 Json?
+  reviewStatus              ExerciseReviewStatus   @default(machine_translated)
+  isPublished               Boolean                @default(false)
+  createdAt                 DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime               @updatedAt @db.Timestamptz(3)
+  workoutItems              WorkoutRoutineItem[]
+  userFeedback              UserExerciseFeedback[]
 
   @@unique([source, sourceId])
   @@index([category])
   @@index([level])
   @@index([equipment])
+  @@index([requiresExternalEquipment])
+  @@index([requiredEquipmentTags], type: Gin)
+  @@index([supportRequirementTags], type: Gin)
+  @@index([setupComplexity])
+  @@index([impactLevel])
+  @@index([noiseLevel])
   @@index([reviewStatus])
   @@index([isPublished])
   @@index([embeddingText])
@@ -274,25 +286,25 @@ model UserExerciseFeedback {
 }
 
 model WorkoutRoutine {
-  id                      String            @id @default(cuid())
-  userId                  String
-  title                   String
-  summary                 String?
-  estimatedMinutes        Int
-  estimatedCalories       Int               @default(0)
-  status                  WorkoutRoutineStatus @default(active)
-  source                  WorkoutRoutineSource @default(ai)
-  trainingLoopRounds      Int?
-  trainingLoopRestSeconds Int?
-  warmupToTrainingRestSeconds Int?
+  id                           String                 @id @default(cuid())
+  userId                       String
+  title                        String
+  summary                      String?
+  estimatedMinutes             Int
+  estimatedCalories            Int                    @default(0)
+  status                       WorkoutRoutineStatus   @default(active)
+  source                       WorkoutRoutineSource   @default(ai)
+  trainingLoopRounds           Int?
+  trainingLoopRestSeconds      Int?
+  warmupToTrainingRestSeconds  Int?
   trainingToStretchRestSeconds Int?
-  sourceAiTraceId         String?
-  createdAt               DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime          @updatedAt @db.Timestamptz(3)
-  user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items                   WorkoutRoutineItem[]
-  schedules               WorkoutSchedule[]
-  results                 WorkoutSessionResult[]
+  sourceAiTraceId              String?
+  createdAt                    DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime               @updatedAt @db.Timestamptz(3)
+  user                         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                        WorkoutRoutineItem[]
+  schedules                    WorkoutSchedule[]
+  results                      WorkoutSessionResult[]
 
   @@index([userId])
   @@index([status])
@@ -321,19 +333,19 @@ model WorkoutRoutineItem {
 }
 
 model WorkoutSchedule {
-  id              String               @id @default(cuid())
-  userId          String
-  routineId       String?
-  scheduledFor    DateTime             @db.Timestamptz(3)
-  status          WorkoutScheduleStatus @default(planned)
-  titleSnapshot   String
-  estimatedMinutes Int               @default(0)
-  estimatedCalories Int              @default(0)
-  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  routine         WorkoutRoutine?      @relation(fields: [routineId], references: [id], onDelete: SetNull)
-  result          WorkoutSessionResult?
+  id                String                @id @default(cuid())
+  userId            String
+  routineId         String?
+  scheduledFor      DateTime              @db.Timestamptz(3)
+  status            WorkoutScheduleStatus @default(planned)
+  titleSnapshot     String
+  estimatedMinutes  Int                   @default(0)
+  estimatedCalories Int                   @default(0)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routine           WorkoutRoutine?       @relation(fields: [routineId], references: [id], onDelete: SetNull)
+  result            WorkoutSessionResult?
 
   @@index([userId])
   @@index([status])
@@ -396,26 +408,26 @@ model ChatMessage {
 }
 
 model ConversationArtifact {
-  id                   String                               @id @default(cuid())
+  id                   String                                @id @default(cuid())
   userId               String
   sessionId            String
   messageId            String?
   kind                 ConversationArtifactKind
-  scope                ConversationArtifactScope            @default(chat)
+  scope                ConversationArtifactScope             @default(chat)
   payloadSchemaVersion Int
   payload              Json
-  status               ConversationArtifactStatus           @default(active)
-  revision             Int                                  @default(1)
+  status               ConversationArtifactStatus            @default(active)
+  revision             Int                                   @default(1)
   revisionOfArtifactId String?
   sourceEntityKind     ConversationArtifactSourceEntityKind?
   sourceEntityId       String?
-  createdAt            DateTime                             @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                             @updatedAt @db.Timestamptz(3)
-  user                 User                                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  session              ChatSession                          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  message              ChatMessage?                         @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  revisionOfArtifact   ConversationArtifact?                @relation("ArtifactRevision", fields: [revisionOfArtifactId], references: [id], onDelete: SetNull)
-  revisions            ConversationArtifact[]               @relation("ArtifactRevision")
+  createdAt            DateTime                              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                              @updatedAt @db.Timestamptz(3)
+  user                 User                                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session              ChatSession                           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message              ChatMessage?                          @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  revisionOfArtifact   ConversationArtifact?                 @relation("ArtifactRevision", fields: [revisionOfArtifactId], references: [id], onDelete: SetNull)
+  revisions            ConversationArtifact[]                @relation("ArtifactRevision")
   index                ArtifactIndex?
 
   @@unique([messageId, kind, revision])
@@ -465,30 +477,30 @@ model AiTokenUsageSummary {
 }
 
 model ArtifactIndex {
-  id                   String                     @id @default(cuid())
-  artifactId           String                     @unique
-  userId               String
-  sessionId            String
-  kind                 ConversationArtifactKind
-  scope                ConversationArtifactScope  @default(chat)
-  status               ConversationArtifactStatus @default(active)
-  title                String
-  summary              String?
-  exerciseIds          String[]                   @default([])
-  goals                String[]                   @default([])
-  muscles              String[]                   @default([])
-  equipment            String[]                   @default([])
-  sessionMinutes       Int?
-  weeklyFrequency      Int?
-  trainingDayCount     Int?
-  sourceMessageId      String?
-  embeddingText        String?
-  embedding            Json?
-  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
-  artifact             ConversationArtifact       @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  session              ChatSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id               String                     @id @default(cuid())
+  artifactId       String                     @unique
+  userId           String
+  sessionId        String
+  kind             ConversationArtifactKind
+  scope            ConversationArtifactScope  @default(chat)
+  status           ConversationArtifactStatus @default(active)
+  title            String
+  summary          String?
+  exerciseIds      String[]                   @default([])
+  goals            String[]                   @default([])
+  muscles          String[]                   @default([])
+  equipment        String[]                   @default([])
+  sessionMinutes   Int?
+  weeklyFrequency  Int?
+  trainingDayCount Int?
+  sourceMessageId  String?
+  embeddingText    String?
+  embedding        Json?
+  createdAt        DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                   @updatedAt @db.Timestamptz(3)
+  artifact         ConversationArtifact       @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session          ChatSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([userId, sessionId, status, updatedAt])
   @@index([kind])

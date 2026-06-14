@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+import type {
+  ExerciseImpactLevel,
+  ExerciseNoiseLevel,
+  ExerciseRequiredEquipmentTag,
+  ExerciseSetupComplexity,
+  ExerciseSupportRequirementTag,
+} from "@/lib/shared/exercises/execution-taxonomy";
+
 export type ExerciseReviewStatus =
   | "machine_translated"
   | "machine_assisted"
@@ -54,6 +62,7 @@ export type ExerciseMovementPattern = z.infer<typeof exerciseMovementPatternSche
 export type ExerciseDifficulty = z.infer<typeof exerciseDifficultySchema>;
 export type ExerciseMetadata = z.infer<typeof exerciseMetadataSchema>;
 
+// Exercise 是动作库的共享领域事实类型，包含当前查询兼容字段和待补齐的执行条件 taxonomy。
 export type Exercise = {
   id: string;
   source: string;
@@ -74,6 +83,12 @@ export type Exercise = {
   equipmentZh: string | null;
   homeRequirement: string;
   homeRequirementZh: string;
+  requiresExternalEquipment: boolean | null;
+  requiredEquipmentTags: ExerciseRequiredEquipmentTag[];
+  supportRequirementTags: ExerciseSupportRequirementTag[];
+  setupComplexity: ExerciseSetupComplexity;
+  impactLevel: ExerciseImpactLevel | null;
+  noiseLevel: ExerciseNoiseLevel | null;
   primaryMuscles: string[];
   primaryMusclesZh: string[];
   secondaryMuscles: string[];
@@ -116,6 +131,12 @@ export type ExerciseListItem = Pick<
   | "equipmentZh"
   | "homeRequirement"
   | "homeRequirementZh"
+  | "requiresExternalEquipment"
+  | "requiredEquipmentTags"
+  | "supportRequirementTags"
+  | "setupComplexity"
+  | "impactLevel"
+  | "noiseLevel"
   | "primaryMuscles"
   | "primaryMusclesZh"
   | "imageUrls"

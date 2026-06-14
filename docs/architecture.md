@@ -225,7 +225,7 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 |---|---|
 | `User` / `UserIdentity` | 本地匿名用户和后续身份扩展基础 |
 | `UserProfile` | 用户目标、经验、频率、器械、偏好等结构化资料 |
-| `Exercise` | 动作库事实、肌群、器械、图片、发布态、embedding 字段 |
+| `Exercise` | 动作库事实、肌群、旧器械/居家条件字段、执行条件 taxonomy、图片、发布态、embedding 字段 |
 | `UserMemory` / `UserExerciseFeedback` | 用户偏好、动作反馈和长期记忆 |
 | `WorkoutRoutine` / `WorkoutRoutineItem` | 用户保存的训练 routine 和动作项 |
 | `WorkoutSchedule` | 日历上的训练安排或休息日 |
@@ -249,6 +249,10 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 - 动作详情和列表投影。
 - 动作图片 URL 派生。
 - `searchExerciseResources` tool 的动作事实来源。
+
+`Exercise` 同时保留旧 `equipment` / `equipmentZh`、`homeRequirement` / `homeRequirementZh` 和新的 execution taxonomy 字段。新字段包括 `requiresExternalEquipment`、`requiredEquipmentTags`、`supportRequirementTags`、`setupComplexity`、`impactLevel` 和 `noiseLevel`，取值与字段级校验集中在 `lib/shared/exercises/execution-taxonomy.ts`。当前 migration 只提供字段落点：已有动作默认保持 `requiresExternalEquipment = null`、空 tag 数组、`setupComplexity = "unknown"`、`impactLevel = null`、`noiseLevel = null`，这些值只表示尚未补齐，不能解释为无外部训练器械、无支撑需求、零准备、低冲击或安静。
+
+当前 `searchExerciseResources` 仍使用旧动作查询合同和旧 facet 字段；execution taxonomy 数据补齐、旧字段映射、LLM 辅助补齐、人工审查报告和 tool 合同迁移需要后续独立 change 处理。
 
 训练业务由 `lib/server/workouts/workout-persistence-service.ts` 承接：
 

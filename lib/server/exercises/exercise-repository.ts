@@ -13,6 +13,10 @@ import {
   isExerciseResourceHardFilterApplied,
   type ExerciseResourceFilterApplication,
 } from "@/lib/server/exercises/exercise-resource-filter-policy";
+import {
+  parseExerciseExecutionTaxonomy,
+  type ExerciseExecutionTaxonomy,
+} from "@/lib/shared/exercises/execution-taxonomy";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import type {
@@ -139,8 +143,18 @@ export type ExerciseResourceNameDiagnostic = {
   conflictFields?: string[];
 };
 
+type ExerciseExecutionTaxonomyRecord = {
+  requiresExternalEquipment: boolean | null;
+  requiredEquipmentTags: string[];
+  supportRequirementTags: string[];
+  setupComplexity: string;
+  impactLevel: string | null;
+  noiseLevel: string | null;
+};
+
 type ExerciseRecord = Omit<
   Exercise,
+  | keyof ExerciseExecutionTaxonomyRecord
   | "allowedSections"
   | "intensityRole"
   | "movementPattern"
@@ -161,7 +175,7 @@ type ExerciseRecord = Omit<
   substitutionGroupId?: string | null;
   embeddingText?: string | null;
   embedding?: unknown;
-};
+} & ExerciseExecutionTaxonomyRecord;
 
 const exerciseListSelect = {
   id: true,
@@ -179,6 +193,12 @@ const exerciseListSelect = {
   equipmentZh: true,
   homeRequirement: true,
   homeRequirementZh: true,
+  requiresExternalEquipment: true,
+  requiredEquipmentTags: true,
+  supportRequirementTags: true,
+  setupComplexity: true,
+  impactLevel: true,
+  noiseLevel: true,
   primaryMuscles: true,
   primaryMusclesZh: true,
   images: true,
@@ -548,6 +568,7 @@ function createExerciseListOrderBy(sort: ExerciseSort): Prisma.ExerciseOrderByWi
 
 function mapExerciseListRecord(record: ExerciseListRecord): ExerciseListItem {
   const metadata = normalizeExerciseMetadata(record);
+  const executionTaxonomy = mapExerciseExecutionTaxonomy(record);
 
   return {
     id: record.id,
@@ -565,6 +586,7 @@ function mapExerciseListRecord(record: ExerciseListRecord): ExerciseListItem {
     equipmentZh: record.equipmentZh,
     homeRequirement: record.homeRequirement,
     homeRequirementZh: record.homeRequirementZh,
+    ...executionTaxonomy,
     primaryMuscles: record.primaryMuscles,
     primaryMusclesZh: record.primaryMusclesZh,
     imageUrls: resolveSelectedExerciseImageUrls(record),
@@ -1078,6 +1100,7 @@ export function isBodyweightExerciseResourceEquipment(input: Pick<ExerciseResour
 
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   const metadata = normalizeExerciseMetadata(exercise);
+  const executionTaxonomy = mapExerciseExecutionTaxonomy(exercise);
 
   return withResolvedExerciseImageUrls({
     id: exercise.id,
@@ -1099,6 +1122,7 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
     equipmentZh: exercise.equipmentZh,
     homeRequirement: exercise.homeRequirement,
     homeRequirementZh: exercise.homeRequirementZh,
+    ...executionTaxonomy,
     primaryMuscles: exercise.primaryMuscles,
     primaryMusclesZh: exercise.primaryMusclesZh,
     secondaryMuscles: exercise.secondaryMuscles,
@@ -1121,6 +1145,18 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
     embedding: Array.isArray(exercise.embedding) ? exercise.embedding.filter((value): value is number => typeof value === "number") : null,
     reviewStatus: exercise.reviewStatus,
     isPublished: exercise.isPublished,
+  });
+}
+
+// mapExerciseExecutionTaxonomy 是 Prisma 字符串字段到共享 taxonomy 类型的唯一运行时校验边界。
+function mapExerciseExecutionTaxonomy(record: ExerciseExecutionTaxonomyRecord): ExerciseExecutionTaxonomy {
+  return parseExerciseExecutionTaxonomy({
+    requiresExternalEquipment: record.requiresExternalEquipment,
+    requiredEquipmentTags: record.requiredEquipmentTags,
+    supportRequirementTags: record.supportRequirementTags,
+    setupComplexity: record.setupComplexity,
+    impactLevel: record.impactLevel,
+    noiseLevel: record.noiseLevel,
   });
 }
 
