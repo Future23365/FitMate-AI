@@ -1515,6 +1515,8 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("代表性覆盖理解");
     expect(prompt).toContain("每个细分肌群");
     expect(prompt).toContain("普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释");
+    expect(prompt).toContain("工具返回的候选列表是可选择的候选池");
+    expect(prompt).toContain("不要为了移除未选候选、让候选池完全纯净或追求更理想列表而重复调用同类查询工具");
     expect(prompt).toContain("最终回答准备向用户呈现一个或多个具体数据库动作条目");
     expect(prompt).toContain("当前模型可见工具事实或已验证业务事实支撑");
     expect(prompt).toContain("动作推荐卡片、单次训练 routine 和多天训练 plan");

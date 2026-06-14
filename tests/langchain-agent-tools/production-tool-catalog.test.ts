@@ -70,7 +70,7 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("动作候选");
     expect(descriptions).toContain("exerciseNames");
     expect(descriptions).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
-    expect(descriptions).toContain("不提供最终训练编排或下一步固定 workflow");
+    expect(descriptions).toContain("不保证每个候选都同等适合作为最终推荐");
     expect(descriptions).toContain("executionProfile 用于选择动作执行场景");
     expect(descriptions).toContain("no_equipment");
     expect(descriptions).toContain("完整无器械口径");
@@ -78,6 +78,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("equipmentScope.mode=must_use_any");
     expect(descriptions).toContain("impactLimit 和 noiseLimit 是上限筛选");
     expect(descriptions).toContain("candidateGroups[]");
+    expect(descriptions).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(descriptions).toContain("不要求最终输出使用全部候选");
     expect(descriptions).toContain("candidateCountPerSection");
     expect(descriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(descriptions).toContain("Kind Selection");
@@ -89,6 +91,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("每个 exerciseItems[] 动作项都必须包含 prescription");
     expect(descriptions).toContain("多天或周期训练计划");
     expect(descriptions).toContain("不替模型生成 prescription");
+    expect(descriptions).toContain("可以从当前模型可见候选事实中选择子集构造");
+    expect(descriptions).toContain("不要求使用候选池中的全部动作");
     expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
     expect(descriptions).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");

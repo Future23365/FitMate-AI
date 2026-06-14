@@ -38,6 +38,9 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("schedule 只表达同一套编排在周期内的训练日和休息日");
     expect(tool.description).toContain("不要把这些动作塞进 exercise_selection");
     expect(tool.description).toContain("不替模型生成 prescription");
+    expect(tool.description).toContain("可以从当前模型可见候选事实中选择子集构造");
+    expect(tool.description).toContain("不要求使用候选池中的全部动作");
+    expect(tool.description).toContain("不要求先排除未使用动作");
     expect(tool.description).toContain("sectionSummary");
     expect(tool.description).toContain("availableSections");
     expect(tool.description).toContain("missingSections");

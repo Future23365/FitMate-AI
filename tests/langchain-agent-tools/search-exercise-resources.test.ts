@@ -836,10 +836,13 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
+    expect(modelVisibleText).toContain("candidateGroups[].exercises 是动作候选池，不是最终推荐清单");
+    expect(modelVisibleText).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(modelVisibleText).toContain("不要求最终输出使用全部候选");
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
-    expect(modelVisibleText).toContain("不提供最终训练编排或下一步固定 workflow");
+    expect(modelVisibleText).toContain("不保证每个候选都同等适合作为最终推荐");
     expect(modelVisibleText).toContain("executionProfile 用于选择动作执行场景");
     expect(modelVisibleText).toContain("no_equipment");
     expect(modelVisibleText).toContain("完整无器械口径");
