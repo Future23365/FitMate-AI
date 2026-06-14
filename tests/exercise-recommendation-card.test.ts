@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergeRecommendationItemWithExercise,
   resolveRecommendationItemImageState,
+  shouldHydrateRecommendationItem,
 } from "@/features/exercises/lib/exercise-recommendation-display";
 import type { ExerciseRecommendationItem } from "@/lib/shared/exercise-recommendations/schema";
 
@@ -55,6 +56,15 @@ describe("ExerciseRecommendationCard display hydration", () => {
 
     expect(resolveRecommendationItemImageState(item, new Set())).toBe("loading");
     expect(resolveRecommendationItemImageState(item, new Set([item.exerciseId]))).toBe("unavailable");
+  });
+
+  it("hydrates recommendation items when the first render only has an unlabeled difficulty", () => {
+    const item = createRecommendationItem({
+      imageUrl: "/api/exercise-images/push-up/0.jpg",
+      levelZh: "未标注",
+    });
+
+    expect(shouldHydrateRecommendationItem(item)).toBe(true);
   });
 });
 

@@ -27,7 +27,11 @@ export function mergeRecommendationItemWithExercise(
 
 /** shouldHydrateRecommendationItem 判断推荐卡片是否缺少首屏展示所需的稳定动作事实。 */
 export function shouldHydrateRecommendationItem(item: ExerciseRecommendationItem) {
-  return !nonEmptyString(item.imageUrl) || item.nameZh.trim() === item.exerciseId.trim();
+  return (
+    !nonEmptyString(item.imageUrl)
+    || item.nameZh.trim() === item.exerciseId.trim()
+    || isUnlabeledLevel(item.levelZh)
+  );
 }
 
 /** resolveRecommendationItemImageState 区分推荐卡片图片加载中和真实无图状态。 */
@@ -50,6 +54,12 @@ function firstExerciseImageUrl(exercise: Exercise) {
 
 function nonEmptyString(value: string | null | undefined) {
   return value?.trim() || undefined;
+}
+
+function isUnlabeledLevel(value: string | null | undefined) {
+  const normalized = nonEmptyString(value);
+
+  return !normalized || normalized === "未标注" || normalized === "未标注难度";
 }
 
 function nonEmptyStringList(value: string[] | undefined, fallback: string[]) {

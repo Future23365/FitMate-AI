@@ -15,6 +15,7 @@ export const visibleTrainingProposalCanonicalExerciseSchema = z.object({
   exerciseId: z.string().trim().min(1),
   nameZh: z.string(),
   nameEn: z.string(),
+  levelZh: z.string().nullable().default(null),
   equipmentZh: z.string().nullable(),
   primaryMusclesZh: z.array(z.string()),
   allowedSections: z.array(exerciseAllowedSectionSchema),
@@ -31,6 +32,7 @@ type ExerciseFactRecord = {
   id: string;
   nameZh: string;
   nameEn: string;
+  levelZh?: string | null;
   equipmentZh: string | null;
   primaryMusclesZh: string[];
   allowedSections: ExerciseAllowedSection[];
@@ -140,6 +142,7 @@ function toCanonicalExercise(record: ExerciseFactRecord): VisibleTrainingProposa
     exerciseId: record.id,
     nameZh: record.nameZh,
     nameEn: record.nameEn,
+    levelZh: record.levelZh ?? null,
     equipmentZh: record.equipmentZh,
     primaryMusclesZh: record.primaryMusclesZh,
     allowedSections: record.allowedSections,
