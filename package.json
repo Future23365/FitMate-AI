@@ -15,6 +15,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "node scripts/seed-exercises.mjs",
+    "db:backfill-execution-taxonomy": "node scripts/backfill-exercise-execution-taxonomy.mjs",
     "db:refresh-embeddings": "node scripts/refresh-search-embeddings.mjs",
     "db:download-exercise-images": "node scripts/download-exercise-images.mjs"
   },

@@ -26,6 +26,7 @@ docker compose up -d postgres
 npm run db:generate
 npm run db:migrate
 npm run db:seed
+npm run db:backfill-execution-taxonomy -- --apply
 npm run db:refresh-embeddings
 npm run dev
 ```
@@ -43,6 +44,7 @@ npm run typecheck
 npm run lint
 npm run build
 npm run perf:frontend
+npm run db:backfill-execution-taxonomy -- --validate
 docker compose ps
 docker compose stop postgres
 docker compose down
@@ -73,5 +75,6 @@ docker compose down
 
 - 当前身份体系是本地匿名 auth cookie，不是正式账号登录、权限后台或多端账号同步。
 - 运行时动作事实以 PostgreSQL 为准，`data/exercises.zh.json` 只作为动作 seed 来源。
+- `data/exercise-execution-taxonomy.backfill.jsonl` 是离线审查后的动作执行条件 taxonomy 补丁；生产环境运行 `npm run db:backfill-execution-taxonomy -- --apply` 即可事务化回填，不调用模型。
 - 当前生产 Agent 不开放未经校验的写入型训练 tool；训练保存、日历安排和训练执行仍由页面已有业务入口完成。
 - AI trace 面向开发和内测；公开环境只有显式设置 `ENABLE_AI_TRACE_LOG=true` 时才写入 trace。
