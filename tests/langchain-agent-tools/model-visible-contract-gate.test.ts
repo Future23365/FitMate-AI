@@ -73,6 +73,9 @@ describe("Agent model-visible contract gate", () => {
     expect(searchModelSummaries.length).toBeGreaterThan(0);
     for (const summaryJson of searchModelSummaries) {
       expect(summaryJson).toContain("candidateGroups");
+      expect(summaryJson).toContain("coverage");
+      expect(summaryJson).toContain("sectionsWithCandidates");
+      expect(summaryJson).toContain("sectionsWithoutCandidates");
       expect(summaryJson).not.toContain("\"groups\"");
       expectSearchExercisePlannerSummaryTextIsClean(summaryJson);
       expect(summaryJson).not.toContain("allowedSections");
@@ -168,6 +171,13 @@ describe("Agent model-visible contract gate", () => {
           suitabilities: ["training"],
           muscles: ["腹肌"],
           muscleMatchRole: "primary",
+        },
+        coverage: {
+          hasCandidates: true,
+          sectionsWithCandidates: ["training"],
+          sectionsWithoutCandidates: [],
+          allRequestedSectionsHaveCandidates: true,
+          repeatQueryBoundary: "同一 run 内等价 input 已有查询事实；重复调用不会新增事实。请基于当前可见事实推理、澄清或失败收口。",
         },
         candidateGroups: [{
           suitability: "training",

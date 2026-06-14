@@ -89,7 +89,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const toolExecutionBudget = createToolExecutionBudget({
       maxBusinessToolCalls: config.runBudget.maxToolCalls,
     });
-    let currentRequestExposedToolNames: ReadonlySet<string> | undefined;
+    let currentRequestToolAvailability: CurrentRequestToolAvailabilityState | undefined;
     const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
     const consecutiveToolCallCoordinator = createConsecutiveBusinessToolCallCoordinator({
       maxConsecutiveBusinessToolCalls: config.runBudget.maxToolCallsPerTool,
@@ -100,8 +100,10 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       delegate: duplicateInputCoordinator,
     });
     const availableToolExecutionCoordinator = createCurrentRequestToolAvailabilityExecutionCoordinator({
-      isToolUnavailable: (toolName) => currentRequestExposedToolNames !== undefined
-        && !currentRequestExposedToolNames.has(toolName),
+      resolveUnavailableTool: (toolName) => resolveCurrentRequestUnavailableTool(
+        currentRequestToolAvailability,
+        toolName,
+      ),
       delegate: consecutiveToolCallCoordinator,
     });
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
@@ -128,8 +130,8 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       ...createBusinessToolAvailabilityMiddleware(
         businessToolNames,
         config.runBudget.maxToolCallsPerTool,
-        (toolNames) => {
-          currentRequestExposedToolNames = toolNames;
+        (availability) => {
+          currentRequestToolAvailability = availability;
         },
       ),
       modelCallRecorder.middleware,
@@ -268,13 +270,42 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   }
 }
 
+type CurrentRequestToolAvailabilityState = {
+  /** exposedToolNames 记录本次 provider request 实际暴露的 tool schema，供执行前拒绝陈旧 tool_call。 */
+  exposedToolNames: ReadonlySet<string>;
+  /** exhaustedBusinessTools 记录因连续业务 tool 上限而被本次 request 移除的工具，不承载业务语义。 */
+  exhaustedBusinessTools: ReadonlyMap<string, ExhaustedBusinessToolState>;
+};
+
+type ExhaustedBusinessToolState = {
+  toolName: string;
+  limit: number;
+  consecutiveCount: number;
+};
+
+type CurrentRequestUnavailableTool =
+  | { kind: "unknown_tool" }
+  | { kind: "consecutive_limit"; exhaustedTool: ExhaustedBusinessToolState };
+
 function createCurrentRequestToolAvailabilityExecutionCoordinator(input: {
-  isToolUnavailable: (toolName: string) => boolean;
+  resolveUnavailableTool: (toolName: string) => CurrentRequestUnavailableTool | undefined;
   delegate: LangChainToolExecutionCoordinator;
 }): LangChainToolExecutionCoordinator {
   return {
     execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
-      if (input.isToolUnavailable(wrapper.name)) {
+      const unavailableTool = input.resolveUnavailableTool(wrapper.name);
+
+      if (unavailableTool?.kind === "consecutive_limit") {
+        return createConsecutiveBusinessToolLimitExecution({
+          wrapper,
+          rawInput,
+          toolCallId,
+          limit: unavailableTool.exhaustedTool.limit,
+          consecutiveCount: unavailableTool.exhaustedTool.consecutiveCount + 1,
+        });
+      }
+
+      if (unavailableTool) {
         return createCurrentRequestToolUnavailableExecution({
           wrapper,
           rawInput,
@@ -285,6 +316,21 @@ function createCurrentRequestToolAvailabilityExecutionCoordinator(input: {
       return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
     },
   };
+}
+
+function resolveCurrentRequestUnavailableTool(
+  availability: CurrentRequestToolAvailabilityState | undefined,
+  toolName: string,
+): CurrentRequestUnavailableTool | undefined {
+  if (!availability || availability.exposedToolNames.has(toolName)) {
+    return undefined;
+  }
+
+  const exhaustedTool = availability.exhaustedBusinessTools.get(toolName);
+
+  return exhaustedTool
+    ? { kind: "consecutive_limit", exhaustedTool }
+    : { kind: "unknown_tool" };
 }
 
 type DuplicateInputKey = {
@@ -699,7 +745,7 @@ function createToolExecutionBudget(input: {
 function createBusinessToolAvailabilityMiddleware(
   businessToolNames: ReadonlySet<string>,
   maxToolCallsPerTool: number,
-  updateCurrentRequestToolNames: (toolNames: ReadonlySet<string>) => void,
+  updateCurrentRequestAvailability: (availability: CurrentRequestToolAvailabilityState) => void,
 ) {
   if (businessToolNames.size === 0) {
     return [];
@@ -708,14 +754,14 @@ function createBusinessToolAvailabilityMiddleware(
   return [createMiddleware({
     name: "FitMateBusinessToolAvailabilityMiddleware",
     wrapModelCall: async (request, handler) => {
-      const exhaustedToolName = findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
+      const exhaustedTool = findConsecutivelyExhaustedBusinessToolInCurrentRun(
         request.messages,
         businessToolNames,
         maxToolCallsPerTool,
       );
 
-      if (!exhaustedToolName) {
-        updateCurrentRequestToolNames(createRequestToolNameSet(request.tools));
+      if (!exhaustedTool) {
+        updateCurrentRequestAvailability(createRequestToolAvailabilityState(request.tools));
         return handler(request);
       }
 
@@ -724,14 +770,31 @@ function createBusinessToolAvailabilityMiddleware(
         tools: request.tools.filter((tool) => {
           const toolName = readLangChainToolName(tool);
 
-          return !toolName || toolName !== exhaustedToolName;
+          return !toolName || toolName !== exhaustedTool.toolName;
         }),
       };
-      updateCurrentRequestToolNames(createRequestToolNameSet(nextRequest.tools));
+      updateCurrentRequestAvailability(createRequestToolAvailabilityState(
+        nextRequest.tools,
+        [{
+          toolName: exhaustedTool.toolName,
+          limit: maxToolCallsPerTool,
+          consecutiveCount: exhaustedTool.consecutiveCount,
+        }],
+      ));
 
       return handler(nextRequest);
     },
   })];
+}
+
+function createRequestToolAvailabilityState(
+  tools: readonly unknown[],
+  exhaustedBusinessTools: readonly ExhaustedBusinessToolState[] = [],
+): CurrentRequestToolAvailabilityState {
+  return {
+    exposedToolNames: createRequestToolNameSet(tools),
+    exhaustedBusinessTools: new Map(exhaustedBusinessTools.map((tool) => [tool.toolName, tool])),
+  };
 }
 
 function createRequestToolNameSet(tools: readonly unknown[]) {
@@ -740,11 +803,11 @@ function createRequestToolNameSet(tools: readonly unknown[]) {
     .filter((toolName): toolName is string => Boolean(toolName)));
 }
 
-function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
+function findConsecutivelyExhaustedBusinessToolInCurrentRun(
   messages: readonly unknown[],
   businessToolNames: ReadonlySet<string>,
   maxToolCallsPerTool: number,
-) {
+): { toolName: string; consecutiveCount: number } | undefined {
   const currentRunMessages = messages.slice(findCurrentRunMessageStartIndex(messages));
   const businessToolCallBatches: Array<string | undefined> = [];
 
@@ -786,7 +849,9 @@ function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
     consecutiveCount += 1;
   }
 
-  return consecutiveCount >= maxToolCallsPerTool ? lastToolName : undefined;
+  return consecutiveCount >= maxToolCallsPerTool
+    ? { toolName: lastToolName, consecutiveCount }
+    : undefined;
 }
 
 function findCurrentRunMessageStartIndex(messages: readonly unknown[]) {

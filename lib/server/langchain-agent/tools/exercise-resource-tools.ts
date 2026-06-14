@@ -361,6 +361,7 @@ export function createSearchExerciseResourcesLangChainTool(
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
       "Output Meaning：candidateGroups[].exercises 是动作候选池，不是最终推荐清单；候选动作可以被选择、跳过或用于后续结构化输出，未选择的候选不需要通过再次查询移除。",
       "Output Meaning：candidateGroups[].exercises 只要存在能满足当前目标的可选择子集，就可以支撑动作推荐集合；候选池不要求完全纯净，也不要求先排除未选候选。",
+      "Output Meaning：coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选；它不是用户目标满足度、训练方案生成结果或下一步 tool 调用指令。",
       "Output Meaning：candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要；null 或 unknown 表示事实未补齐，不能当作低门槛事实。",
       "Output Meaning：多 muscles 查询用于获得覆盖多个请求肌群的候选；结果只提供候选动作事实，不保证每个候选都同等适合作为最终推荐，也不要求最终输出使用全部候选。",
       'Output Meaning：query.muscleMatchRole 会回填本次肌群匹配角色；primary 表示主练肌群候选口径，any 表示主练或辅助参与候选口径。',
@@ -368,7 +369,7 @@ export function createSearchExerciseResourcesLangChainTool(
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入候选列表；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "Output Boundary：内部 diagnostics 只用于 trace / userProjection / debug，不作为 Planner 成功候选事实，也不是继续查询或下一步 tool 调用指令。",
       "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；候选池中存在可选择子集并能支撑用户目标时，应基于该子集进入最终回答或结构化训练收口；本 tool 不直接生成 visibleTrainingProposal。",
-      "Grounding Rules：本 tool 已返回与当前约束匹配的候选后，除非用户明确要求更多候选、更换查询口径，或当前候选没有可用子集，否则不要通过扩大 candidateCountPerSection 或重复相同筛选继续查询。",
+      "Grounding Rules：本 tool 已返回与当前约束匹配的候选后，除非用户明确要求更多候选、更换查询口径，或当前候选没有可用子集，否则重复等价 input 不会补充新事实。",
       formatFacetCatalogForDescription(options.facetCatalog),
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,
@@ -545,6 +546,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
           ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
         },
+        coverage: createModelVisibleCandidateCoverage(output),
         candidateGroups: mapModelVisibleCandidateGroups(
           output.groups,
           (exercise) => ({
@@ -1016,6 +1018,24 @@ function mapModelVisibleCandidateGroups<T>(
       exercises: typedGroup.exercises.map(mapExercise),
     }];
   });
+}
+
+// createModelVisibleCandidateCoverage 为 Planner 提供查询事实覆盖边界，不承载最终训练方案 readiness。
+function createModelVisibleCandidateCoverage(output: SearchExerciseResourcesOutput) {
+  const sectionsWithCandidates = output.query.suitabilities.filter((suitability) =>
+    (output.groups[suitability]?.exercises.length ?? 0) > 0,
+  );
+  const sectionsWithoutCandidates = output.query.suitabilities.filter((suitability) =>
+    !sectionsWithCandidates.includes(suitability),
+  );
+
+  return {
+    hasCandidates: sectionsWithCandidates.length > 0,
+    sectionsWithCandidates,
+    sectionsWithoutCandidates,
+    allRequestedSectionsHaveCandidates: sectionsWithoutCandidates.length === 0,
+    repeatQueryBoundary: "同一 run 内等价 input 已有查询事实；重复调用不会新增事实。请基于当前可见事实推理、澄清或失败收口。",
+  };
 }
 
 function formatFacetCatalogForDescription(catalog?: ExerciseResourceFacetCatalog) {

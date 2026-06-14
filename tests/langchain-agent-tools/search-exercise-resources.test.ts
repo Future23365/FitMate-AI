@@ -96,6 +96,13 @@ describe("searchExerciseResources LangChain tool", () => {
         impactLimit: "low",
         noiseLimit: "quiet",
       },
+      coverage: {
+        hasCandidates: true,
+        sectionsWithCandidates: ["training"],
+        sectionsWithoutCandidates: [],
+        allRequestedSectionsHaveCandidates: true,
+        repeatQueryBoundary: expect.stringContaining("重复调用不会新增事实"),
+      },
       candidateGroups: [
         {
           suitability: "training",
@@ -152,6 +159,10 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage).not.toHaveProperty("visibleDeliveryBoundary");
     expect(modelMessage).not.toHaveProperty("supportsOutputKinds");
     expect(modelMessage).not.toHaveProperty("published");
+    expect(modelMessage.coverage).not.toHaveProperty("availableSections");
+    expect(modelMessage.coverage).not.toHaveProperty("missingSections");
+    expect(modelMessage.coverage.repeatQueryBoundary).not.toContain("searchExerciseResources");
+    expect(modelMessage.coverage.repeatQueryBoundary).not.toContain("submitVisibleTrainingProposal");
     expect(modelMessage.query).not.toHaveProperty("candidateCountPerSection");
     expect(modelMessage.query).not.toHaveProperty("sort");
     expect(modelMessage.query).not.toHaveProperty("equipment");
@@ -561,6 +572,12 @@ describe("searchExerciseResources LangChain tool", () => {
     const modelMessage = JSON.parse(result.modelMessage);
 
     expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(modelMessage.coverage).toMatchObject({
+      hasCandidates: false,
+      sectionsWithCandidates: [],
+      sectionsWithoutCandidates: ["training"],
+      allRequestedSectionsHaveCandidates: false,
+    });
     expect(JSON.stringify(modelMessage)).not.toContain("no_candidates");
     expect(result.record.userProjection).toMatchObject({
       totalMatches: 0,
@@ -931,6 +948,12 @@ describe("searchExerciseResources LangChain tool", () => {
       "warmup",
       "training",
     ]);
+    expect(modelMessage.coverage).toMatchObject({
+      hasCandidates: true,
+      sectionsWithCandidates: ["warmup", "training"],
+      sectionsWithoutCandidates: [],
+      allRequestedSectionsHaveCandidates: true,
+    });
     expect(JSON.stringify(modelMessage)).not.toContain("missingSections");
     expect(JSON.stringify(modelMessage)).not.toContain("allowedSections");
     expect(JSON.stringify(modelMessage)).not.toContain("必须调用");
@@ -953,6 +976,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
     expect(modelVisibleText).toContain("candidateGroups[].exercises 是动作候选池，不是最终推荐清单");
     expect(modelVisibleText).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(modelVisibleText).toContain("coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选");
+    expect(modelVisibleText).toContain("重复等价 input 不会补充新事实");
     expect(modelVisibleText).toContain("不要求最终输出使用全部候选");
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
