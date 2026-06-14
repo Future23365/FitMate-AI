@@ -89,6 +89,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const toolExecutionBudget = createToolExecutionBudget({
       maxBusinessToolCalls: config.runBudget.maxToolCalls,
     });
+    let currentRequestExposedToolNames: ReadonlySet<string> | undefined;
     const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
     const consecutiveToolCallCoordinator = createConsecutiveBusinessToolCallCoordinator({
       maxConsecutiveBusinessToolCalls: config.runBudget.maxToolCallsPerTool,
@@ -97,6 +98,11 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         businessToolNames,
       }),
       delegate: duplicateInputCoordinator,
+    });
+    const availableToolExecutionCoordinator = createCurrentRequestToolAvailabilityExecutionCoordinator({
+      isToolUnavailable: (toolName) => currentRequestExposedToolNames !== undefined
+        && !currentRequestExposedToolNames.has(toolName),
+      delegate: consecutiveToolCallCoordinator,
     });
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
       wrapper,
@@ -108,7 +114,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         toolExecutions.push(execution);
       },
       toolExecutionBudget,
-      consecutiveToolCallCoordinator,
+      availableToolExecutionCoordinator,
       async (activity) => {
         await emitLangChainRuntimeActivityObserverEvent({
           activity,
@@ -119,7 +125,13 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     ));
     const middleware = [
       ...createTerminalToolLoopFailureMiddleware(() => toolExecutions),
-      ...createBusinessToolAvailabilityMiddleware(businessToolNames, config.runBudget.maxToolCallsPerTool),
+      ...createBusinessToolAvailabilityMiddleware(
+        businessToolNames,
+        config.runBudget.maxToolCallsPerTool,
+        (toolNames) => {
+          currentRequestExposedToolNames = toolNames;
+        },
+      ),
       modelCallRecorder.middleware,
     ] as const;
     const agent = createAgent({
@@ -254,6 +266,25 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     clearTimeout(timeout);
     input.signal?.removeEventListener("abort", abortFromInput);
   }
+}
+
+function createCurrentRequestToolAvailabilityExecutionCoordinator(input: {
+  isToolUnavailable: (toolName: string) => boolean;
+  delegate: LangChainToolExecutionCoordinator;
+}): LangChainToolExecutionCoordinator {
+  return {
+    execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
+      if (input.isToolUnavailable(wrapper.name)) {
+        return createCurrentRequestToolUnavailableExecution({
+          wrapper,
+          rawInput,
+          toolCallId,
+        });
+      }
+
+      return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
+    },
+  };
 }
 
 type DuplicateInputKey = {
@@ -600,6 +631,48 @@ function createConsecutiveBusinessToolLimitExecution(input: {
   };
 }
 
+function createCurrentRequestToolUnavailableExecution(input: {
+  wrapper: LangChainToolWrapper;
+  rawInput: unknown;
+  toolCallId?: string;
+}): LangChainToolExecutionResult {
+  const startedAt = Date.now();
+  const config = agentRuntimeConfig.langChain;
+  const inputSummary = toLangChainJsonValue(
+    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    config.trace.toolArgumentsPreviewMaxLength,
+  );
+  const modelVisibleSummary = stringifyForModelSummary({
+    status: "failed",
+    code: "unknown_tool",
+    toolName: input.wrapper.name,
+    message: "当前模型请求未暴露该工具，runtime 已拒绝执行；请基于当前可见事实收口或说明能力边界。",
+    boundary: "该失败只表示 provider 返回了当前 request tools 列表之外的 tool_call；服务端不会执行对应业务 handler，也不会改写 provider tool_call。",
+  }, config.toolWrapper.modelVisibleSummaryMaxLength);
+
+  return {
+    modelMessage: modelVisibleSummary,
+    record: {
+      toolCallId: input.toolCallId,
+      toolName: input.wrapper.name,
+      executionKind: input.wrapper.executionKind ?? "business",
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      inputSummary,
+      modelVisibleSummary,
+      traceSummary: toLangChainJsonValue({
+        status: "failed",
+        code: "unknown_tool",
+        toolName: input.wrapper.name,
+        reason: "current_request_tool_unavailable",
+      }, config.toolWrapper.traceSummaryMaxLength),
+      failureCode: "unknown_tool",
+      failureMessage: "当前模型请求未暴露该工具，runtime 已拒绝执行 handler。",
+      enteredModelContext: true,
+    },
+  };
+}
+
 /** resolveLangChainGraphRecursionLimit 将模型调用预算映射为 LangChain graph step 上限，避免旧 iteration 语义与 LangGraph 计数脱节。 */
 export function resolveLangChainGraphRecursionLimit(
   runBudget: Pick<AgentRuntimeConfig["langChain"]["runBudget"], "maxModelCalls">,
@@ -622,10 +695,11 @@ function createToolExecutionBudget(input: {
   };
 }
 
-/** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除连续达上限的业务 tool，避免模型原地重复请求同一能力。 */
+/** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除连续达上限的业务 tool，并记录本次 request 实际暴露的工具集合。 */
 function createBusinessToolAvailabilityMiddleware(
   businessToolNames: ReadonlySet<string>,
   maxToolCallsPerTool: number,
+  updateCurrentRequestToolNames: (toolNames: ReadonlySet<string>) => void,
 ) {
   if (businessToolNames.size === 0) {
     return [];
@@ -641,19 +715,29 @@ function createBusinessToolAvailabilityMiddleware(
       );
 
       if (!exhaustedToolName) {
+        updateCurrentRequestToolNames(createRequestToolNameSet(request.tools));
         return handler(request);
       }
 
-      return handler({
+      const nextRequest = {
         ...request,
         tools: request.tools.filter((tool) => {
           const toolName = readLangChainToolName(tool);
 
           return !toolName || toolName !== exhaustedToolName;
         }),
-      });
+      };
+      updateCurrentRequestToolNames(createRequestToolNameSet(nextRequest.tools));
+
+      return handler(nextRequest);
     },
   })];
+}
+
+function createRequestToolNameSet(tools: readonly unknown[]) {
+  return new Set(tools
+    .map(readLangChainToolName)
+    .filter((toolName): toolName is string => Boolean(toolName)));
 }
 
 function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(

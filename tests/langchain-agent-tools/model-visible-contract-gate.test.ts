@@ -141,7 +141,9 @@ describe("Agent model-visible contract gate", () => {
       "query.candidateCountPerSection",
       "candidateGroups[0].returnedCount",
       "candidateGroups[0].nested.truncated",
+      "candidateGroups[0].nested.diagnostics",
       "candidateGroups[0].nested.diagnostics[0].code",
+      "diagnostics",
       "diagnostics[0].code",
     ]));
   });
@@ -177,7 +179,6 @@ describe("Agent model-visible contract gate", () => {
             secondaryMusclesZh: ["肩部"],
           }],
         }],
-        diagnostics: [],
       },
     });
 

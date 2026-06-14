@@ -395,14 +395,27 @@ describe("searchExerciseResources LangChain tool", () => {
       "Plank",
       "Pushups",
     ]);
-    expect(modelMessage.diagnostics).toEqual([
-      expect.objectContaining({
-        suitability: "training",
-        code: "required_exercise_filter_mismatch",
-        exerciseId: "Plank",
-        conflictFields: ["executionProfile", "muscles"],
-      }),
-    ]);
+    expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(result.record.traceSummary).toMatchObject({
+      diagnostics: [
+        expect.objectContaining({
+          suitability: "training",
+          code: "required_exercise_filter_mismatch",
+          exerciseId: "Plank",
+          conflictFields: ["executionProfile", "muscles"],
+        }),
+      ],
+    });
+    expect(result.record.userProjection).toMatchObject({
+      diagnostics: [
+        expect.objectContaining({
+          suitability: "training",
+          code: "required_exercise_filter_mismatch",
+          exerciseId: "Plank",
+          conflictFields: ["executionProfile", "muscles"],
+        }),
+      ],
+    });
     expect(modelMessage).not.toHaveProperty("positiveAnchorBoundary");
   });
 
@@ -452,7 +465,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(JSON.stringify(modelMessage)).not.toContain("nameMatches");
   });
 
-  it("projects exerciseNames diagnostics as facts without exposing parallel result structures", async () => {
+  it("keeps exerciseNames diagnostics out of Planner-visible facts while preserving trace diagnostics", async () => {
     const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
         query: input,
@@ -478,18 +491,11 @@ describe("searchExerciseResources LangChain tool", () => {
     );
     const modelMessage = JSON.parse(result.modelMessage);
 
-    expect(modelMessage.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
-      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船" }),
-      expect.objectContaining({ code: "exercise_name_filter_mismatch", exerciseName: "平板支撑", conflictFields: ["muscles"] }),
-      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "推" }),
-    ]));
-    for (const diagnostic of modelMessage.diagnostics) {
-      expect(diagnostic).not.toHaveProperty("totalMatches");
-      expect(diagnostic).not.toHaveProperty("returnedCount");
-      expect(diagnostic.code).not.toBe("exercise_name_too_broad");
-      expect(diagnostic.code).not.toBe("too_broad");
-    }
+    expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_not_found");
+    expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_ambiguous");
+    expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_filter_mismatch");
+    expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_too_broad");
     expect(result.record.traceSummary).toMatchObject({
       diagnostics: expect.arrayContaining([
         expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
@@ -554,16 +560,17 @@ describe("searchExerciseResources LangChain tool", () => {
     );
     const modelMessage = JSON.parse(result.modelMessage);
 
-    expect(modelMessage.diagnostics).toEqual([
-      expect.objectContaining({
-        suitability: "training",
-        code: "no_candidates",
-        message: "training 用途当前查询没有可纳入的候选动作。",
-      }),
-    ]);
+    expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(JSON.stringify(modelMessage)).not.toContain("no_candidates");
     expect(result.record.userProjection).toMatchObject({
       totalMatches: 0,
       returnedCount: 0,
+      diagnostics: [
+        expect.objectContaining({
+          suitability: "training",
+          code: "no_candidates",
+        }),
+      ],
       candidateGroups: [
         expect.objectContaining({
           totalMatches: 0,
@@ -719,9 +726,12 @@ describe("searchExerciseResources LangChain tool", () => {
     });
 
     if (executionProfile === "outdoor_required") {
-      expect(modelMessage.diagnostics).toEqual([
-        expect.objectContaining({ code: "no_candidates" }),
-      ]);
+      expect(modelMessage).not.toHaveProperty("diagnostics");
+      expect(result.record.userProjection).toMatchObject({
+        diagnostics: [
+          expect.objectContaining({ code: "no_candidates" }),
+        ],
+      });
     } else {
       expect(findCandidateGroup(modelMessage, "training").exercises[0]).toMatchObject({
         exerciseId: `${executionProfile}_exercise`,
@@ -1314,6 +1324,8 @@ function expectModelVisibleSummaryDoesNotContainMisleadingSearchFields(modelMess
     "groupSemantics",
     "allowedSections",
     "zeroMatchMuscles",
+    "diagnostics",
+    "exercise_name_ambiguous",
     "exercise_name_too_broad",
     "too_broad",
     "sufficient",

@@ -301,6 +301,7 @@ const searchExercisePlannerForbiddenKeys = new Set([
   "appliedFilters",
   "filterApplicationBoundary",
   "filterApplications",
+  "diagnostics",
   "positiveAnchorBoundary",
   "refreshExclusionBoundary",
   "sectionSummary",
@@ -310,6 +311,7 @@ const searchExercisePlannerForbiddenKeys = new Set([
   "groupSemantics",
   "allowedSections",
   "zeroMatchMuscles",
+  "exercise_name_ambiguous",
   "exercise_name_too_broad",
   "too_broad",
   "sufficient",
@@ -323,7 +325,7 @@ const searchExercisePlannerForbiddenKeys = new Set([
 ]);
 
 const searchExercisePlannerForbiddenTextPatterns: readonly RegExp[] = [
-  /\b(exercise_name_too_broad|too_broad)\b/i,
+  /\b(exercise_name_ambiguous|exercise_name_too_broad|too_broad)\b/i,
   /\b(sufficient|insufficient|canProceed|canDeliverPlan|goalSatisfied|businessGoalSatisfied|complete)\b/i,
   /(候选|结果|动作).{0,12}(已经|已|不够|不足|足够)/,
   /(已经|已|可以|可).{0,12}(生成|交付).{0,12}(训练方案|计划)/,
