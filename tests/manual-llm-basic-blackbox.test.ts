@@ -9,6 +9,11 @@ import {
   parseBasicChatFixtureFromJson,
   readBasicChatFixture,
 } from "@/manual-tests/llm/basic-chat-fixtures";
+import { readDevBasicChatFixture } from "@/lib/server/dev/llm-blackbox-fixture-store";
+import {
+  parseBasicChatFixtureFromJson as parseSharedBasicChatFixtureFromJson,
+  summarizeBasicChatFixture,
+} from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
 import {
   renderBasicChatBlackboxReport,
   summarizeTokenDiagnostics,
@@ -90,6 +95,25 @@ describe("manual basic LLM blackbox fixtures", () => {
       userInput: "换一批",
       expectation: "刷新当前推荐。",
     });
+  });
+
+  it("shares fixture schema between the command adapter and dev reviewer store", async () => {
+    const fixture = await readDevBasicChatFixture();
+    const reparsed = parseSharedBasicChatFixtureFromJson({
+      version: 1,
+      flows: fixture.flows.map((flow) => ({
+        id: flow.id,
+        goal: flow.goal,
+        turns: flow.turns.map((turn) => ({
+          userInput: turn.userInput,
+          expectedOutput: turn.expectation,
+        })),
+      })),
+    }, fixture.sourcePath);
+
+    expect(fixture.sourcePath).toContain(basicChatFixtureSourcePath);
+    expect(reparsed.stats).toEqual(summarizeBasicChatFixture(reparsed.flows));
+    expect(reparsed.flows.map((flow) => flow.id)).toEqual(fixture.flows.map((flow) => flow.id));
   });
 
   it("builds the basic runner request body without full history or bypass fields", () => {

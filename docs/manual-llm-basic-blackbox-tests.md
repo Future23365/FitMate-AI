@@ -1,6 +1,6 @@
 # 基础 LLM 首页聊天黑盒测试说明
 
-生成时间：2026-06-15 14:20:45 +0800
+生成时间：2026-06-15 16:17:26 +0800
 
 ## 目的
 
@@ -11,6 +11,21 @@
 当前 runner 贴近真实 `/api/chat` + LangChain Agent Runtime：它不注入旧自研 agent runtime fixture，也不读取已下线的失败兜底字段。报告中的响应来源来自 AI trace 的 `LangChain Agent Runtime 摘要` 和 `NDJSON 响应写入` 安全摘要。
 
 该测试会真实调用模型并消费 token。默认 `npm run test` 不会运行它，也不会因为任何模型相关环境变量而触发真实模型调用。
+
+## 两种审核入口
+
+基础 LLM 黑盒现在有两个入口，它们读取同一个 JSON fixture，但职责不同：
+
+| 入口 | 主要用途 | 输出 | 持久化边界 |
+|---|---|---|---|
+| `npm run test:llm:basic` | 命令行成本测试和 Markdown 报告归档 | `docs/manual-llm-basic-blackbox-latest-report.md` 或自定义报告路径 | 写入报告文件；会按真实聊天链路保存会话用于多轮 hydration |
+| `/dev/llm-blackbox` | 浏览器内人工审核用户可见气泡、训练卡片和建议提问 | 页面中的 run / flow / turn 详情和统计 | 只写入当前浏览器会话的 `sessionStorage` 临时结果；不写入业务数据库之外的长期审核记录 |
+
+命令行 runner 更适合生成可分享的人工复核报告；开发态审核页更适合快速查看每轮真实用户可见展示效果。两者都不会把 `expectedOutput` 当作自动语义评分，只把它作为人工审核对照。
+
+开发态审核页只在开发诊断能力开启时可访问。页面会从 `manual-tests/llm/fixtures/basic-chat-blackbox-cases.json` 加载 flow 列表，支持运行单个 flow 或确认后串行运行全部 flow。它通过生产聊天 client 调用真实 `/api/chat`，复用 NDJSON parser 和消息投影函数，并复用首页的只读消息展示组件渲染 Markdown、训练卡片和建议提问；它不嵌入首页整页，不依赖首页输入框、sidebar、欢迎态、滚动容器、DOM selector 或 iframe。
+
+开发态审核页记录每轮 `userInput`、`expectedOutput`、assistant 文本、visibleOutputs、suggestedQuestions、安全错误、eventTypes、conversationId、responseMessageId、耗时和 token / trace best-effort 诊断。token 缺失只显示为 `missing`，不影响自动执行状态。人工审核状态独立于自动执行状态，可标记为 `unreviewed`、`accepted`、`rejected` 或 `needs_followup`。
 
 ## 默认自动化边界
 
