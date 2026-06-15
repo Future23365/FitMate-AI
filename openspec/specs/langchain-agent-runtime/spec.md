@@ -135,21 +135,36 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 - **AND** runtime MUST NOT 为 activity summary 保留独立 activity report 上限或空转 loop 边界
 
 ### Requirement: Runtime 必须限制业务 tool 的单轮重复请求和执行
-系统 SHALL 在生产 LangChain Agent Runtime 中限制模型连续重复请求同一个业务 tool。该限制 MUST 基于当前 production tool wrapper 列表自动生成，MUST 只统计 `executionKind = "business"` 的真实业务 tool 连续序列，并且 MUST 不替代整轮业务 tool 总预算。`runtimeMetadata` MUST NOT 被视为一个独立 tool，也不得打断或重置业务 tool 连续计数。Runtime MUST NOT 在该限制中写用户原文、关键词、业务 phrasing 或具体业务 `toolName` 语义分支。
+系统 SHALL 在生产 LangChain Agent Runtime 中限制模型连续重复请求同一个业务 tool。该限制 MUST 基于当前 production tool wrapper 列表自动生成，MUST 只统计 `executionKind = "business"` 的真实业务 tool 连续序列，并且 MUST 不替代整轮业务 tool 总预算。连续同 tool 限制 MUST 以 provider model response 批次作为计数单位：同一 `AIMessage.tool_calls` 批次内同一业务 tool 的多个不同输入请求 SHALL 视为一次模型决策中的并列 fan-out，不得被计为多个跨 observation 的连续 loop。`runtimeMetadata` MUST NOT 被视为一个独立 tool，也不得打断或重置业务 tool 连续计数。Runtime MUST NOT 在该限制中写用户原文、关键词、业务 phrasing 或具体业务 `toolName` 语义分支。
 
 #### Scenario: 每个业务 tool 自动获得连续调用上限
 - **WHEN** Runtime 基于 production tool wrappers 构造 `createAgent`
-- **THEN** Runtime MUST 为每个 `executionKind = "business"` 的 tool 配置连续调用上限
-- **AND** 连续调用上限 MUST 来自集中配置
+- **THEN** Runtime MUST 为每个 `executionKind = "business"` 的 tool 配置连续模型决策批次上限
+- **AND** 连续批次上限 MUST 来自集中配置
 - **AND** Runtime MUST NOT 手写用户原文关键词、短句模板或自然语言语义判断来决定某个 tool 是否可重试
 
-#### Scenario: 连续达到单 tool 上限后不再暴露给后续 provider 请求
-- **WHEN** 当前 Agent run 中最近连续业务 tool 调用序列已经达到某业务 tool 的连续调用上限
+#### Scenario: 同一模型响应中的同名不同输入 fan-out 不触发连续超限
+- **WHEN** 某次 provider model response 返回同一业务 tool 的多个 `tool_calls`
+- **AND** 这些 tool calls 的归一化业务 input 不完全相同
+- **THEN** Runtime MUST 将该批次视为一次模型决策中的并列 fan-out
+- **AND** Runtime MUST NOT 仅因该批次内同名 tool call 数量超过 `maxToolCallsPerTool` 就触发 `tool_consecutive_call_limit_exceeded`
+- **AND** 每个实际执行的业务 tool call MUST 继续消耗整轮业务 tool 总预算
+- **AND** 该行为 MUST 不绕过 schema、权限、projection、trace 和最终结构化回复校验
+
+#### Scenario: 同一模型响应中的同名同参请求仍按 duplicate input 处理
+- **WHEN** 某次 provider model response 返回同一业务 tool 的多个 `tool_calls`
+- **AND** 其中至少两个 tool calls 具有相同 `toolName`、相同 `toolVersion` 和等价归一化业务 input
+- **THEN** Runtime MUST NOT 因 batch-aware fan-out 重复执行等价 handler
+- **AND** Runtime MUST 使用 duplicate input 或等价通用诊断反馈处理重复同参请求
+- **AND** Runtime MUST NOT 根据具体业务字段组合或业务 section 判断是否复用事实
+
+#### Scenario: 连续达到单 tool 批次上限后不再暴露给后续 provider 请求
+- **WHEN** 当前 Agent run 中最近连续 provider model response 批次已经达到某业务 tool 的连续调用上限
 - **THEN** Runtime MUST 在后续 model request 中从可用 `tools` 列表移除该业务 tool
 - **AND** 模型后续 provider tool_call 尝试 MUST NOT 继续消耗整轮业务 tool 总预算
 
 #### Scenario: 连续超限后终止主 Agent loop
-- **WHEN** 模型连续调用某个业务 tool 超过集中配置的连续调用上限
+- **WHEN** 模型跨 provider model response 批次连续调用某个业务 tool 超过集中配置的连续调用上限
 - **THEN** LangChain Runtime MUST 阻止该超限 tool call 执行对应 handler
 - **AND** Runtime MUST 记录稳定失败 execution、失败摘要和 trace summary
 - **AND** Runtime MUST 将当前主 Agent run 归一化为 terminal failure
@@ -157,10 +172,10 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 - **AND** 该行为 MUST 不绕过项目现有 schema、权限、projection、trace 和最终结构化回复校验
 
 #### Scenario: runtime metadata 不打断业务 tool 连续计数
-- **WHEN** 模型连续调用同一个业务 tool 达到上限
+- **WHEN** 模型跨 provider model response 批次连续调用同一个业务 tool 达到上限
 - **AND** 后续 tool call 仅改变或携带 `runtimeMetadata.activitySummary`
 - **THEN** Runtime MUST NOT 将 `runtimeMetadata` 视为独立 tool 或业务 tool 连续序列的打断点
-- **AND** Runtime MUST 继续按真实业务 `toolName`、tool version 和归一化业务 input 计算连续限制
+- **AND** Runtime MUST 继续按真实业务 `toolName`、tool version 和模型决策批次计算连续限制
 - **AND** `runtimeMetadata.activitySummary` MUST NOT 消耗旧 activity report 预算或任何独立 activity 预算
 
 #### Scenario: 连续超限失败用于受控失败收口
@@ -230,4 +245,52 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 - **AND** finalization tool、terminal validator 或业务 validator 判定该结构不满足数据库事实、section、prescription、schedule 或可渲染边界
 - **THEN** Runtime MUST 将失败归因于 finalization / validator
 - **AND** Runtime MUST NOT 把中间 tool result 的空结果或候选不足 diagnostics 当作结构化输出失败的替代判定
+
+### Requirement: Runtime 必须拒绝执行当前 request 未暴露的 provider tool call
+系统 SHALL 在每次 LangChain model request / response 边界维护当前 request 实际暴露的 tool name 集合。Provider 返回的 `tool_calls[].name` 如果不在该集合中，runtime MUST NOT 执行任何业务 tool handler，并 MUST 以受控失败记录 trace 和进入失败收口。该校验 MUST 使用通用 tool name 可用性集合，不得读取用户原文、关键词、短句模板或具体业务字段组合。
+
+#### Scenario: 已移除工具不得继续执行
+- **WHEN** 某次 model request 的 `tools` 列表不包含某个业务 tool
+- **AND** provider response 仍返回该 tool name 的 `tool_call`
+- **THEN** runtime MUST NOT 调用该 tool wrapper 的 handler
+- **AND** runtime MUST 记录稳定失败 execution 或 run failure
+- **AND** failure MUST 可由 production response adapter / terminal failure finalizer 受控收口
+- **AND** runtime MUST NOT 为该未暴露 tool call 消耗业务 handler 执行预算
+
+#### Scenario: 拦截逻辑不写业务 toolName 分支
+- **WHEN** runtime 判断 provider `tool_call` 是否可执行
+- **THEN** 判断 MUST 基于当前 request 暴露的 tool name 集合
+- **AND** runtime MUST NOT 为 `searchExerciseResources`、`inspectVisibleTrainingProposals`、`submitVisibleTrainingProposal` 或其他具体业务 tool 编写语义分支
+- **AND** runtime MUST NOT 根据用户自然语言、关键词、正则、同义词表或具体 phrasing 改写 provider `tool_calls`
+
+#### Scenario: 合法暴露工具保持原执行路径
+- **WHEN** provider response 返回的 `tool_call.name` 存在于当前 request 的 `tools` 列表
+- **THEN** runtime MUST 继续使用现有 LangChain tool wrapper、schema 校验、权限隔离、投影和 trace 边界执行该 tool
+- **AND** 本可用性校验 MUST NOT 绕过现有 schema、permission、projection、trace 或最终结构化回复校验
+
+### Requirement: Runtime 必须把连续上限移除后的同 tool 调用归一为 terminal loop failure
+系统 SHALL 区分“当前 request 未暴露的普通未知 tool”和“因连续业务 tool 上限被当前 request 移除的 exhausted tool”。当 provider 继续请求后者时，runtime MUST 将该 tool call 归一为连续业务 tool 超限失败，并进入 terminal loop failure 收口。该判断 MUST 只基于 runtime 维护的 tool catalog、当前 request tools、业务 tool 连续调用计数和集中配置上限，MUST NOT 基于用户原文、关键词、正则、同义词、短句模板或具体 phrasing。
+
+#### Scenario: 已移除业务 tool 被继续调用时终止主 Agent loop
+- **WHEN** 某个 `executionKind = "business"` 的 tool 在当前 Agent run 中最近连续调用序列已达到集中配置的连续调用上限
+- **AND** runtime 在下一次 provider request 的 `tools` 列表中移除了该 tool
+- **AND** provider 仍返回该 tool 的 `tool_call`
+- **THEN** runtime MUST 拒绝执行该 tool handler
+- **AND** runtime MUST 记录 `code = "tool_consecutive_call_limit_exceeded"` 或等价稳定 trace summary
+- **AND** runtime MUST 将当前主 Agent run 归一化为 terminal failure
+- **AND** runtime MUST NOT 继续向同一主 Agent loop 提供普通 `unknown_tool` 反馈让模型重复尝试
+- **AND** runtime MUST NOT 因该非法尝试重复消耗业务 tool handler 执行预算
+
+#### Scenario: 普通未暴露 tool 仍按 unknown_tool 拒绝
+- **WHEN** provider 返回当前 request `tools` 列表之外的 tool call
+- **AND** 该 tool 不属于当前 request 因连续业务 tool 上限移除的 exhausted tool
+- **THEN** runtime MUST 拒绝执行 handler
+- **AND** runtime MUST 记录 `code = "unknown_tool"` 或等价稳定拒绝 code
+- **AND** runtime MUST NOT 临时执行同名、相邻或历史注册的业务能力
+
+#### Scenario: 连续上限终止不写业务语义分支
+- **WHEN** runtime 判断 provider 返回的 tool call 是否命中 exhausted tool
+- **THEN** 判断依据 MUST 来自通用 tool wrapper metadata、当前 request tools、连续调用计数和集中配置
+- **AND** runtime MUST NOT 为 `searchExerciseResources`、`inspectVisibleTrainingProposals`、`submitVisibleTrainingProposal` 或未来具体业务 tool 编写语义特判
+- **AND** runtime MUST NOT 根据用户自然语言、业务字段组合或具体 trace phrasing 改写 provider tool call、tool input 或最终回答策略
 

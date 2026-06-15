@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 默认 Agent LLM prompt 必须表达训练助手边界
 

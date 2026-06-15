@@ -658,3 +658,72 @@ LangChain Agent system message SHALL 在模型可见策略中表达：当用户�
 - **AND** system message MUST 表达除非用户明确要求精确覆盖，否则不需要为了每个细分肌群都继续查询或补齐事实
 - **AND** system message MUST NOT 将该规则写成具体 phrasing 的触发模板
 
+### Requirement: 默认 prompt 必须区分目标肌群推荐和宽泛参与查询
+系统 SHALL 在默认 LangChain Agent prompt 中表达稳定 Planner Policy：当用户请求按目标肌群推荐、筛选或生成训练动作候选时，模型应把请求肌群理解为主练目标；当用户目标是查询某肌群是否参与、动作会带到哪些肌群、辅助刺激或宽泛相关动作时，模型可以使用主/辅任意参与口径。该规则 MUST 使用稳定语义类别表达，不得依赖具体用户短句或关键词。
+
+#### Scenario: 目标肌群推荐默认主练口径
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达目标肌群动作推荐、训练动作筛选或结构化训练结果候选默认按主练肌群理解
+- **AND** system message MUST 表达模型不应把所有辅助参与该肌群的动作都当作同等优先的目标肌群推荐候选
+- **AND** system message MUST NOT 使用具体用户原话、固定短语、关键词或正则作为触发条件
+
+#### Scenario: 宽泛参与语义允许任意匹配口径
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达当用户目标是肌群参与、带到、辅助刺激、稳定参与或宽泛相关动作时，可以使用主/辅任意参与口径
+- **AND** system message MUST 表达这种口径返回的是参与候选，不代表每个候选都适合作为目标肌群主练推荐
+
+### Requirement: 默认 prompt 必须表达候选足够时停止同类查询
+系统 SHALL 在默认 LangChain Agent prompt 中表达：成功工具结果已经提供与当前目标匹配的可用候选时，模型应基于候选子集回答、提交结构化训练结果、澄清或说明事实不足，而不得为了扩大候选池、移除未选候选或追求候选池完全纯净而重复调用同类只读查询工具。
+
+#### Scenario: 成功候选支持选择子集收口
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达工具返回的候选池可以选择子集用于最终回答或结构化训练结果
+- **AND** system message MUST 表达未选择候选不需要通过再次查询移除
+- **AND** system message MUST 表达候选池已经按主练肌群匹配时，不应仅为了查看更多候选而重复同类查询
+
+#### Scenario: 不引入固定 workflow 或业务 toolName 触发规则
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 根据具体业务 `toolName`、字段组合、用户关键词或用户短句规定必须选择固定下一步
+- **AND** system message MUST NOT 要求服务端根据用户原文自动补写 tool input 字段
+- **AND** system message MUST NOT 把 `searchExerciseResources` 的成功结果描述成必须经过固定下一步 workflow 才能用于普通文本回答
+
+### Requirement: 默认 Agent LLM prompt 必须表达训练助手边界
+
+生产 `/api/chat` 文本聊天使用的默认 Agent LLM prompt SHALL 声明当前助手是 AI 健身助手。该 prompt MUST 将助手能力边界描述为围绕动作推荐、训练目标/限制整理、训练原则解释和训练计划编排提供帮助，但 MUST NOT 承诺执行当前未注册的业务 tool。
+
+#### Scenario: 宽泛动作推荐默认低门槛无器械口径
+- **WHEN** 用户请求宽泛动作推荐、动作筛选或结构化训练候选
+- **AND** 当前用户输入、上下文或已验证事实没有明确器械、场地或可用设施偏好
+- **THEN** 默认 prompt MUST 指示模型按低门槛无器械条件继续
+- **AND** 默认 prompt MUST 表达该低门槛无器械默认对应当前请求可在地面或瑜伽垫完成
+- **AND** 默认 prompt MUST 表达该默认只服务当前请求，不代表用户长期偏好
+- **AND** 默认 prompt MUST 指示最终正文说明默认按无器械、地面或瑜伽垫条件推荐
+- **AND** 默认 prompt MUST NOT 指示模型先做无执行场景的宽泛动作查询，再为同一推荐目标补查低门槛无器械候选
+- **AND** 默认 prompt MUST NOT 把具体用户短句、关键词、正则、同义词表或 phrasing 写成触发规则
+
+#### Scenario: 未确认的居家支撑不得作为默认条件
+- **WHEN** 用户请求宽泛动作推荐、动作筛选或结构化训练候选
+- **AND** 用户没有明确表示可用椅子、墙面、台阶、小器械、健身房设施、搭档或户外空间
+- **THEN** 默认 prompt MUST NOT 指示模型把这些未确认条件纳入动作查询口径
+- **AND** 默认 prompt MUST NOT 把低门槛无器械默认升级为更宽的居家支撑、健身房或户外偏好
+
+#### Scenario: 低门槛默认不引入服务端语义分流
+- **WHEN** 实现低门槛无器械默认口径
+- **THEN** `/api/chat`、LangChain runtime、tool wrapper、validator、tool handler、repository 和 response adapter MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板自动补写 `executionProfile`
+- **AND** 系统 MUST NOT 根据具体用户短句改写 provider `tool_calls`、`toolName`、调用顺序、`payload.kind` 或最终回答策略
+
+### Requirement: 默认 prompt 必须表达 batch-aware 工具循环预算
+系统 SHALL 在默认 LangChain Agent system prompt 中用中文表达当前业务 tool 预算边界。Prompt MUST 说明整轮业务 tool 总预算和单个业务 tool 连续模型决策批次上限，并且 MUST 区分同一模型响应中的并列 `tool_calls` 与跨 observation 的连续 tool loop。该说明 MUST 保持通用 Agent 合同层级，不得写入具体业务 `toolName`、用户短句、关键词、正则、同义词表、业务字段组合或固定恢复流程。
+
+#### Scenario: prompt 区分 fan-out 和 loop
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明同一业务 tool 的连续限制用于约束跨模型决策批次的重复请求
+- **AND** system message MUST 说明同一模型响应内的并列 `tool_calls` 不按循环计数
+- **AND** system message MUST 说明重复同参输入会被去重或拒绝
+- **AND** system message MUST 保持 `tool_calls`、`runtimeMetadata.activitySummary`、`maxToolCalls`、`maxToolCallsPerTool` 等技术标识英文原样
+
+#### Scenario: prompt 不引入业务特例
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 根据用户原文、关键词、短句模板、业务 phrasing 或具体业务 `toolName` 规定模型必须拆分、合并或改写 tool calls
+- **AND** system message MUST NOT 描述未注册 tool、隐藏业务服务或绕过 LangChain tool catalog 的恢复流程
+
