@@ -134,7 +134,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
           isRunning={runner.isRunning}
         />
 
-        <Card className="rounded-[18px] py-0">
+        <Card className="h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
           <CardHeader className="border-b border-line bg-white px-lg py-md">
             <div className="flex items-start justify-between gap-md">
               <div>
@@ -150,14 +150,14 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
               ) : null}
             </div>
           </CardHeader>
-          <CardContent className="bg-surface-container-low px-lg py-lg">
+          <CardContent className="custom-scrollbar h-[calc(100vh-284px)] overflow-y-auto overscroll-contain bg-surface-container-low px-lg py-lg">
             {transcriptMessages.length > 0 ? (
               <ChatTranscript
                 className="mx-auto flex max-w-4xl flex-col gap-md"
                 messages={transcriptMessages}
               />
             ) : (
-              <div className="flex min-h-[360px] items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
+              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
                 当前 flow 尚未产生可见转录。运行后会展示用户消息、assistant 文本、训练卡片和建议提问。
               </div>
             )}
@@ -232,11 +232,11 @@ function FlowListPanel({
   onSetFlowReviewStatus: (flowId: string, status: LlmBlackboxReviewStatus) => void;
 }) {
   return (
-    <Card className="rounded-[18px] py-0">
+    <Card className="h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
       <CardHeader className="border-b border-line px-lg py-md">
         <CardTitle className="text-title-md">Flow 列表</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-sm px-md py-md">
+      <CardContent className="custom-scrollbar h-[calc(100vh-284px)] space-y-sm overflow-y-auto overscroll-contain px-md py-md">
         {flows.map((flow) => (
           <div
             className={`rounded-xl border bg-white p-md transition-colors ${

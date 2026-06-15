@@ -265,6 +265,8 @@ describe("dev LLM blackbox reviewer layout contract", () => {
     expect(bodyScrollScopeSource).toContain("document.body.classList.add");
     expect(bodyScrollScopeSource).toContain("document.body.classList.remove");
     expect(reviewerSource).toContain("<LlmBlackboxBodyScrollScope />");
+    expect(reviewerSource.match(/h-\[calc\(100vh-190px\)\] overflow-hidden/g)).toHaveLength(2);
+    expect(reviewerSource.match(/h-\[calc\(100vh-284px\)\].*overflow-y-auto/g)).toHaveLength(2);
   });
 });
 
