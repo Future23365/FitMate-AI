@@ -13,6 +13,7 @@ import { ClientRequestError, clientRequest } from "@/lib/client/http/client-requ
 const fsMocks = vi.hoisted(() => ({
   appendFile: vi.fn(),
   mkdir: vi.fn(),
+  readFile: vi.fn(),
   writeFile: vi.fn(),
 }));
 const authMocks = vi.hoisted(() => ({
@@ -576,6 +577,81 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).not.toContain("toolPayload");
     expect(savedContent).not.toContain("workoutCard");
     expect(fsMocks.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("appends current trace questions to the basic blackbox fixture", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(JSON.stringify({
+      version: 1,
+      flows: [
+        {
+          id: "F01",
+          goal: "已有流程",
+          turns: [
+            {
+              userInput: "今天我想练胸",
+              expectedOutput: "有返回内容。",
+            },
+          ],
+        },
+      ],
+    }));
+
+    const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
+      logType: "blackbox_case",
+      payload: {
+        title: "胸部训练 trace",
+        trace: {
+          traceId: "trace-2",
+          route: "/api/chat",
+        },
+        userQuestions: [
+          { round: 1, question: "推荐几个练胸动作" },
+          { round: 2, question: "换一批" },
+        ],
+        finalAnswer: "不要写入 fixture",
+      },
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      path: expect.stringContaining("manual-tests/llm/fixtures/basic-chat-blackbox-cases.json"),
+      flowId: "F02",
+      turnCount: 2,
+    });
+
+    const savedFixture = JSON.parse(String(fsMocks.writeFile.mock.calls[0]?.[1] ?? ""));
+
+    expect(fsMocks.appendFile).not.toHaveBeenCalled();
+    expect(savedFixture).toMatchObject({
+      version: 1,
+      flows: [
+        {
+          id: "F01",
+          goal: "已有流程",
+          turns: [
+            {
+              userInput: "今天我想练胸",
+              expectedOutput: "有返回内容。",
+            },
+          ],
+        },
+        {
+          id: "F02",
+          goal: "从 /dev/ai-traces 保存：胸部训练 trace",
+          turns: [
+            {
+              userInput: "推荐几个练胸动作",
+              expectedOutput: "只验证本轮有用户可见返回内容。",
+            },
+            {
+              userInput: "换一批",
+              expectedOutput: "只验证本轮有用户可见返回内容。",
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(savedFixture)).not.toContain("不要写入 fixture");
   });
 });
 

@@ -16,10 +16,12 @@ type SaveLogResponse = {
   ok: boolean;
   path?: string;
   textPath?: string;
+  flowId?: string;
+  turnCount?: number;
   error?: string;
 };
 
-type AiTraceLogType = "trace" | "prompt";
+type AiTraceLogType = "trace" | "prompt" | "blackbox_case";
 
 export type TraceStepGroup = {
   id: string;
@@ -290,9 +292,8 @@ export function AiTraceViewer() {
       const data = await runWithAsyncToast(
         {
           id: `ai-trace-save-log:${input.targetId}`,
-          loading: input.logType === "prompt" ? "正在保存用户问答记录..." : "正在保存全链路 log...",
-          success: (result: SaveLogResponse) =>
-            result.textPath ? `已保存到 ${result.path}，长文本映射 ${result.textPath}` : `已保存到 ${result.path}`,
+          loading: getSaveLogLoadingMessage(input.logType),
+          success: (result: SaveLogResponse) => formatSaveLogSuccessMessage(input.logType, result),
           error: "保存 trace log 失败",
         },
         async () => {
@@ -314,7 +315,7 @@ export function AiTraceViewer() {
         },
       );
 
-      setSaveLogMessage(data.textPath ? `已保存到 ${data.path}，长文本映射 ${data.textPath}` : `已保存到 ${data.path}`);
+      setSaveLogMessage(formatSaveLogSuccessMessage(input.logType, data));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save AI trace log.");
     } finally {
@@ -418,8 +419,21 @@ export function AiTraceViewer() {
             <TraceHero
               trace={selectedTrace}
               loopCount={selectedLoops.length}
+              isSavingBlackboxCase={savingLogTarget === `${selectedTrace.id}:blackbox_case`}
               isSavingPromptLog={savingLogTarget === `${selectedTrace.id}:prompt`}
               isSavingTraceLog={savingLogTarget === `${selectedTrace.id}:trace`}
+              onSaveBlackboxCase={() => {
+                void saveTraceLog({
+                  logType: "blackbox_case",
+                  targetId: `${selectedTrace.id}:blackbox_case`,
+                  target: {
+                    type: "basic_chat_blackbox_case",
+                    traceId: selectedTrace.id,
+                    title: selectedTrace.title,
+                  },
+                  payload: createPromptLogPayload(selectedTrace),
+                });
+              }}
               onSavePromptLog={() => {
                 void saveTraceLog({
                   logType: "prompt",
@@ -464,15 +478,19 @@ export function AiTraceViewer() {
 function TraceHero({
   trace,
   loopCount,
+  isSavingBlackboxCase,
   isSavingPromptLog,
   isSavingTraceLog,
+  onSaveBlackboxCase,
   onSavePromptLog,
   onSaveLog,
 }: {
   trace: AiTrace;
   loopCount: number;
+  isSavingBlackboxCase: boolean;
   isSavingPromptLog: boolean;
   isSavingTraceLog: boolean;
+  onSaveBlackboxCase: () => void;
   onSavePromptLog: () => void;
   onSaveLog: () => void;
 }) {
@@ -491,6 +509,14 @@ function TraceHero({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSavingBlackboxCase}
+            onClick={onSaveBlackboxCase}
+          >
+            {isSavingBlackboxCase ? "保存中" : "保存为黑盒用例"}
+          </button>
           <button
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
@@ -522,6 +548,25 @@ function TraceHero({
       </div>
     </header>
   );
+}
+
+function getSaveLogLoadingMessage(logType: AiTraceLogType) {
+  if (logType === "blackbox_case") {
+    return "正在保存黑盒用例...";
+  }
+
+  return logType === "prompt" ? "正在保存用户问答记录..." : "正在保存全链路 log...";
+}
+
+function formatSaveLogSuccessMessage(logType: AiTraceLogType, result: SaveLogResponse) {
+  if (logType === "blackbox_case") {
+    const flowLabel = result.flowId ? ` ${result.flowId}` : "";
+    const turnLabel = typeof result.turnCount === "number" ? `，${result.turnCount} 轮` : "";
+
+    return `已追加黑盒用例${flowLabel}${turnLabel}到 ${result.path ?? "-"}`;
+  }
+
+  return result.textPath ? `已保存到 ${result.path}，长文本映射 ${result.textPath}` : `已保存到 ${result.path}`;
 }
 
 function MetricCard({

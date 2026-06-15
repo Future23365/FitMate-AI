@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/security/redaction";
 import { clearAiTraces, isAiTraceEnabled, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
+import {
+  basicChatFixtureSourcePath,
+  parseBasicChatFixtureFromJson,
+  type BasicChatFlow,
+} from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
 
 type SaveAiTraceLogRequest = {
   logType?: unknown;
@@ -12,7 +17,25 @@ type SaveAiTraceLogRequest = {
   payload?: unknown;
 };
 
-type AiTraceSavedLogType = "trace" | "prompt";
+type AiTraceFileLogType = "trace" | "prompt";
+type AiTraceSavedLogType = AiTraceFileLogType | "blackbox_case";
+
+type SavedBlackboxCasePayload = {
+  title: string;
+  userQuestions: Array<{
+    round: number;
+    question: string;
+  }>;
+};
+
+type SerializedBasicChatFlow = {
+  id: string;
+  goal: string;
+  turns: Array<{
+    userInput: string;
+    expectedOutput: string;
+  }>;
+};
 
 type SavedTraceLongTextRecord = {
   contentRef: string;
@@ -57,6 +80,7 @@ const traceLogSensitiveKeyPatterns = [
 const traceLongTextFileName = "ai_trace_texts.jsonl";
 const maxSavedTraceMappingStringLength = Number.MAX_SAFE_INTEGER;
 const traceMappingChunkContentLength = 2_000;
+const blackboxDefaultExpectedOutput = "只验证本轮有用户可见返回内容。";
 
 export async function GET(request: Request) {
   let currentUser;
@@ -162,6 +186,29 @@ export async function POST(request: Request) {
     );
   }
 
+  if (logType === "blackbox_case") {
+    const payload = normalizeSavedBlackboxCasePayload(body.payload);
+
+    if (payload.userQuestions.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "当前 Trace 未提取到用户提问。",
+        },
+        { status: 400 },
+      );
+    }
+
+    const savedCase = await appendBasicChatBlackboxCase(payload);
+
+    return NextResponse.json({
+      ok: true,
+      path: savedCase.path,
+      flowId: savedCase.flowId,
+      turnCount: savedCase.turnCount,
+    });
+  }
+
   const logDir = path.join(process.cwd(), "codex_logs");
   const logPath = path.join(logDir, getLogFileName(logType));
   const savedAt = formatLocalSavedAt(new Date());
@@ -198,25 +245,25 @@ function resolveSavedLogType(value: unknown): AiTraceSavedLogType | null {
     return "trace";
   }
 
-  if (value === "trace" || value === "prompt") {
+  if (value === "trace" || value === "prompt" || value === "blackbox_case") {
     return value;
   }
 
   return null;
 }
 
-function getLogFileName(logType: AiTraceSavedLogType) {
+function getLogFileName(logType: AiTraceFileLogType) {
   return logType === "prompt" ? "prompt.js" : "ai_trace_log.js";
 }
 
-function getLogFileHeader(logType: AiTraceSavedLogType) {
+function getLogFileHeader(logType: AiTraceFileLogType) {
   return logType === "prompt"
     ? "// User question and answer record saved from /dev/ai-traces for Codex regression testing."
     : "// AI Trace saved from /dev/ai-traces for Codex debugging.";
 }
 
 // normalizeSavedLogPayload 在开发态保存入口兜底约束日志形状，避免窄问答记录混入 prompt 或 tool payload。
-export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: object) {
+export function normalizeSavedLogPayload(logType: AiTraceFileLogType, payload: object) {
   if (logType === "trace") {
     return normalizeSavedTraceLogPayload(payload).report;
   }
@@ -252,6 +299,101 @@ export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: 
     userQuestions,
     finalAnswer: typeof record.finalAnswer === "string" ? record.finalAnswer : "",
   };
+}
+
+// normalizeSavedBlackboxCasePayload 只从 trace 页窄问答 payload 中提取黑盒 fixture 需要的用户提问。
+function normalizeSavedBlackboxCasePayload(payload: object): SavedBlackboxCasePayload {
+  const promptPayload = normalizeSavedLogPayload("prompt", payload) as Record<string, unknown>;
+  const userQuestions = Array.isArray(promptPayload.userQuestions)
+    ? promptPayload.userQuestions
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item, index) => ({
+          round: typeof item.round === "number" ? item.round : index + 1,
+          question: typeof item.question === "string" ? item.question.trim() : "",
+        }))
+        .filter((item) => item.question.length > 0)
+    : [];
+
+  return {
+    title: typeof promptPayload.title === "string" && promptPayload.title.trim()
+      ? promptPayload.title.trim()
+      : "用户问答记录",
+    userQuestions,
+  };
+}
+
+// appendBasicChatBlackboxCase 把当前 trace 提问追加为基础黑盒 flow，并在写入前后复用共享 schema 防止 JSON fixture 损坏。
+async function appendBasicChatBlackboxCase(payload: SavedBlackboxCasePayload) {
+  const fixturePath = path.join(process.cwd(), basicChatFixtureSourcePath);
+  const content = await readFile(fixturePath, "utf8");
+  const rawFixture = JSON.parse(content) as unknown;
+  const fixture = parseBasicChatFixtureFromJson(rawFixture, fixturePath);
+  const newFlow = createBlackboxFlowDraft(payload, fixture.flows);
+  const nextFixture = {
+    version: 1,
+    flows: [
+      ...fixture.flows.map(serializeBasicChatFlow),
+      newFlow,
+    ],
+  };
+
+  parseBasicChatFixtureFromJson(nextFixture, fixturePath);
+  await writeFile(fixturePath, `${JSON.stringify(nextFixture, null, 2)}\n`, "utf8");
+
+  return {
+    path: fixturePath,
+    flowId: newFlow.id,
+    turnCount: newFlow.turns.length,
+  };
+}
+
+function createBlackboxFlowDraft(
+  payload: SavedBlackboxCasePayload,
+  existingFlows: BasicChatFlow[],
+): SerializedBasicChatFlow {
+  return {
+    id: createNextBasicChatFlowId(existingFlows),
+    goal: createBlackboxFlowGoal(payload.title),
+    turns: payload.userQuestions.map((item) => ({
+      userInput: item.question,
+      expectedOutput: blackboxDefaultExpectedOutput,
+    })),
+  };
+}
+
+function serializeBasicChatFlow(flow: BasicChatFlow): SerializedBasicChatFlow {
+  return {
+    id: flow.id,
+    goal: flow.goal,
+    turns: flow.turns.map((turn) => ({
+      userInput: turn.userInput,
+      expectedOutput: turn.expectation,
+    })),
+  };
+}
+
+function createNextBasicChatFlowId(flows: BasicChatFlow[]) {
+  const maxNumericId = flows.reduce((currentMax, flow) => {
+    const match = /^F(\d+)$/.exec(flow.id);
+
+    if (!match) {
+      return currentMax;
+    }
+
+    return Math.max(currentMax, Number(match[1]));
+  }, 0);
+
+  return `F${String(maxNumericId + 1).padStart(2, "0")}`;
+}
+
+function createBlackboxFlowGoal(title: string) {
+  const trimmedTitle = title.trim();
+
+  if (!trimmedTitle || trimmedTitle === "用户问答记录") {
+    return "从 /dev/ai-traces 保存的基础聊天回归样本";
+  }
+
+  return `从 /dev/ai-traces 保存：${trimmedTitle.slice(0, 80)}`;
 }
 
 // normalizeSavedTraceLogPayload 将全链路导出拆成轻量报告和长文本映射，服务端再次执行脱敏兜底。
