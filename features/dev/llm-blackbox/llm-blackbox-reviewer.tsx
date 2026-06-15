@@ -113,6 +113,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
             </Button>
           </div>
         </div>
+        <HeaderStatsBar stats={stats} />
         <RunSelector
           activeRunId={runner.activeRunId}
           runs={runner.runs}
@@ -120,11 +121,9 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
         />
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col gap-lg px-xl py-lg">
-        <RunStatsPanel stats={stats} />
-
-        {/* 顶层统计之外的审核主体保持三列等高，各列只在自己的内容区滚动。 */}
-        <section className="grid min-h-0 flex-1 gap-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+      <main className="min-h-0 flex-1 px-xl py-lg">
+        {/* Header 已承载统计信息，审核主体保持三列等高，各列只在自己的内容区滚动。 */}
+        <section className="grid h-full min-h-0 gap-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
           <FlowListPanel
             activeRun={runner.activeRun}
             flows={flowList}
@@ -184,6 +183,33 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
   );
 }
 
+function HeaderStatsBar({ stats }: { stats: LlmBlackboxRunStats | null }) {
+  return (
+    <div className="mt-sm flex flex-wrap items-center gap-x-md gap-y-xs border-t border-line/60 pt-sm font-label-xs text-label-xs text-muted">
+      <span className="font-bold text-ink">统计摘要</span>
+      <HeaderMetric label="Flow" value={String(stats?.flowTotal ?? 0)} />
+      <HeaderMetric label="Turn" value={String(stats?.turnTotal ?? 0)} />
+      <HeaderMetric label="通过" value={String(stats?.passedTurnCount ?? 0)} />
+      <HeaderMetric label="失败" value={String(stats?.failedTurnCount ?? 0)} />
+      <HeaderMetric label="跳过" value={String(stats?.skippedTurnCount ?? 0)} />
+      <HeaderMetric label="停止" value={String(stats?.cancelledTurnCount ?? 0)} />
+      <HeaderMetric label="人工通过" value={String(stats?.acceptedCount ?? 0)} />
+      <HeaderMetric label="需跟进" value={String(stats?.needsFollowupCount ?? 0)} />
+      <HeaderMetric label="耗时" value={formatDuration(stats?.durationMs ?? 0)} />
+      <HeaderMetric label="Token" value={formatTokenStats(stats)} />
+    </div>
+  );
+}
+
+function HeaderMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span className="text-muted">{label}</span>
+      <span className="font-bold text-ink">{value}</span>
+    </span>
+  );
+}
+
 function RunSelector({
   activeRunId,
   onSelectRun,
@@ -215,30 +241,6 @@ function RunSelector({
         </button>
       ))}
     </div>
-  );
-}
-
-function RunStatsPanel({ stats }: { stats: LlmBlackboxRunStats | null }) {
-  return (
-    <Card className="shrink-0 rounded-[18px] py-0">
-      <CardContent className="flex items-stretch gap-md px-lg py-md">
-        <div className="flex shrink-0 items-center border-r border-line pr-md">
-          <CardTitle className="text-title-md">统计摘要</CardTitle>
-        </div>
-        <div className="grid min-w-0 flex-1 grid-cols-10 gap-sm">
-          <Metric label="Flow" value={String(stats?.flowTotal ?? 0)} />
-          <Metric label="Turn" value={String(stats?.turnTotal ?? 0)} />
-          <Metric label="通过" value={String(stats?.passedTurnCount ?? 0)} />
-          <Metric label="失败" value={String(stats?.failedTurnCount ?? 0)} />
-          <Metric label="跳过" value={String(stats?.skippedTurnCount ?? 0)} />
-          <Metric label="停止" value={String(stats?.cancelledTurnCount ?? 0)} />
-          <Metric label="人工通过" value={String(stats?.acceptedCount ?? 0)} />
-          <Metric label="需跟进" value={String(stats?.needsFollowupCount ?? 0)} />
-          <Metric label="耗时" value={formatDuration(stats?.durationMs ?? 0)} />
-          <Metric label="Token" value={formatTokenStats(stats)} />
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -429,15 +431,6 @@ function TurnDetailPanel({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-line bg-white p-sm">
-      <p className="font-label-xs text-label-xs font-bold text-muted">{label}</p>
-      <p className="mt-1 font-title-md text-title-md font-extrabold text-ink">{value}</p>
-    </div>
   );
 }
 
