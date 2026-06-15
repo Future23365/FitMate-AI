@@ -34,7 +34,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造；exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造；exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。routine / plan 的 prescription 可由模型基于本轮用户目标、训练频率、单次时长、候选动作事实和保守训练编排生成；schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -89,6 +89,7 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",
       "Input Source：payload.exerciseItems[] 可以从当前模型可见候选事实中选择子集构造；不要求使用候选池中的全部动作，也不要求先排除未使用动作。",
       "Input Source：payload.exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实；历史 routine fact 中的 exerciseId、section 和 prescription 可以作为新的 routine 或 plan 的事实来源。",
+      "Input Source：payload.kind=routine 或 plan 的 prescription 可由模型基于本轮用户目标、训练频率、单次时长、动作候选事实和保守训练编排常识生成；prescription 不要求来自动作库查询结果，但必须绑定在对应 exerciseItems[] 动作项上，并通过 schema 与服务端 validator 校验。",
       "Input Source：payload.kind=plan 的 schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；schedule 不要求来自动作库查询结果，但必须符合 schema 并通过服务端 validator。",
       "Output Meaning：accepted 表示 payload 已通过服务端 validator 并生成用户可见投影；rejected 表示结构或确定性事实校验失败。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
       "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不替模型生成 prescription、不保存计划、不写入用户数据；所选 exerciseItems[].exerciseId 来自模型可见受控动作事实，并满足当前 payload.kind、section 和 validator 边界时，可以提交结构化训练结果；如果提交 routine 或 plan，模型必须在 payload 中提供 prescription。",

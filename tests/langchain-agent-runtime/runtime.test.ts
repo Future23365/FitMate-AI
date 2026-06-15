@@ -1702,6 +1702,9 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("当前可见事实中是否已有可选子集能满足用户目标");
     expect(prompt).toContain("不要因为仍可能存在更多匹配、候选被截断、部分候选不适合或想查看更多而继续调用同类查询工具");
     expect(prompt).toContain("不要为了移除未选候选、让候选池完全纯净或追求更理想列表而重复调用同类查询工具");
+    expect(prompt).toContain("prescription 和 schedule 不来自动作库查询结果");
+    expect(prompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
+    expect(prompt).toContain("保守训练编排构造 prescription / schedule");
     expect(prompt).toContain("可见候选事实已经足够");
     expect(prompt).toContain("下一步应进入结构化训练收口");
     expect(prompt).toContain("不足以支撑任何可选子集");
@@ -1724,6 +1727,7 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("每个 exerciseItems[] 必须填写 prescription");
     expect(prompt).toContain("示例 3：交付多天或周期训练计划");
     expect(prompt).toContain("payload.kind=plan");
+    expect(prompt).toContain("缺少 prescription 或 schedule 不通过动作库查询补齐");
     expect(prompt).toContain("必须填写 schedule");
     expect(prompt).toContain("示例 4：只回答训练知识或动作要点");
     expect(prompt).toContain("不需要展示具体数据库动作条目时");

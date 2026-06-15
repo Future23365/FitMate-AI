@@ -991,8 +991,13 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
     expect(modelVisibleText).toContain("candidateGroups[].exercises 是动作候选池，不是最终推荐清单");
     expect(modelVisibleText).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(modelVisibleText).toContain("本 tool 只返回动作候选事实");
+    expect(modelVisibleText).toContain("不返回 prescription、schedule、routine 或 plan");
+    expect(modelVisibleText).toContain("缺口是 prescription 或 schedule 时");
+    expect(modelVisibleText).toContain("重复查询动作库不会新增该类事实");
     expect(modelVisibleText).toContain("coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选");
     expect(modelVisibleText).toContain("重复等价 input 不会补充新事实");
+    expect(modelVisibleText).toContain("应基于已有候选、用户目标和结构化收口合同构造、澄清或失败收口");
     expect(modelVisibleText).toContain("不要求最终输出使用全部候选");
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");

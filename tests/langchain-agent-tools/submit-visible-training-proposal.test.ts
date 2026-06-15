@@ -41,6 +41,11 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("可以从当前模型可见候选事实中选择子集构造");
     expect(tool.description).toContain("不要求使用候选池中的全部动作");
     expect(tool.description).toContain("不要求先排除未使用动作");
+    expect(tool.description).toContain("prescription 可由模型基于本轮用户目标");
+    expect(tool.description).toContain("保守训练编排常识生成");
+    expect(tool.description).toContain("prescription 不要求来自动作库查询结果");
+    expect(tool.description).toContain("必须绑定在对应 exerciseItems[] 动作项上");
+    expect(tool.description).toContain("schema 与服务端 validator 校验");
     expect(tool.description).toContain("sectionSummary");
     expect(tool.description).toContain("availableSections");
     expect(tool.description).toContain("missingSections");

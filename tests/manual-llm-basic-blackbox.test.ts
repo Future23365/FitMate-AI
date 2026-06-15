@@ -57,6 +57,18 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(fixture.sourcePath).not.toContain("docs/LLM基础测试用例.md");
   });
 
+  it("keeps the direct gym four-day hypertrophy plan regression case", async () => {
+    const fixture = await readBasicChatFixture();
+    const flow = fixture.flows.find((item) => item.id === "F04");
+    const firstTurn = flow?.turns[0];
+
+    expect(flow?.goal).toBe("长期计划一次给齐后继续调整");
+    expect(firstTurn?.userInput).toBe("给我一个每周4练增肌计划，每次45分钟，有健身房器械");
+    expect(firstTurn?.expectation).toContain("识别长期 plan");
+    expect(firstTurn?.expectation).toContain("长期计划卡片");
+    expect(firstTurn?.expectation).toContain("不生成单次 routine");
+  });
+
   it("supports variable turn counts in JSON fixtures", () => {
     const fixture = parseBasicChatFixtureFromJson({
       version: 1,

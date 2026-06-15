@@ -88,6 +88,10 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
     expect(descriptions).toContain("存在能满足当前目标的可选择子集");
     expect(descriptions).toContain("候选池不要求完全纯净，也不要求先排除未选候选");
+    expect(descriptions).toContain("本 tool 只返回动作候选事实");
+    expect(descriptions).toContain("不返回 prescription、schedule、routine 或 plan");
+    expect(descriptions).toContain("缺口是 prescription 或 schedule 时");
+    expect(descriptions).toContain("重复查询动作库不会新增该类事实");
     expect(descriptions).toContain("产品可渲染动作资源库");
     expect(descriptions).toContain("不是现实世界训练知识全集");
     expect(descriptions).toContain("不表示现实训练动作或训练知识不存在");
@@ -111,6 +115,10 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不需要扩大候选数量");
     expect(descriptions).toContain("不需要把未选候选排除");
     expect(descriptions).toContain("历史 routine fact 中的 exerciseId、section 和 prescription 可以作为新的 routine 或 plan 的事实来源");
+    expect(descriptions).toContain("prescription 可由模型基于本轮用户目标");
+    expect(descriptions).toContain("保守训练编排常识生成");
+    expect(descriptions).toContain("prescription 不要求来自动作库查询结果");
+    expect(descriptions).toContain("必须绑定在对应 exerciseItems[] 动作项上");
     expect(descriptions).toContain("schedule 不要求来自动作库查询结果");
     expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
@@ -124,6 +132,8 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("kind=routine 或 kind=plan 时每个动作项都必须填写");
     expect(schemaDescriptions).toContain("kind=plan 时必须填写");
     expect(schemaDescriptions).toContain("inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实");
+    expect(schemaDescriptions).toContain("routine / plan 的 prescription 可由模型基于本轮用户目标");
+    expect(schemaDescriptions).toContain("候选动作事实和保守训练编排生成");
     expect(schemaDescriptions).toContain("schedule 可由模型基于本轮用户目标");
     expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
@@ -139,6 +149,9 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
     expect(systemPrompt).toContain("不要因为输出类型从 routine 派生成 plan，就默认重新查询动作");
     expect(systemPrompt).toContain("schedule 是 plan 的日程结构字段，不是动作库查询结果");
+    expect(systemPrompt).toContain("prescription 和 schedule 不来自动作库查询结果");
+    expect(systemPrompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
+    expect(systemPrompt).toContain("保守训练编排构造 prescription / schedule");
     expect(systemPrompt).toContain("产品可渲染动作资源库");
     expect(systemPrompt).toContain("不是现实训练知识全集");
     expect(systemPrompt).toContain("不表示现实训练动作不存在");
