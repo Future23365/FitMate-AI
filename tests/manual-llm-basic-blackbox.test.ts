@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   BasicChatFixtureParseError,
   basicChatFixtureSourcePath,
-  parseBasicChatFixtureFromMarkdown,
+  parseBasicChatFixtureFromJson,
   readBasicChatFixture,
 } from "@/manual-tests/llm/basic-chat-fixtures";
 import {
@@ -25,13 +25,14 @@ import {
 import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 describe("manual basic LLM blackbox fixtures", () => {
-  it("parses docs/LLM基础测试用例.md as the single basic three-turn flow source", async () => {
+  it("parses the JSON fixture as the default basic blackbox source", async () => {
     const fixture = await readBasicChatFixture();
     const ids = fixture.flows.map((flow) => flow.id);
 
     expect(fixture.sourcePath).toContain(basicChatFixtureSourcePath);
     expect(fixture.stats.flowCount).toBeGreaterThan(0);
-    expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
+    expect(fixture.stats.turnCount).toBe(fixture.flows.reduce((total, flow) => total + flow.turns.length, 0));
+    expect(fixture.stats.turnCount).toBe(30);
     expect(fixture.stats.flowCount).toBeLessThanOrEqual(10);
     expect(ids).toContain("F09");
     expect(ids).toContain("F12");
@@ -41,11 +42,54 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(ids).not.toContain("F18");
     expect(ids).not.toContain("F21");
     expect(ids).not.toContain("F22");
-    expect(fixture.flows.every((flow) => flow.turns.length === 3)).toBe(true);
     expect(fixture.flows.every((flow) => flow.id.trim() && flow.goal.trim())).toBe(true);
     expect(fixture.flows.every((flow) =>
       flow.turns.every((turn) => turn.userInput.trim() && turn.expectation.trim()),
     )).toBe(true);
+    expect(fixture.flows.every((flow) =>
+      flow.turns.every((turn, index) => turn.index === index + 1),
+    )).toBe(true);
+    expect(fixture.sourcePath).not.toContain("docs/LLM基础测试用例.md");
+  });
+
+  it("supports variable turn counts in JSON fixtures", () => {
+    const fixture = parseBasicChatFixtureFromJson({
+      version: 1,
+      flows: [
+        {
+          id: "F01",
+          goal: "单轮流程",
+          turns: [
+            {
+              userInput: "推荐一个动作",
+              expectedOutput: "给出可见回复。",
+            },
+          ],
+        },
+        {
+          id: "F02",
+          goal: "两轮流程",
+          turns: [
+            {
+              userInput: "练胸",
+              expectedOutput: "推荐胸部动作。",
+            },
+            {
+              userInput: "换一批",
+              expectedOutput: "刷新当前推荐。",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(fixture.stats).toEqual({ flowCount: 2, turnCount: 3 });
+    expect(fixture.flows[0].turns).toHaveLength(1);
+    expect(fixture.flows[1].turns.map((turn) => turn.index)).toEqual([1, 2]);
+    expect(fixture.flows[1].turns[1]).toMatchObject({
+      userInput: "换一批",
+      expectation: "刷新当前推荐。",
+    });
   });
 
   it("builds the basic runner request body without full history or bypass fields", () => {
@@ -79,29 +123,43 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(createManualBlackboxUserDisplayName("")).toBe("LLM黑盒测试用户");
   });
 
-  it("fails preflight before model calls for missing columns, duplicate ids, and empty fields", () => {
-    const markdown = [
-      "## 三轮流程用例",
-      "",
-      "| ID | 流程目标 | 第 1 轮用户输入 | 第 1 轮期望 | 第 2 轮用户输入 | 第 2 轮期望 | 第 3 轮用户输入 | 第 3 轮期望 |",
-      "|---|---|---|---|---|---|---|---|",
-      "| F01 | 目标 A | 输入 | 期望 | 输入 | 期望 | 输入 | 期望 |",
-      "| F01 | 目标 B |  | 期望 | 输入 |  | 输入 | 期望 |",
-    ].join("\n");
+  it("fails preflight before model calls for invalid JSON fixture fields", () => {
+    const invalidFixture = {
+      version: 1,
+      flows: [
+        {
+          id: "F01",
+          goal: "目标 A",
+          turns: [{ userInput: "输入", expectedOutput: "期望" }],
+        },
+        {
+          id: "F01",
+          goal: "",
+          turns: [{ userInput: "", expectedOutput: "" }],
+        },
+        {
+          id: "F03",
+          goal: "目标 C",
+          turns: [],
+        },
+      ],
+    };
 
-    expect(() => parseBasicChatFixtureFromMarkdown(markdown)).toThrow(BasicChatFixtureParseError);
+    expect(() => parseBasicChatFixtureFromJson(invalidFixture)).toThrow(BasicChatFixtureParseError);
 
     try {
-      parseBasicChatFixtureFromMarkdown(markdown);
+      parseBasicChatFixtureFromJson(invalidFixture);
     } catch (error) {
       expect(error).toBeInstanceOf(BasicChatFixtureParseError);
-      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("重复 ID：F01");
-      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("第 1 轮用户输入为空");
-      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("第 2 轮期望为空");
+      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("flows[1].id 存在重复值：F01");
+      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("flows[1].goal 必须是非空字符串");
+      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("flows[1].turns[0].userInput 必须是非空字符串");
+      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("flows[1].turns[0].expectedOutput 必须是非空字符串");
+      expect((error as BasicChatFixtureParseError).errors.join("\n")).toContain("flows[2].turns 必须是非空数组");
     }
 
-    const missingColumnMarkdown = markdown.replace(" | 第 3 轮期望", "");
-    expect(() => parseBasicChatFixtureFromMarkdown(missingColumnMarkdown)).toThrow(/表格列名必须严格/);
+    expect(() => parseBasicChatFixtureFromJson({ version: 1 })).toThrow(/flows 必须是数组/);
+    expect(() => parseBasicChatFixtureFromJson({ version: 2, flows: [] })).toThrow(/version 必须为 1/);
   });
 });
 

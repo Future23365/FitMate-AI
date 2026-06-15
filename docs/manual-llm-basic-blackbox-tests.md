@@ -1,12 +1,12 @@
 # 基础 LLM 首页聊天黑盒测试说明
 
-生成时间：2026-06-05 17:46:05 +0800
+生成时间：2026-06-15 14:20:45 +0800
 
 ## 目的
 
-基础 LLM 首页聊天黑盒测试用于手动验证首页聊天入口的真实模型链路。它从 `docs/LLM基础测试用例.md` 读取三轮流程用例，模拟用户连续输入，并只验收用户最终可见结果：assistant 文本、可见训练输出类型、建议回复和安全错误文案。
+基础 LLM 首页聊天黑盒测试用于手动验证首页聊天入口的真实模型链路。它从 `manual-tests/llm/fixtures/basic-chat-blackbox-cases.json` 读取结构化 flow / turn 用例，模拟用户连续输入，并只验收用户最终可见结果：assistant 文本、可见训练输出类型、建议回复和安全错误文案。
 
-当前基础套件是“链路可用性冒烟测试”：只要每轮请求正常结束、收到 `done`，并且最终存在任一用户可见回答面，就算通过。用户可见回答面包括大模型正文、大模型失败解释、服务端确定性兜底正文、安全错误文案、可见训练输出或建议提问。`docs/LLM基础测试用例.md` 中的期望列仍会进入报告，供人工复核语义质量，但不再由基础命令自动判失败。
+当前基础套件是“链路可用性冒烟测试”：只要每轮请求正常结束、收到 `done`，并且最终存在任一用户可见回答面，就算通过。用户可见回答面包括大模型正文、大模型失败解释、服务端确定性兜底正文、安全错误文案、可见训练输出或建议提问。JSON fixture 中的 `expectedOutput` 仍会进入报告，供人工复核语义质量，但不再由基础命令自动判失败。
 
 当前 runner 贴近真实 `/api/chat` + LangChain Agent Runtime：它不注入旧自研 agent runtime fixture，也不读取已下线的失败兜底字段。报告中的响应来源来自 AI trace 的 `LangChain Agent Runtime 摘要` 和 `NDJSON 响应写入` 安全摘要。
 
@@ -86,7 +86,7 @@ docs/manual-llm-basic-blackbox-latest-report.md
 - 运行时间、模型和基础验收口径。
 - 完整 flow/turn 数和本次实际执行范围。
 - 预计 token 消耗、聊天 token 汇总和 token 来源诊断。
-- 每轮用户输入、文档期望、assistant 用户可见回复摘要、可见输出类型、建议回复、兼容性确认请求列和验证状态。
+- 每轮用户输入、JSON `expectedOutput`、assistant 用户可见回复摘要、可见输出类型、建议回复、兼容性确认请求列和验证状态。
 - 失败原因、`conversationId`、`responseMessageId`、hydration/save 诊断和 token 诊断摘要。
 - 如果响应只生成了安全兜底文案或建议提问，报告会保留这些用户可见输出，供人工判断是否需要继续修语义质量。
 
@@ -105,13 +105,33 @@ docs/manual-llm-basic-blackbox-latest-report.md
 
 ## 用例来源
 
-基础套件唯一用例来源是：
+基础套件默认执行用例来源是：
 
 ```bash
-docs/LLM基础测试用例.md
+manual-tests/llm/fixtures/basic-chat-blackbox-cases.json
 ```
 
-runner 会解析 `## 三轮流程用例` 下的 Markdown 表格，并在真实模型调用前校验必需列、重复 id 和空字段。修改用例时优先改该文档，再运行普通单测确认解析和报告合同没有破坏。
+JSON 文件的顶层结构如下：
+
+```json
+{
+  "version": 1,
+  "flows": [
+    {
+      "id": "F01",
+      "goal": "纯动作推荐到刷新推荐",
+      "turns": [
+        {
+          "userInput": "今天我想练胸",
+          "expectedOutput": "识别为胸部动作推荐；触发动作推荐卡片；不生成 routine 或 plan。"
+        }
+      ]
+    }
+  ]
+}
+```
+
+每个 flow 可以配置一个或多个 turn，runner 会按 `turns` 顺序执行。执行前会校验 `version`、`flows`、flow `id`、flow `goal`、flow `turns`、turn `userInput` 和 turn `expectedOutput`，并在真实模型调用前报告重复 id、空字段或结构错误。修改用例时优先改该 JSON 文件，再运行普通单测确认解析和报告合同没有破坏。
 
 ## 失败排查
 

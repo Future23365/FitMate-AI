@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "id": "F01",
+      "goal": "纯动作推荐到刷新推荐",
+      "turns": [
+        {
+          "userInput": "今天我想练胸",
+          "expectedOutput": "识别为胸部动作推荐；触发动作推荐卡片；不生成 routine 或 plan。"
+        },
+        {
+          "userInput": "换一批",
+          "expectedOutput": "继续沿用胸部目标；刷新动作推荐；优先排除上一张卡片已有动作。"
+        },
+        {
+          "userInput": "推荐几个不用器械的",
+          "expectedOutput": "继续沿用胸部目标，同时加入无器械条件；推荐自重胸部动作。"
+        }
+      ]
+    },
+    {
+      "id": "F02",
+      "goal": "动作推荐升级为单次训练",
+      "turns": [
+        {
+          "userInput": "推荐几个练腿动作",
+          "expectedOutput": "识别为腿部动作推荐；触发动作推荐卡片；不要求先补充时长。"
+        },
+        {
+          "userInput": "给我做成20分钟训练",
+          "expectedOutput": "继承腿部目标，生成 20 分钟单次 routine；若当前事实不足，应给出可点击的补齐或继续生成建议。"
+        },
+        {
+          "userInput": "我没有器械",
+          "expectedOutput": "基于同一训练目标调整为无器械腿部 routine；不重新追问已知目标和时长。"
+        }
+      ]
+    },
+    {
+      "id": "F03",
+      "goal": "信息不足时逐步补齐 routine",
+      "turns": [
+        {
+          "userInput": "给我一套训练",
+          "expectedOutput": "不直接生成随机卡片；追问目标、时长、器械或场地，或提供可点击建议提问用于补齐这些条件。"
+        },
+        {
+          "userInput": "练胸，20分钟",
+          "expectedOutput": "继承“要一套训练”的意图；可生成胸部 20 分钟 routine，或继续追问器械/场地。"
+        },
+        {
+          "userInput": "没有器械",
+          "expectedOutput": "条件补齐后生成胸部 20 分钟无器械 routine；如仍缺事实，应给出可点击的完整生成建议。"
+        }
+      ]
+    },
+    {
+      "id": "F04",
+      "goal": "长期计划一次给齐后继续调整",
+      "turns": [
+        {
+          "userInput": "给我一个每周4练增肌计划，每次45分钟，有健身房器械",
+          "expectedOutput": "识别长期 plan；生成每周 4 练、每次约 45 分钟、增肌、健身房条件的长期计划卡片；不生成单次 routine。"
+        },
+        {
+          "userInput": "改成每周3练",
+          "expectedOutput": "修改长期计划频率；仍保持 plan 语义。"
+        },
+        {
+          "userInput": "每次控制在40分钟",
+          "expectedOutput": "保留每周 3 练和增肌目标，调整单次训练时长到约 40 分钟。"
+        }
+      ]
+    },
+    {
+      "id": "F05",
+      "goal": "非健身话题后回到训练",
+      "turns": [
+        {
+          "userInput": "明天天气怎么样？",
+          "expectedOutput": "识别为非健身问题；不触发训练卡片；可给出健身相关建议提问。"
+        },
+        {
+          "userInput": "那我今天练胸",
+          "expectedOutput": "重新进入健身流程，触发胸部动作推荐或按信息充足程度生成训练建议。"
+        },
+        {
+          "userInput": "做成20分钟",
+          "expectedOutput": "继承胸部目标，升级为 20 分钟单次 routine；若当前事实不足，应给出可点击的补齐或继续生成建议。"
+        }
+      ]
+    },
+    {
+      "id": "F06",
+      "goal": "目标切换时当前消息优先",
+      "turns": [
+        {
+          "userInput": "今天我想练胸",
+          "expectedOutput": "推荐胸部动作或生成胸部相关建议。"
+        },
+        {
+          "userInput": "算了，今天练腿",
+          "expectedOutput": "当前消息切换目标；后续推荐应变为腿部，不继续胸部。"
+        },
+        {
+          "userInput": "20分钟，无器械",
+          "expectedOutput": "继承新的腿部目标，生成 20 分钟无器械腿部 routine；若当前事实不足，应给出可点击的补齐或继续生成建议。"
+        }
+      ]
+    },
+    {
+      "id": "F07",
+      "goal": "点名不存在动作不编造",
+      "turns": [
+        {
+          "userInput": "我想练你们库里没有的超级飞鸟跳",
+          "expectedOutput": "找不到动作时不编造卡片；引导用户说明训练目标、部位或动作描述。"
+        },
+        {
+          "userInput": "那练胸吧",
+          "expectedOutput": "目标明确后回到胸部推荐流程。"
+        },
+        {
+          "userInput": "不要器械",
+          "expectedOutput": "加入无器械条件，推荐自重胸部动作。"
+        }
+      ]
+    },
+    {
+      "id": "F08",
+      "goal": "问动作说明不误触发新卡片",
+      "turns": [
+        {
+          "userInput": "推荐几个核心动作",
+          "expectedOutput": "推荐核心动作卡片。"
+        },
+        {
+          "userInput": "第一个动作怎么做",
+          "expectedOutput": "解释第一个动作的做法、注意点或适用人群；不刷新推荐卡片。"
+        },
+        {
+          "userInput": "太难了，换简单点",
+          "expectedOutput": "将第一个动作或当前推荐向低难度替代调整；不重置为无关目标。"
+        }
+      ]
+    },
+    {
+      "id": "F09",
+      "goal": "每周训练计划补齐热身拉伸",
+      "turns": [
+        {
+          "userInput": "我想在家减脂，没有器械，每周 3 练，每次 25 分钟，动作简单一点",
+          "expectedOutput": "识别长期 plan；最终可见训练结构必须是 kind=plan 且包含 schedule.assignments；不得只生成无 schedule 的单次 routine，也不得只在正文或 suggestedQuestions 里表达每周安排。"
+        },
+        {
+          "userInput": "热身和拉伸你自己选，适合新手就行",
+          "expectedOutput": "保持每周 3 练 plan 语义；允许系统自行选择 warmup 和 stretch；最终 plan 必须包含 warmup、training、stretch 和 schedule.assignments。"
+        },
+        {
+          "userInput": "不要安排连续训练日",
+          "expectedOutput": "仍保持 plan 语义，调整训练日 / 休息日安排；不得退化为无 schedule 的 routine 或只在正文说明。"
+        }
+      ]
+    },
+    {
+      "id": "F12",
+      "goal": "候选不足或目标不清时不编造",
+      "turns": [
+        {
+          "userInput": "推荐一个动作",
+          "expectedOutput": "不随意推荐；追问想练部位、目标、器械或场地；不直接推送随机动作卡片。"
+        },
+        {
+          "userInput": "就随便",
+          "expectedOutput": "仍不生成不可解释推荐；应给出可选方向或继续澄清，不推送训练卡片。"
+        },
+        {
+          "userInput": "那练核心吧",
+          "expectedOutput": "目标明确后推荐核心动作；触发动作推荐卡片。"
+        }
+      ]
+    }
+  ]
+}

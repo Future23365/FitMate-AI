@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export type BasicChatFlowTurn = {
-  index: 1 | 2 | 3;
+  index: number;
   userInput: string;
   expectation: string;
 };
@@ -10,7 +10,7 @@ export type BasicChatFlowTurn = {
 export type BasicChatFlow = {
   id: string;
   goal: string;
-  turns: [BasicChatFlowTurn, BasicChatFlowTurn, BasicChatFlowTurn];
+  turns: [BasicChatFlowTurn, ...BasicChatFlowTurn[]];
 };
 
 export type BasicChatFixtureStats = {
@@ -24,117 +24,132 @@ export type BasicChatFixture = {
   stats: BasicChatFixtureStats;
 };
 
-export const basicChatFixtureHeading = "## 三轮流程用例";
-
-// basicChatFixtureSourcePath 是基础首页黑盒套件的人工用例文档入口。
-export const basicChatFixtureSourcePath = "docs/LLM基础测试用例.md";
-
-export const basicChatRequiredColumns = [
-  "ID",
-  "流程目标",
-  "第 1 轮用户输入",
-  "第 1 轮期望",
-  "第 2 轮用户输入",
-  "第 2 轮期望",
-  "第 3 轮用户输入",
-  "第 3 轮期望",
-] as const;
+// basicChatFixtureSourcePath 是基础首页黑盒套件默认消费的结构化用例入口，不再从 docs 说明文档解析执行数据。
+export const basicChatFixtureSourcePath = "manual-tests/llm/fixtures/basic-chat-blackbox-cases.json";
 
 export class BasicChatFixtureParseError extends Error {
   readonly errors: string[];
 
-  constructor(errors: string[]) {
-    super(`${basicChatFixtureSourcePath} 解析失败：${errors.join("；")}`);
+  constructor(errors: string[], sourcePath = basicChatFixtureSourcePath) {
+    super(`${sourcePath} 解析失败：${errors.join("；")}`);
     this.name = "BasicChatFixtureParseError";
     this.errors = errors;
   }
 }
 
-// readBasicChatFixture 是基础黑盒套件的唯一用例入口，保证 runner 直接消费当前文档目录里的基础用例。
+// readBasicChatFixture 是基础黑盒套件的唯一用例入口，默认从 JSON fixture 读取可执行 flow。
 export async function readBasicChatFixture(sourcePath = resolve(process.cwd(), basicChatFixtureSourcePath)) {
-  const markdown = await readFile(sourcePath, "utf8");
+  const content = await readFile(sourcePath, "utf8");
+  let fixtureJson: unknown;
 
-  return parseBasicChatFixtureFromMarkdown(markdown, sourcePath);
+  try {
+    fixtureJson = JSON.parse(content);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new BasicChatFixtureParseError([`不是有效 JSON：${message}`], sourcePath);
+  }
+
+  return parseBasicChatFixtureFromJson(fixtureJson, sourcePath);
 }
 
-// parseBasicChatFixtureFromMarkdown 将人工 review 的三轮流程表转成 runner 可执行的稳定 fixture。
-export function parseBasicChatFixtureFromMarkdown(
-  markdown: string,
+// parseBasicChatFixtureFromJson 将人工维护的 JSON fixture 转成 runner 可执行的稳定内部模型。
+export function parseBasicChatFixtureFromJson(
+  input: unknown,
   sourcePath = basicChatFixtureSourcePath,
 ): BasicChatFixture {
   const errors: string[] = [];
-  const lines = markdown.split(/\r?\n/);
-  const headingIndex = lines.findIndex((line) => line.trim() === basicChatFixtureHeading);
 
-  if (headingIndex < 0) {
-    throw new BasicChatFixtureParseError([`缺少章节 ${basicChatFixtureHeading}`]);
+  if (!isRecord(input)) {
+    throw new BasicChatFixtureParseError(["根节点必须是 JSON object"], sourcePath);
   }
 
-  const tableLines = collectMarkdownTableLines(lines.slice(headingIndex + 1));
-
-  if (tableLines.length < 3) {
-    throw new BasicChatFixtureParseError([`${basicChatFixtureHeading} 下缺少完整 Markdown 表格`]);
+  if (input.version !== 1) {
+    errors.push("version 必须为 1");
   }
 
-  const header = splitMarkdownTableRow(tableLines[0]);
-  const separator = splitMarkdownTableRow(tableLines[1]);
-
-  if (!isMarkdownSeparatorRow(separator)) {
-    errors.push("表格第二行不是 Markdown 分隔行");
+  if (!Array.isArray(input.flows)) {
+    errors.push("flows 必须是数组");
   }
 
-  if (!hasExactColumns(header)) {
-    errors.push(`表格列名必须严格为：${basicChatRequiredColumns.join(" | ")}`);
+  if (errors.length > 0 || !Array.isArray(input.flows)) {
+    throw new BasicChatFixtureParseError(errors, sourcePath);
   }
 
   const idSet = new Set<string>();
   const flows: BasicChatFlow[] = [];
-  const columnIndexByName = new Map(header.map((column, index) => [column, index]));
 
-  for (const [rowOffset, rowLine] of tableLines.slice(2).entries()) {
-    const rowNumber = headingIndex + 3 + rowOffset;
-    const row = splitMarkdownTableRow(rowLine);
+  for (const [flowOffset, rawFlow] of input.flows.entries()) {
+    const flowLabel = `flows[${flowOffset}]`;
+    let flowHasError = false;
 
-    if (row.length !== header.length) {
-      errors.push(`第 ${rowNumber} 行列数为 ${row.length}，预期 ${header.length}`);
+    if (!isRecord(rawFlow)) {
+      errors.push(`${flowLabel} 必须是 object`);
       continue;
     }
 
-    const readColumn = (columnName: (typeof basicChatRequiredColumns)[number]) => {
-      const index = columnIndexByName.get(columnName);
-      return index === undefined ? "" : normalizeCell(row[index]);
-    };
-    const id = readColumn("ID");
-    const goal = readColumn("流程目标");
-    const turns = [1, 2, 3].map((turnIndex) => ({
-      index: turnIndex as 1 | 2 | 3,
-      userInput: readColumn(`第 ${turnIndex} 轮用户输入` as (typeof basicChatRequiredColumns)[number]),
-      expectation: readColumn(`第 ${turnIndex} 轮期望` as (typeof basicChatRequiredColumns)[number]),
-    })) as [BasicChatFlowTurn, BasicChatFlowTurn, BasicChatFlowTurn];
+    const id = readTrimmedString(rawFlow.id);
+    const goal = readTrimmedString(rawFlow.goal);
 
     if (!id) {
-      errors.push(`第 ${rowNumber} 行缺少 ID`);
+      errors.push(`${flowLabel}.id 必须是非空字符串`);
+      flowHasError = true;
     } else if (idSet.has(id)) {
-      errors.push(`第 ${rowNumber} 行存在重复 ID：${id}`);
+      errors.push(`${flowLabel}.id 存在重复值：${id}`);
+      flowHasError = true;
     } else {
       idSet.add(id);
     }
 
     if (!goal) {
-      errors.push(`第 ${rowNumber} 行 ${id || "(unknown)"} 缺少流程目标`);
+      errors.push(`${flowLabel}.goal 必须是非空字符串`);
+      flowHasError = true;
     }
 
-    for (const turn of turns) {
-      if (!turn.userInput) {
-        errors.push(`第 ${rowNumber} 行 ${id || "(unknown)"} 第 ${turn.index} 轮用户输入为空`);
+    if (!Array.isArray(rawFlow.turns) || rawFlow.turns.length === 0) {
+      errors.push(`${flowLabel}.turns 必须是非空数组`);
+      flowHasError = true;
+      continue;
+    }
+
+    const turns: BasicChatFlowTurn[] = [];
+
+    for (const [turnOffset, rawTurn] of rawFlow.turns.entries()) {
+      const turnLabel = `${flowLabel}.turns[${turnOffset}]`;
+
+      if (!isRecord(rawTurn)) {
+        errors.push(`${turnLabel} 必须是 object`);
+        flowHasError = true;
+        continue;
       }
-      if (!turn.expectation) {
-        errors.push(`第 ${rowNumber} 行 ${id || "(unknown)"} 第 ${turn.index} 轮期望为空`);
+
+      const userInput = readTrimmedString(rawTurn.userInput);
+      const expectedOutput = readTrimmedString(rawTurn.expectedOutput);
+
+      if (!userInput) {
+        errors.push(`${turnLabel}.userInput 必须是非空字符串`);
+        flowHasError = true;
+      }
+
+      if (!expectedOutput) {
+        errors.push(`${turnLabel}.expectedOutput 必须是非空字符串`);
+        flowHasError = true;
+      }
+
+      if (userInput && expectedOutput) {
+        turns.push({
+          index: turnOffset + 1,
+          userInput,
+          expectation: expectedOutput,
+        });
       }
     }
 
-    if (id && goal && turns.every((turn) => turn.userInput && turn.expectation)) {
-      flows.push({ id, goal, turns });
+    if (!flowHasError && id && goal && turns.length > 0) {
+      flows.push({
+        id,
+        goal,
+        turns: turns as [BasicChatFlowTurn, ...BasicChatFlowTurn[]],
+      });
     }
   }
 
@@ -143,7 +158,7 @@ export function parseBasicChatFixtureFromMarkdown(
   }
 
   if (errors.length > 0) {
-    throw new BasicChatFixtureParseError(errors);
+    throw new BasicChatFixtureParseError(errors, sourcePath);
   }
 
   return {
@@ -161,72 +176,10 @@ export function summarizeBasicChatFixture(flows: BasicChatFlow[]): BasicChatFixt
   };
 }
 
-function collectMarkdownTableLines(lines: string[]) {
-  const tableLines: string[] = [];
-  let hasStarted = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed && !hasStarted) {
-      continue;
-    }
-
-    if (!trimmed.startsWith("|")) {
-      if (hasStarted) {
-        break;
-      }
-      continue;
-    }
-
-    hasStarted = true;
-    tableLines.push(trimmed);
-  }
-
-  return tableLines;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function splitMarkdownTableRow(line: string) {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  const cells: string[] = [];
-  let current = "";
-  let escaped = false;
-
-  for (const char of trimmed) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (char === "|") {
-      cells.push(normalizeCell(current));
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  cells.push(normalizeCell(current));
-
-  return cells;
-}
-
-function normalizeCell(cell: string) {
-  return cell.trim().replace(/\s+/g, " ");
-}
-
-function isMarkdownSeparatorRow(row: string[]) {
-  return row.length > 0 && row.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function hasExactColumns(header: string[]) {
-  return header.length === basicChatRequiredColumns.length
-    && basicChatRequiredColumns.every((column, index) => header[index] === column);
+function readTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
