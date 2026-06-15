@@ -22,6 +22,7 @@ const exerciseServiceMocks = vi.hoisted(() => ({
   listExercises: vi.fn(),
 }));
 const exerciseRepositoryMocks = vi.hoisted(() => ({
+  exerciseResourceMuscleMatchRoleValues: ["primary", "any"],
   getExerciseRecordsByIds: vi.fn(),
   getExerciseResourceSummariesByIds: vi.fn(async () => []),
   isBodyweightExerciseResourceEquipment: vi.fn((exercise) => exercise.equipment === "body only" || exercise.equipmentZh === "自重"),
@@ -232,6 +233,7 @@ describe("API route boundaries", () => {
     expect(JSON.stringify(events)).not.toContain("assistant_action");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const modelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expectModelMessagesToOmitServerContext(modelRequest.messages);
     expect(modelRequest).toMatchObject({
       model: "deepseek-v4-flash",
       tools: expect.arrayContaining([
@@ -335,6 +337,8 @@ describe("API route boundaries", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstModelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expectModelMessagesToOmitServerContext(firstModelRequest.messages);
+    expectModelMessagesToOmitServerContext(secondModelRequest.messages);
     expect(firstModelRequest.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({
         function: expect.objectContaining({ name: "searchExerciseResources" }),
@@ -802,6 +806,23 @@ function params(id: string) {
 
 function parseNdjson(text: string) {
   return text.trim().split("\n").map((line) => JSON.parse(line));
+}
+
+// provider request 的 messages 只允许承载真实对话和 runtime 必要消息，不能再夹带服务端 hydration / summary / context 包。
+function expectModelMessagesToOmitServerContext(messages: unknown) {
+  const serializedMessages = JSON.stringify(messages);
+
+  expect(serializedMessages).not.toContain("conversationSummary");
+  expect(serializedMessages).not.toContain("fitnessContext");
+  expect(serializedMessages).not.toContain("hydration");
+  expect(serializedMessages).not.toContain("conversationId");
+  expect(serializedMessages).not.toContain("responseMessageId");
+  expect(serializedMessages).not.toContain("thinkingEnabled");
+  expect(serializedMessages).not.toContain("conversation-1");
+  expect(serializedMessages).not.toContain("assistant-1");
+  expect(serializedMessages).not.toContain("assistant-tool-1");
+  expect(serializedMessages).not.toContain("用户想练胸。");
+  expect(serializedMessages).not.toContain("用户想练上肢。");
 }
 
 /** deepSeekStructuredFinalResponse 模拟生产 LangChain provider structured output 的 final response tool call 终态。 */

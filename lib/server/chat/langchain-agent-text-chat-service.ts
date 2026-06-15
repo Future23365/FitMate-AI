@@ -170,28 +170,14 @@ export async function createProductionLangChainTextChatTools() {
   return createProductionLangChainToolCatalog({ searchExerciseResourcesFacetCatalog });
 }
 
-/** createLangChainAgentTextChatMessages 将聊天历史和服务端 hydration 摘要转成模型可见消息，不构造旧自定义 action 输入。 */
+/** createLangChainAgentTextChatMessages 只把真实对话消息交给模型，服务端 hydration / summary / context 保留在 trace 和后续持久化边界。 */
 export function createLangChainAgentTextChatMessages(
   request: PreparedChatRequest,
 ): LangChainAgentMessage[] {
-  return [
-    {
-      role: "system",
-      content: [
-        "以下是当前请求的服务端上下文摘要。",
-        `conversationId: ${request.conversationId ?? "none"}`,
-        `responseMessageId: ${request.responseMessageId ?? "none"}`,
-        `conversationSummary: ${request.conversationSummaryContext.summary || "none"}`,
-        `thinkingEnabled: ${request.thinkingEnabled}`,
-        `hydration: ${JSON.stringify(request.hydration)}`,
-        `fitnessContext: ${JSON.stringify(request.internalConversationContext)}`,
-      ].join("\n"),
-    },
-    ...request.rawMessages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-  ];
+  return request.rawMessages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
 }
 
 /** createLangChainAgentTextChatNdjsonResponse 输出与 /api/chat 兼容的非流式 NDJSON 响应，主要用于配置失败。 */
