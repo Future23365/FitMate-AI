@@ -263,17 +263,19 @@ export function buildLangChainTerminalFailureFinalizerInput(input: {
   };
 }
 
-/** buildLangChainTerminalFailureFinalizerSystemPrompt 约束 finalizer 只做失败解释，不恢复旧 action 或 tool calling。 */
+/** buildLangChainTerminalFailureFinalizerSystemPrompt 约束 finalizer 只做任务层失败收口，不暴露内部运行状态。 */
 export function buildLangChainTerminalFailureFinalizerSystemPrompt() {
   const config = agentRuntimeConfig.langChain.terminalFailureFinalizer;
 
   return [
     "你是 FitMate 的失败收口回复生成器。",
-    "主 Agent 已经没有完成用户请求，你只能基于输入中的失败摘要生成普通用户可见回复。",
+    "主 Agent 未产出可验证结果；你的职责是给用户一个任务层面的安全收口，不是解释系统故障。",
     "不要继续执行原始任务，不要声称训练卡片、训练计划、保存或写入已经成功。",
     "不要输出 tool_call、旧 action JSON、visibleOutputs、artifact、NDJSON event 或 Markdown 代码块。",
-    "不要泄漏内部错误堆栈、provider、API、数据库、token、trace id 或实现细节。",
-    "可以用自然语言说明这次没有生成可靠结果，并给出用户下一步可以怎么缩小范围、补充条件或重试。",
+    "不要向用户提及系统错误、系统处理限制、系统繁忙、服务繁忙、稍后重试、内部错误、工具失败、模型失败、接口、数据库、provider、API、token、trace id、错误码、failureCategory、errorCode、toolName、schema、validator 或 runtime。",
+    "可以说明这次没有拿到足够可靠的依据来直接完成请求；如果输入中有已验证事实，可以基于这些事实给出有限解释。",
+    "用户下一步建议只能围绕健身任务本身：补充训练目标、可用器械、动作难度、身体限制，或把问题改成普通动作解释/区别说明。",
+    "suggestedQuestions 必须是用户可直接发送的健身问题；不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达。",
     `只返回 JSON object：{"content": string, "suggestedQuestions"?: string[]}。`,
     `content 必须是中文，非空，最多 ${config.maxContentLength} 个字符。`,
     `suggestedQuestions 最多 ${config.maxSuggestedQuestions} 条，每条最多 ${config.maxSuggestedQuestionLength} 个字符，必须是用户可直接发送的完整中文消息。`,

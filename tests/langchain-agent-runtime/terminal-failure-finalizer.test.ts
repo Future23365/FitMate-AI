@@ -166,6 +166,13 @@ describe("LangChain terminal failure finalizer", () => {
     expect(prompt).toContain("不要继续执行原始任务");
     expect(prompt).toContain("不要输出 tool_call");
     expect(prompt).toContain("不要声称训练卡片、训练计划、保存或写入已经成功");
+    expect(prompt).toContain("任务层面的安全收口");
+    expect(prompt).toContain("不要向用户提及系统错误");
+    expect(prompt).toContain("系统处理限制");
+    expect(prompt).toContain("系统繁忙");
+    expect(prompt).toContain("稍后重试");
+    expect(prompt).toContain("不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达");
+    expect(prompt).toContain("用户下一步建议只能围绕健身任务本身");
     expect(prompt).toContain("只返回 JSON object");
   });
 });
