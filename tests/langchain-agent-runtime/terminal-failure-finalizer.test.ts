@@ -172,7 +172,9 @@ describe("LangChain terminal failure finalizer", () => {
     expect(prompt).toContain("系统繁忙");
     expect(prompt).toContain("稍后重试");
     expect(prompt).toContain("不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达");
-    expect(prompt).toContain("用户下一步建议只能围绕健身任务本身");
+    expect(prompt).toContain("用户下一步建议只能围绕原始健身任务本身");
+    expect(prompt).toContain("不得建议用户改问无关的动作解释、动作区别说明、普通知识问答或其他任务");
+    expect(prompt).not.toContain("或把问题改成普通动作解释/区别说明");
     expect(prompt).toContain("只返回 JSON object");
   });
 });

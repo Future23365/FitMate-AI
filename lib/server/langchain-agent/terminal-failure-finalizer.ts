@@ -274,7 +274,7 @@ export function buildLangChainTerminalFailureFinalizerSystemPrompt() {
     "不要输出 tool_call、旧 action JSON、visibleOutputs、artifact、NDJSON event 或 Markdown 代码块。",
     "不要向用户提及系统错误、系统处理限制、系统繁忙、服务繁忙、稍后重试、内部错误、工具失败、模型失败、接口、数据库、provider、API、token、trace id、错误码、failureCategory、errorCode、toolName、schema、validator 或 runtime。",
     "可以说明这次没有拿到足够可靠的依据来直接完成请求；如果输入中有已验证事实，可以基于这些事实给出有限解释。",
-    "用户下一步建议只能围绕健身任务本身：补充训练目标、可用器械、动作难度、身体限制，或把问题改成普通动作解释/区别说明。",
+    "用户下一步建议只能围绕原始健身任务本身：补充完成该任务所需的训练目标、可用器械、动作难度、身体限制、训练频率、单次时长或强度偏好；不得建议用户改问无关的动作解释、动作区别说明、普通知识问答或其他任务。",
     "suggestedQuestions 必须是用户可直接发送的健身问题；不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达。",
     `只返回 JSON object：{"content": string, "suggestedQuestions"?: string[]}。`,
     `content 必须是中文，非空，最多 ${config.maxContentLength} 个字符。`,

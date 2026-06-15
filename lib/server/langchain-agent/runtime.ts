@@ -146,20 +146,23 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
       middleware,
     });
-    const state = await agent.invoke({
+    let state: unknown = await agent.invoke({
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
     }, {
       recursionLimit: resolveLangChainGraphRecursionLimit(config.runBudget, toolWrappers.length),
       signal: abortController.signal,
     });
-    const messages = Array.isArray(state.messages) ? state.messages : [];
-    const generatedMessages = messages.slice(input.messages.length);
-    const mergedToolExecutions = annotateToolExecutionsWithModelCalls(
-      mergeToolExecutions(toolExecutions, messages),
-      modelCallRecorder.modelCalls,
-    );
-    const terminalToolLoopFailure = findTerminalToolLoopFailure(mergedToolExecutions);
-    const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
+    let snapshot = createLangChainRuntimeSnapshot({
+      state,
+      inputMessageCount: input.messages.length,
+      toolExecutions,
+      modelCalls: modelCallRecorder.modelCalls,
+    });
+    let messages = snapshot.messages;
+    let generatedMessages = snapshot.generatedMessages;
+    let mergedToolExecutions = snapshot.mergedToolExecutions;
+    let terminalToolLoopFailure = snapshot.terminalToolLoopFailure;
+    let budgetFailure = snapshot.budgetFailure;
 
     if (terminalToolLoopFailure) {
       return createFailure({
@@ -201,7 +204,78 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       });
     }
 
-    const structuredFinalResponse = parseLangChainFinalResponse(readStructuredResponseFromState(state));
+    let structuredFinalResponse = snapshot.structuredFinalResponse;
+
+    if (!structuredFinalResponse.success) {
+      state = await agent.invoke({
+        messages: createStructuredFinalResponseRepairMessages({
+          messages,
+          generatedMessages,
+          toolWrappers,
+          issues: structuredFinalResponse.error.issues.map((issue) => ({
+            path: issue.path.map(String),
+            code: issue.code,
+            message: issue.message,
+          })),
+        }),
+      }, {
+        recursionLimit: resolveLangChainGraphRecursionLimit(config.runBudget, toolWrappers.length),
+        signal: abortController.signal,
+      });
+      snapshot = createLangChainRuntimeSnapshot({
+        state,
+        inputMessageCount: input.messages.length,
+        toolExecutions,
+        modelCalls: modelCallRecorder.modelCalls,
+      });
+      messages = snapshot.messages;
+      generatedMessages = snapshot.generatedMessages;
+      mergedToolExecutions = snapshot.mergedToolExecutions;
+      terminalToolLoopFailure = snapshot.terminalToolLoopFailure;
+      budgetFailure = snapshot.budgetFailure;
+
+      if (terminalToolLoopFailure) {
+        return createFailure({
+          code: "tool_handler_failed",
+          message: createTerminalToolLoopFailureErrorMessage(terminalToolLoopFailure),
+          retryable: true,
+          messages,
+          toolExecutions: mergedToolExecutions,
+          traceSummary: createTraceSummary({
+            startedAt,
+            modelName: modelResult.modelName,
+            inputMessages: input.messages,
+            messages,
+            toolExecutions: mergedToolExecutions,
+            toolWrappers,
+            modelCalls: modelCallRecorder.modelCalls,
+            finalText: undefined,
+          }),
+        });
+      }
+
+      if (budgetFailure) {
+        return createFailure({
+          code: "budget_exhausted",
+          message: "LangChain agent exceeded the configured tool call budget.",
+          retryable: true,
+          messages,
+          toolExecutions: mergedToolExecutions,
+          traceSummary: createTraceSummary({
+            startedAt,
+            modelName: modelResult.modelName,
+            inputMessages: input.messages,
+            messages,
+            toolExecutions: mergedToolExecutions,
+            toolWrappers,
+            modelCalls: modelCallRecorder.modelCalls,
+            finalText: undefined,
+          }),
+        });
+      }
+
+      structuredFinalResponse = snapshot.structuredFinalResponse;
+    }
 
     if (!structuredFinalResponse.success) {
       return createFailure({
@@ -268,6 +342,85 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     clearTimeout(timeout);
     input.signal?.removeEventListener("abort", abortFromInput);
   }
+}
+
+type LangChainRuntimeSnapshot = {
+  messages: readonly unknown[];
+  generatedMessages: readonly unknown[];
+  mergedToolExecutions: readonly LangChainAgentToolExecution[];
+  terminalToolLoopFailure?: LangChainAgentToolExecution;
+  budgetFailure?: LangChainAgentToolExecution;
+  structuredFinalResponse: ReturnType<typeof parseLangChainFinalResponse>;
+};
+
+/** createLangChainRuntimeSnapshot 汇总当前 LangChain state 的确定性执行事实，供成功、失败和 repair 分支复用。 */
+function createLangChainRuntimeSnapshot(input: {
+  state: unknown;
+  inputMessageCount: number;
+  toolExecutions: readonly LangChainAgentToolExecution[];
+  modelCalls: readonly LangChainAgentModelCallTrace[];
+}): LangChainRuntimeSnapshot {
+  const stateRecord = readRecord(input.state);
+  const messages = Array.isArray(stateRecord.messages) ? stateRecord.messages : [];
+  const mergedToolExecutions = annotateToolExecutionsWithModelCalls(
+    mergeToolExecutions(input.toolExecutions, messages),
+    input.modelCalls,
+  );
+
+  return {
+    messages,
+    generatedMessages: messages.slice(input.inputMessageCount),
+    mergedToolExecutions,
+    terminalToolLoopFailure: findTerminalToolLoopFailure(mergedToolExecutions),
+    budgetFailure: mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted"),
+    structuredFinalResponse: parseLangChainFinalResponse(readStructuredResponseFromState(input.state)),
+  };
+}
+
+/** createStructuredFinalResponseRepairMessages 构造一次性结构化终态修复请求，不根据用户措辞或业务 toolName 改写模型决策。 */
+function createStructuredFinalResponseRepairMessages(input: {
+  messages: readonly unknown[];
+  generatedMessages: readonly unknown[];
+  toolWrappers: readonly LangChainToolWrapper[];
+  issues: readonly { path: readonly string[]; code: string; message: string }[];
+}) {
+  const toolCatalogSummary = input.toolWrappers.length > 0
+    ? input.toolWrappers.map((wrapper) => `- ${wrapper.name}`).join("\n")
+    : "- 当前没有业务工具；只能基于已可见上下文输出合法最终回答或围绕原任务追问。";
+  const issueSummary = input.issues.length > 0
+    ? input.issues.slice(0, 8).map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join(".") : "<root>";
+
+        return `- path=${path}; code=${issue.code}; message=${issue.message}`;
+      }).join("\n")
+    : "- 未拿到可展示的 schema issue；仍需重新提交合法结构化最终回答。";
+
+  return [
+    ...input.messages,
+    {
+      role: "user",
+      content: [
+        "结构化最终回答修复请求：上一轮没有产出合法 fitmate_final_response。请继续完成原始用户任务，但只能在当前对话历史、已进入模型上下文的 tool result 和当前可用工具目录内行动。",
+        "",
+        "当前合法出口：",
+        "- 如果任务只需要普通健身回答，调用 fitmate_final_response，填入非空中文 content，可选 suggestedQuestions。",
+        "- 如果任务需要训练卡片、routine、plan 或其他结构化业务结果，必须先使用当前暴露的对应 finalization tool，并继续接受服务端 schema、validator、policy 和 projection 校验；content 不能替代结构化业务事实。",
+        "- 如果当前事实不足以完成原始任务，调用 fitmate_final_response，在 content 中只追问一个最关键条件，并让 suggestedQuestions 继续围绕原始任务。",
+        "",
+        "禁止行为：",
+        "- 不要建议用户改问无关动作解释、动作区别说明、普通知识问答或其他任务。",
+        "- 不要编造未暴露工具、未执行 tool result、未校验训练卡片、未校验 routine 或未校验 plan。",
+        "- 不要输出旧 AgentAction JSON、Markdown 代码块、NDJSON event、visibleOutputs 或 raw schema。",
+        "",
+        "当前业务工具目录（最终回答工具由结构化终态合同提供）：",
+        toolCatalogSummary,
+        "",
+        `当前已生成消息数量：${input.generatedMessages.length}。这些消息和其中的 ToolMessage 是本次 repair 可引用的已验证上下文边界。`,
+        "上一轮结构化终态校验问题：",
+        issueSummary,
+      ].join("\n"),
+    },
+  ] as Parameters<ReturnType<typeof createAgent>["invoke"]>[0]["messages"];
 }
 
 type CurrentRequestToolAvailabilityState = {

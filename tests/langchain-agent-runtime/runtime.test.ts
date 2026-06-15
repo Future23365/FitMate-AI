@@ -541,6 +541,38 @@ describe("LangChain Agent runtime", () => {
     expect(result.traceSummary?.runtimeVersion).toBe("langchain-agent-runtime-v1");
   });
 
+  it("repairs unstructured final assistant text before returning a normal final response", async () => {
+    const model = fakeModel()
+      .respond(new AIMessage("可以，今天先做低强度胸部训练。"))
+      .respondWithTools([
+        createFinalResponseToolCall({
+          content: "可以，今天先做低强度胸部训练。",
+          suggestedQuestions: ["帮我安排 20 分钟训练"],
+        }, "call_repair_final"),
+      ]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      finalText: "可以，今天先做低强度胸部训练。",
+      suggestedQuestions: ["帮我安排 20 分钟训练"],
+      toolExecutions: [],
+    });
+    expect(result.traceSummary?.modelCallCount).toBe(2);
+    expect(result.traceSummary?.modelCalls[1]?.requestSummary.messagePreviews).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contentPreview: expect.stringContaining("结构化最终回答修复请求"),
+        }),
+      ]),
+    );
+  });
+
   it("keeps final response on tool strategy even when the model advertises native structured output", async () => {
     const model = fakeModel().respondWithTools([
       createFinalResponseToolCall({
@@ -634,6 +666,94 @@ describe("LangChain Agent runtime", () => {
         runtimeStep: 1,
       },
     ]);
+  });
+
+  it("lets final-response repair continue through current business finalization tools", async () => {
+    const handler = vi.fn(async (input: { routineTitle: string; exerciseIds: string[] }) => ({
+      status: "succeeded" as const,
+      routineTitle: input.routineTitle,
+      exerciseIds: input.exerciseIds,
+    }));
+    const routineFinalizationTool = defineLangChainToolWrapper({
+      name: "submitRoutineDraftForRepair",
+      description: "用于验证 repair 仍通过当前业务 finalization tool 提交结构化 routine 的测试工具。",
+      inputSchema: z.object({
+        routineTitle: z.string().describe("模型基于当前可见训练事实整理出的 routine 标题。"),
+        exerciseIds: z.array(z.string()).min(1).describe("当前可见工具事实中可消费的动作 id。"),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        factLevel: "consumable",
+        routineTitle: output.routineTitle,
+        exerciseCount: output.exerciseIds.length,
+      }),
+      toUserProjection: (output) => ({
+        routineTitle: output.routineTitle,
+        exerciseIds: output.exerciseIds,
+      }),
+      toTraceSummary: (output) => ({
+        status: output.status,
+        routineTitle: output.routineTitle,
+        exerciseCount: output.exerciseIds.length,
+      }),
+    });
+    const model = fakeModel()
+      .respond(new AIMessage("我先给你安排一套 30 分钟胸部 routine。"))
+      .respondWithTools([{
+        name: "submitRoutineDraftForRepair",
+        args: {
+          routineTitle: "30 分钟胸部 routine",
+          exerciseIds: ["push-up"],
+        },
+        id: "call_repair_routine",
+      }])
+      .respondWithTools([
+        createFinalResponseToolCall({
+          content: "已基于当前可见动作事实生成 30 分钟胸部 routine。",
+        }, "call_repair_final"),
+      ]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      messages: [{ role: "user", content: "给我一个 30 分钟胸部 routine，要有热身、主训练和拉伸。" }],
+      model,
+      toolWrappers: [routineFinalizationTool],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.finalText).toBe("已基于当前可见动作事实生成 30 分钟胸部 routine。");
+    }
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(result.toolExecutions).toMatchObject([
+      {
+        toolCallId: "call_repair_routine",
+        toolName: "submitRoutineDraftForRepair",
+        status: "succeeded",
+        userProjection: {
+          routineTitle: "30 分钟胸部 routine",
+          exerciseIds: ["push-up"],
+        },
+        modelCallIndex: 2,
+        runtimeStep: 2,
+      },
+    ]);
+    expect(result.traceSummary?.modelCallCount).toBe(3);
+    expect(result.traceSummary?.providerToolCalls).toEqual(
+      expect.arrayContaining([
+        {
+          id: "call_repair_routine",
+          name: "submitRoutineDraftForRepair",
+          argsSummary: {
+            routineTitle: "30 分钟胸部 routine",
+            exerciseIds: ["push-up"],
+          },
+          modelCallIndex: 2,
+          runtimeStep: 2,
+        },
+      ]),
+    );
   });
 
   it("streams runtime activity metadata before handler without consuming extra tool budget", async () => {
@@ -791,14 +911,18 @@ describe("LangChain Agent runtime", () => {
   });
 
   it("records LangChain model token usage from provider response metadata", async () => {
-    const model = fakeModel().respond(new AIMessage({
-      content: "这条回复缺少结构化 final response。",
-      usage_metadata: {
-        input_tokens: 12,
-        output_tokens: 4,
-        total_tokens: 16,
-      },
-    }));
+    const model = fakeModel()
+      .respond(new AIMessage({
+        content: "这条回复缺少结构化 final response。",
+        usage_metadata: {
+          input_tokens: 12,
+          output_tokens: 4,
+          total_tokens: 16,
+        },
+      }))
+      .respondWithTools([
+        createFinalResponseToolCall({ content: "repair 后保留首轮 token usage。" }),
+      ]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -806,17 +930,16 @@ describe("LangChain Agent runtime", () => {
       toolWrappers: [],
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.traceSummary?.modelCalls).toMatchObject([
-      {
-        modelCallIndex: 1,
-        tokenUsage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
+    expect(result.ok).toBe(true);
+    expect(result.traceSummary?.modelCallCount).toBe(2);
+    expect(result.traceSummary?.modelCalls[0]).toMatchObject({
+      modelCallIndex: 1,
+      tokenUsage: {
+        prompt_tokens: 12,
+        completion_tokens: 4,
+        total_tokens: 16,
       },
-    ]);
+    });
   });
 
   it("records multiple tool calls in one model turn", async () => {
@@ -1632,35 +1755,35 @@ describe("LangChain Agent runtime", () => {
       ...baseInput,
       model,
       toolWrappers: budgetedTools,
-	    });
+    });
 
-	    expect(result.ok).toBe(false);
-	    if (!result.ok) {
-	      expect(result.code).toBe("budget_exhausted");
-	      expect(result.traceSummary?.modelCallCount).toBeGreaterThan(0);
-	      expect(result.traceSummary?.modelCalls[0]).toMatchObject({
-	        modelCallIndex: 1,
-	        providerToolCalls: expect.arrayContaining([
-	          expect.objectContaining({
-	            id: "call_1",
-	            modelCallIndex: 1,
-	            runtimeStep: 1,
-	          }),
-	        ]),
-	      });
-	    }
-	  });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("budget_exhausted");
+      expect(result.traceSummary?.modelCallCount).toBeGreaterThan(0);
+      expect(result.traceSummary?.modelCalls[0]).toMatchObject({
+        modelCallIndex: 1,
+        providerToolCalls: expect.arrayContaining([
+          expect.objectContaining({
+            id: "call_1",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          }),
+        ]),
+      });
+    }
+  });
 
-	  it("stops before provider calls exceed the configured model call budget", async () => {
-	    const model = new RepeatingUnknownToolModel();
+  it("stops before provider calls exceed the configured model call budget", async () => {
+    const model = new RepeatingUnknownToolModel();
 
-	    const result = await runLangChainAgentRuntime({
-	      ...baseInput,
-	      model,
-	      toolWrappers: [echoTool],
-	    });
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [echoTool],
+    });
 
-	    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("budget_exhausted");
       expect(result.message).toContain("model call budget exhausted");
@@ -1674,8 +1797,10 @@ describe("LangChain Agent runtime", () => {
     }
   });
 
-  it("rejects unstructured final assistant text as a structured output failure", async () => {
-    const model = fakeModel().respond(new AIMessage("可以，今天先做低强度胸部训练。"));
+  it("returns a structured output failure only after final-response repair also fails", async () => {
+    const model = fakeModel()
+      .respond(new AIMessage("可以，今天先做低强度胸部训练。"))
+      .respond(new AIMessage("仍然没有提交结构化最终回答。"));
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -1688,6 +1813,7 @@ describe("LangChain Agent runtime", () => {
       code: "structured_output_validation_failed",
       retryable: true,
     });
+    expect(result.traceSummary?.modelCallCount).toBe(2);
   });
 });
 
