@@ -54,9 +54,16 @@ type DevTraceListResponse = {
   traces?: Array<{
     id?: string;
     messageId?: string;
+    steps?: Array<{
+      name?: string;
+      type?: string;
+      output?: unknown;
+      metadata?: Record<string, unknown>;
+    }>;
     metadata?: Record<string, unknown>;
   }>;
 };
+type LlmBlackboxAvailableTokenUsage = NonNullable<LlmBlackboxTokenDiagnostics["usage"]>;
 
 // useLlmBlackboxReviewRunner 是审核页唯一执行协调者，负责 headless 调用生产聊天 client 并推进 run 状态机。
 export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
@@ -100,13 +107,10 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
     [activeRun],
   );
   const selectedFlow = useMemo(() => {
-    if (activeRun) {
-      return activeRun.flows.find((flow) => flow.id === selectedFlowId) ?? activeRun.flows[0] ?? null;
-    }
-
     const fixtureFlow = fixture.flows.find((flow) => flow.id === selectedFlowId) ?? fixture.flows[0] ?? null;
+    const activeFlow = activeRun?.flows.find((flow) => flow.id === selectedFlowId);
 
-    return fixtureFlow
+    return activeFlow ?? (fixtureFlow
       ? {
           id: fixtureFlow.id,
           goal: fixtureFlow.goal,
@@ -128,7 +132,7 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
             eventTypes: [],
           })),
         }
-      : null;
+      : null);
   }, [activeRun, fixture.flows, selectedFlowId]);
   const selectedTurn = useMemo(() => {
     if (!selectedFlow) {
@@ -635,9 +639,9 @@ async function readDevTraceTokenDiagnostics(responseMessageId: string): Promise<
 
     const data = await response.json() as DevTraceListResponse;
     const trace = data.traces?.find((item) => item.messageId === responseMessageId);
-    const usage = trace?.metadata?.tokenUsageSummary;
+    const usage = readTokenUsageFromTrace(trace);
 
-    if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+    if (!usage) {
       return {
         source: "dev_trace_store",
         status: "missing",
@@ -646,31 +650,11 @@ async function readDevTraceTokenDiagnostics(responseMessageId: string): Promise<
       };
     }
 
-    const record = usage as Record<string, unknown>;
-    const promptTokens = readNumber(record.prompt_tokens);
-    const completionTokens = readNumber(record.completion_tokens);
-    const totalTokens = readNumber(record.total_tokens) ?? (
-      promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined
-    );
-
-    if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
-      return {
-        source: "dev_trace_store",
-        status: "missing",
-        traceId: trace?.id,
-        reason: "trace token usage is empty",
-      };
-    }
-
     return {
       source: "dev_trace_store",
       status: "available",
       traceId: trace?.id,
-      usage: {
-        promptTokens: promptTokens ?? 0,
-        completionTokens: completionTokens ?? 0,
-        totalTokens: totalTokens ?? 0,
-      },
+      usage,
     };
   } catch (error) {
     return {
@@ -679,6 +663,63 @@ async function readDevTraceTokenDiagnostics(responseMessageId: string): Promise<
       reason: getUnknownErrorMessage(error),
     };
   }
+}
+
+// readTokenUsageFromTrace 优先读请求级 summary，缺失时从每个模型响应 step 汇总，避免 trace 未写顶层摘要时误报 missing。
+export function readTokenUsageFromTrace(trace: NonNullable<DevTraceListResponse["traces"]>[number] | undefined) {
+  const topLevelUsage = normalizeTokenUsageRecord(trace?.metadata?.tokenUsageSummary);
+
+  if (topLevelUsage) {
+    return topLevelUsage;
+  }
+
+  const stepUsages = trace?.steps
+    ?.flatMap((step) => [
+      normalizeTokenUsageRecord(readRecord(step.output)?.tokenUsage),
+    normalizeTokenUsageRecord(step.metadata?.tokenUsage),
+    ])
+    .filter((usage): usage is LlmBlackboxAvailableTokenUsage => Boolean(usage)) ?? [];
+
+  if (stepUsages.length === 0) {
+    return undefined;
+  }
+
+  return stepUsages.reduce(
+    (total, usage) => ({
+      promptTokens: total.promptTokens + usage.promptTokens,
+      completionTokens: total.completionTokens + usage.completionTokens,
+      totalTokens: total.totalTokens + usage.totalTokens,
+    }),
+    { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+  );
+}
+
+function normalizeTokenUsageRecord(value: unknown): LlmBlackboxTokenDiagnostics["usage"] | undefined {
+  const record = readRecord(value);
+
+  if (!record) {
+    return undefined;
+  }
+
+  const promptTokens = readNumber(record.prompt_tokens) ?? readNumber(record.promptTokens);
+  const completionTokens = readNumber(record.completion_tokens) ?? readNumber(record.completionTokens);
+  const totalTokens = readNumber(record.total_tokens)
+    ?? readNumber(record.totalTokens)
+    ?? (
+      promptTokens !== undefined && completionTokens !== undefined
+        ? promptTokens + completionTokens
+        : undefined
+    );
+
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return undefined;
+  }
+
+  return {
+    promptTokens: promptTokens ?? 0,
+    completionTokens: completionTokens ?? 0,
+    totalTokens: totalTokens ?? 0,
+  };
 }
 
 function createChatMessage(role: ChatMessage["role"], content: string, isReasoning = false): ChatMessage {
@@ -701,6 +742,12 @@ function createClientId() {
 
 function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function getUnknownErrorMessage(error: unknown) {

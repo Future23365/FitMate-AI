@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChatMessage } from "@/features/chat/types";
+import { mergeFixtureFlowsWithRunResults } from "@/features/dev/llm-blackbox/llm-blackbox-reviewer";
 import {
   calculateLlmBlackboxRunStats,
   cancelPendingLlmBlackboxWork,
@@ -21,6 +22,7 @@ import {
   readLlmBlackboxReviewRuns,
   writeLlmBlackboxReviewRuns,
 } from "@/features/dev/llm-blackbox/review-storage";
+import { readTokenUsageFromTrace } from "@/features/dev/llm-blackbox/use-llm-blackbox-review-runner";
 import { parseBasicChatFixtureFromJson } from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
 
 vi.mock("next/dynamic", () => ({
@@ -172,6 +174,80 @@ describe("dev LLM blackbox runner state", () => {
     expect(run.status).toBe("stopped");
     expect(statuses).toEqual(["cancelled", "cancelled", "cancelled"]);
     expect(calculateLlmBlackboxRunStats(run).cancelledTurnCount).toBe(3);
+  });
+
+  it("keeps the full fixture flow list after running a single flow", () => {
+    const fixture = createFixture();
+    let run = createLlmBlackboxReviewRun({
+      fixture,
+      flows: [fixture.flows[0]],
+      mode: "single",
+      createId: () => "run-single",
+    });
+
+    run = completeLlmBlackboxTurn(
+      startLlmBlackboxTurn(run, {
+        flowId: "F01",
+        turnIndex: 1,
+        conversationId: "conversation-1",
+        responseMessageId: "assistant-1",
+        startedAt: new Date("2026-06-15T10:00:01.000Z"),
+      }),
+      "F01",
+      1,
+      {
+        status: "passed",
+        assistantMessage: createAssistantMessage("assistant-1", "完成。"),
+        eventTypes: ["content", "done"],
+        endedAt: new Date("2026-06-15T10:00:03.000Z"),
+        durationMs: 2000,
+      },
+    );
+
+    const flows = mergeFixtureFlowsWithRunResults(fixture.flows, run.flows);
+
+    expect(flows.map((flow) => flow.id)).toEqual(["F01", "F02"]);
+    expect(flows.find((flow) => flow.id === "F01")?.status).toBe("running");
+    expect(flows.find((flow) => flow.id === "F02")?.status).toBe("queued");
+  });
+});
+
+describe("dev LLM blackbox token diagnostics", () => {
+  it("reads token usage from top-level trace summary and model response steps", () => {
+    expect(readTokenUsageFromTrace({
+      id: "trace-top",
+      messageId: "assistant-1",
+      metadata: {
+        tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+      },
+      steps: [],
+    })).toEqual({
+      promptTokens: 10,
+      completionTokens: 3,
+      totalTokens: 13,
+    });
+
+    expect(readTokenUsageFromTrace({
+      id: "trace-steps",
+      messageId: "assistant-2",
+      metadata: {},
+      steps: [
+        {
+          name: "LangChain 模型响应 #1",
+          output: { tokenUsage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 } },
+          metadata: { tokenUsage: { promptTokens: 4, completionTokens: 1, totalTokens: 5 } },
+        },
+        {
+          name: "LangChain 模型响应 #2",
+          output: { tokenUsage: { prompt_tokens: 6, completion_tokens: 3 } },
+          metadata: {},
+        },
+      ],
+    })).toEqual({
+      promptTokens: 18,
+      completionTokens: 6,
+      totalTokens: 24,
+    });
   });
 });
 

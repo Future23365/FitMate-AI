@@ -40,7 +40,7 @@ const reviewOptions: Array<{ value: LlmBlackboxReviewStatus; label: string; icon
 export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
   const runner = useLlmBlackboxReviewRunner(fixture);
   const flowList = useMemo(
-    () => runner.activeRun?.flows ?? fixture.flows.map(toQueuedFlowResult),
+    () => mergeFixtureFlowsWithRunResults(fixture.flows, runner.activeRun?.flows),
     [fixture.flows, runner.activeRun],
   );
   const transcriptMessages = useMemo(
@@ -63,7 +63,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink">
-      <header className="border-b border-line/70 bg-white/92 px-xl py-lg shadow-nav backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-line/70 bg-white/92 px-xl py-lg shadow-nav backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-md">
           <div>
             <h1 className="font-headline-md text-headline-md font-extrabold text-ink">
@@ -118,7 +118,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
         />
       </header>
 
-      <main className="grid gap-lg px-xl py-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+      <main className="grid items-start gap-lg px-xl py-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
         <FlowListPanel
           activeRun={runner.activeRun}
           flows={flowList}
@@ -132,7 +132,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
           isRunning={runner.isRunning}
         />
 
-        <Card className="min-h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
+        <Card className="rounded-[18px] py-0">
           <CardHeader className="border-b border-line bg-white px-lg py-md">
             <div className="flex items-start justify-between gap-md">
               <div>
@@ -148,14 +148,14 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
               ) : null}
             </div>
           </CardHeader>
-          <CardContent className="h-[calc(100vh-284px)] overflow-y-auto bg-surface-container-low px-lg py-lg">
+          <CardContent className="bg-surface-container-low px-lg py-lg">
             {transcriptMessages.length > 0 ? (
               <ChatTranscript
                 className="mx-auto flex max-w-4xl flex-col gap-md"
                 messages={transcriptMessages}
               />
             ) : (
-              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
+              <div className="flex min-h-[360px] items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
                 当前 flow 尚未产生可见转录。运行后会展示用户消息、assistant 文本、训练卡片和建议提问。
               </div>
             )}
@@ -230,11 +230,11 @@ function FlowListPanel({
   onSetFlowReviewStatus: (flowId: string, status: LlmBlackboxReviewStatus) => void;
 }) {
   return (
-    <Card className="min-h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
+    <Card className="rounded-[18px] py-0">
       <CardHeader className="border-b border-line px-lg py-md">
         <CardTitle className="text-title-md">Flow 列表</CardTitle>
       </CardHeader>
-      <CardContent className="h-[calc(100vh-284px)] space-y-sm overflow-y-auto px-md py-md">
+      <CardContent className="space-y-sm px-md py-md">
         {flows.map((flow) => (
           <div
             className={`rounded-xl border bg-white p-md transition-colors ${
@@ -273,7 +273,7 @@ function FlowListPanel({
                 <SymbolIcon>play_arrow</SymbolIcon>
                 运行
               </Button>
-              {activeRun ? (
+              {activeRun?.flows.some((runFlow) => runFlow.id === flow.id) ? (
                 reviewOptions.map((option) => (
                   <button
                     className={`rounded-full border px-xs py-1 font-label-xs text-label-xs ${
@@ -295,6 +295,16 @@ function FlowListPanel({
       </CardContent>
     </Card>
   );
+}
+
+// mergeFixtureFlowsWithRunResults 用完整 fixture 保持左侧列表稳定，只把当前 run 的结果叠加到对应 flow。
+export function mergeFixtureFlowsWithRunResults(
+  fixtureFlows: BasicChatFlow[],
+  runFlows: LlmBlackboxFlowResult[] | undefined,
+) {
+  const runFlowById = new Map(runFlows?.map((flow) => [flow.id, flow]) ?? []);
+
+  return fixtureFlows.map((flow) => runFlowById.get(flow.id) ?? toQueuedFlowResult(flow));
 }
 
 function TurnDetailPanel({
