@@ -63,9 +63,9 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink">
+    <div className="app-mesh-bg flex h-screen min-h-0 flex-col overflow-hidden text-ink">
       <LlmBlackboxBodyScrollScope />
-      <header className="sticky top-0 z-10 border-b border-line/70 bg-white/92 px-xl py-lg shadow-nav backdrop-blur">
+      <header className="shrink-0 border-b border-line/70 bg-white/92 px-xl py-lg shadow-nav backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-md">
           <div>
             <h1 className="font-headline-md text-headline-md font-extrabold text-ink">
@@ -120,61 +120,65 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
         />
       </header>
 
-      <main className="grid items-start gap-lg px-xl py-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
-        <FlowListPanel
-          activeRun={runner.activeRun}
-          flows={flowList}
-          selectedFlowId={runner.selectedFlow?.id ?? runner.selectedFlowId}
-          onRunFlow={(flowId) => void runner.runSingleFlow(flowId)}
-          onSelectFlow={(flowId) => {
-            runner.setSelectedFlowId(flowId);
-            runner.setSelectedTurnKey(null);
-          }}
-          onSetFlowReviewStatus={runner.setFlowReviewStatus}
-          isRunning={runner.isRunning}
-        />
+      <main className="flex min-h-0 flex-1 flex-col gap-lg px-xl py-lg">
+        <RunStatsPanel stats={stats} />
 
-        <Card className="h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
-          <CardHeader className="border-b border-line bg-white px-lg py-md">
-            <div className="flex items-start justify-between gap-md">
-              <div>
-                <CardTitle className="text-title-md">
-                  {runner.selectedFlow?.id ?? "未选择 flow"}
-                </CardTitle>
-                <p className="mt-1 font-body-sm text-body-sm text-muted">
-                  {runner.selectedFlow?.goal ?? "选择一个 flow 查看转录"}
-                </p>
-              </div>
-              {runner.selectedFlow ? (
-                <StatusBadge status={runner.selectedFlow.status} />
-              ) : null}
-            </div>
-          </CardHeader>
-          <CardContent className="custom-scrollbar h-[calc(100vh-284px)] overflow-y-auto overscroll-contain bg-surface-container-low px-lg py-lg">
-            {transcriptMessages.length > 0 ? (
-              <ChatTranscript
-                className="mx-auto flex max-w-4xl flex-col gap-md"
-                messages={transcriptMessages}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
-                当前 flow 尚未产生可见转录。运行后会展示用户消息、assistant 文本、训练卡片和建议提问。
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* 顶层统计之外的审核主体保持三列等高，各列只在自己的内容区滚动。 */}
+        <section className="grid min-h-0 flex-1 gap-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+          <FlowListPanel
+            activeRun={runner.activeRun}
+            flows={flowList}
+            selectedFlowId={runner.selectedFlow?.id ?? runner.selectedFlowId}
+            onRunFlow={(flowId) => void runner.runSingleFlow(flowId)}
+            onSelectFlow={(flowId) => {
+              runner.setSelectedFlowId(flowId);
+              runner.setSelectedTurnKey(null);
+            }}
+            onSetFlowReviewStatus={runner.setFlowReviewStatus}
+            isRunning={runner.isRunning}
+          />
 
-        <TurnDetailPanel
-          activeRunStats={stats}
-          selectedTurn={runner.selectedTurn}
-          onSelectTurn={(turnIndex) => {
-            if (runner.selectedFlow) {
-              runner.setSelectedTurnKey({ flowId: runner.selectedFlow.id, turnIndex });
-            }
-          }}
-          selectedFlow={runner.selectedFlow}
-          onSetTurnReviewStatus={runner.setTurnReviewStatus}
-        />
+          <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] py-0">
+            <CardHeader className="shrink-0 border-b border-line bg-white px-lg py-md">
+              <div className="flex items-start justify-between gap-md">
+                <div>
+                  <CardTitle className="text-title-md">
+                    {runner.selectedFlow?.id ?? "未选择 flow"}
+                  </CardTitle>
+                  <p className="mt-1 font-body-sm text-body-sm text-muted">
+                    {runner.selectedFlow?.goal ?? "选择一个 flow 查看转录"}
+                  </p>
+                </div>
+                {runner.selectedFlow ? (
+                  <StatusBadge status={runner.selectedFlow.status} />
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface-container-low px-lg py-lg">
+              {transcriptMessages.length > 0 ? (
+                <ChatTranscript
+                  className="mx-auto flex max-w-4xl flex-col gap-md"
+                  messages={transcriptMessages}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-line bg-white p-lg text-center font-body-sm text-body-sm text-muted">
+                  当前 flow 尚未产生可见转录。运行后会展示用户消息、assistant 文本、训练卡片和建议提问。
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <TurnDetailPanel
+            selectedTurn={runner.selectedTurn}
+            onSelectTurn={(turnIndex) => {
+              if (runner.selectedFlow) {
+                runner.setSelectedTurnKey({ flowId: runner.selectedFlow.id, turnIndex });
+              }
+            }}
+            selectedFlow={runner.selectedFlow}
+            onSetTurnReviewStatus={runner.setTurnReviewStatus}
+          />
+        </section>
       </main>
     </div>
   );
@@ -214,6 +218,30 @@ function RunSelector({
   );
 }
 
+function RunStatsPanel({ stats }: { stats: LlmBlackboxRunStats | null }) {
+  return (
+    <Card className="shrink-0 rounded-[18px] py-0">
+      <CardContent className="flex items-stretch gap-md px-lg py-md">
+        <div className="flex shrink-0 items-center border-r border-line pr-md">
+          <CardTitle className="text-title-md">统计摘要</CardTitle>
+        </div>
+        <div className="grid min-w-0 flex-1 grid-cols-10 gap-sm">
+          <Metric label="Flow" value={String(stats?.flowTotal ?? 0)} />
+          <Metric label="Turn" value={String(stats?.turnTotal ?? 0)} />
+          <Metric label="通过" value={String(stats?.passedTurnCount ?? 0)} />
+          <Metric label="失败" value={String(stats?.failedTurnCount ?? 0)} />
+          <Metric label="跳过" value={String(stats?.skippedTurnCount ?? 0)} />
+          <Metric label="停止" value={String(stats?.cancelledTurnCount ?? 0)} />
+          <Metric label="人工通过" value={String(stats?.acceptedCount ?? 0)} />
+          <Metric label="需跟进" value={String(stats?.needsFollowupCount ?? 0)} />
+          <Metric label="耗时" value={formatDuration(stats?.durationMs ?? 0)} />
+          <Metric label="Token" value={formatTokenStats(stats)} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function FlowListPanel({
   activeRun,
   flows,
@@ -232,11 +260,11 @@ function FlowListPanel({
   onSetFlowReviewStatus: (flowId: string, status: LlmBlackboxReviewStatus) => void;
 }) {
   return (
-    <Card className="h-[calc(100vh-190px)] overflow-hidden rounded-[18px] py-0">
-      <CardHeader className="border-b border-line px-lg py-md">
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] py-0">
+      <CardHeader className="shrink-0 border-b border-line px-lg py-md">
         <CardTitle className="text-title-md">Flow 列表</CardTitle>
       </CardHeader>
-      <CardContent className="custom-scrollbar h-[calc(100vh-284px)] space-y-sm overflow-y-auto overscroll-contain px-md py-md">
+      <CardContent className="custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto overscroll-contain px-md py-md">
         {flows.map((flow) => (
           <div
             className={`rounded-xl border bg-white p-md transition-colors ${
@@ -310,119 +338,97 @@ export function mergeFixtureFlowsWithRunResults(
 }
 
 function TurnDetailPanel({
-  activeRunStats,
   onSelectTurn,
   onSetTurnReviewStatus,
   selectedFlow,
   selectedTurn,
 }: {
-  activeRunStats: LlmBlackboxRunStats | null;
   selectedFlow: LlmBlackboxFlowResult | null;
   selectedTurn: LlmBlackboxTurnResult | null;
   onSelectTurn: (turnIndex: number) => void;
   onSetTurnReviewStatus: (flowId: string, turnIndex: number, status: LlmBlackboxReviewStatus) => void;
 }) {
   return (
-    <div className="space-y-lg">
-      <Card className="rounded-[18px] py-0">
-        <CardHeader className="border-b border-line px-lg py-md">
-          <CardTitle className="text-title-md">统计摘要</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-sm px-lg py-md">
-          <Metric label="Flow" value={String(activeRunStats?.flowTotal ?? 0)} />
-          <Metric label="Turn" value={String(activeRunStats?.turnTotal ?? 0)} />
-          <Metric label="通过" value={String(activeRunStats?.passedTurnCount ?? 0)} />
-          <Metric label="失败" value={String(activeRunStats?.failedTurnCount ?? 0)} />
-          <Metric label="跳过" value={String(activeRunStats?.skippedTurnCount ?? 0)} />
-          <Metric label="停止" value={String(activeRunStats?.cancelledTurnCount ?? 0)} />
-          <Metric label="人工通过" value={String(activeRunStats?.acceptedCount ?? 0)} />
-          <Metric label="需跟进" value={String(activeRunStats?.needsFollowupCount ?? 0)} />
-          <Metric label="耗时" value={formatDuration(activeRunStats?.durationMs ?? 0)} />
-          <Metric label="Token" value={formatTokenStats(activeRunStats)} />
-        </CardContent>
-      </Card>
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] py-0">
+      <CardHeader className="shrink-0 border-b border-line px-lg py-md">
+        <CardTitle className="text-title-md">Turn 详情</CardTitle>
+      </CardHeader>
+      <CardContent className="custom-scrollbar min-h-0 flex-1 space-y-md overflow-y-auto overscroll-contain px-lg py-md">
+        {selectedFlow ? (
+          <div className="flex flex-wrap gap-xs">
+            {selectedFlow.turns.map((turn) => (
+              <button
+                className={`rounded-full border px-sm py-1 font-label-sm text-label-sm ${
+                  selectedTurn?.turnIndex === turn.turnIndex
+                    ? "border-primary bg-primary-soft text-primary"
+                    : "border-line bg-white text-muted"
+                }`}
+                key={turn.id}
+                onClick={() => onSelectTurn(turn.turnIndex)}
+                type="button"
+              >
+                T{turn.turnIndex}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
-      <Card className="rounded-[18px] py-0">
-        <CardHeader className="border-b border-line px-lg py-md">
-          <CardTitle className="text-title-md">Turn 详情</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-md px-lg py-md">
-          {selectedFlow ? (
-            <div className="flex flex-wrap gap-xs">
-              {selectedFlow.turns.map((turn) => (
-                <button
-                  className={`rounded-full border px-sm py-1 font-label-sm text-label-sm ${
-                    selectedTurn?.turnIndex === turn.turnIndex
-                      ? "border-primary bg-primary-soft text-primary"
-                      : "border-line bg-white text-muted"
-                  }`}
-                  key={turn.id}
-                  onClick={() => onSelectTurn(turn.turnIndex)}
-                  type="button"
-                >
-                  T{turn.turnIndex}
-                </button>
-              ))}
+        {selectedTurn ? (
+          <>
+            <div className="flex items-center justify-between gap-sm">
+              <StatusBadge status={selectedTurn.status} />
+              <span className="font-label-sm text-label-sm text-muted">
+                {formatDuration(selectedTurn.durationMs ?? 0)}
+              </span>
             </div>
-          ) : null}
-
-          {selectedTurn ? (
-            <>
-              <div className="flex items-center justify-between gap-sm">
-                <StatusBadge status={selectedTurn.status} />
-                <span className="font-label-sm text-label-sm text-muted">
-                  {formatDuration(selectedTurn.durationMs ?? 0)}
-                </span>
+            <DetailBlock title="userInput" value={selectedTurn.userInput} />
+            <DetailBlock title="expectedOutput" value={selectedTurn.expectedOutput} />
+            <DetailBlock
+              title="实际输出"
+              value={[
+                selectedTurn.assistantText || "(无 assistant 文本)",
+                selectedTurn.visibleOutputKinds.length
+                  ? `visibleOutputs: ${selectedTurn.visibleOutputKinds.join(", ")}`
+                  : "visibleOutputs: missing",
+                selectedTurn.suggestedQuestions.length
+                  ? `suggestedQuestions: ${selectedTurn.suggestedQuestions.join(" / ")}`
+                  : "suggestedQuestions: missing",
+              ].join("\n")}
+            />
+            <DetailBlock
+              title="诊断"
+              value={[
+                `conversationId: ${selectedTurn.conversationId ?? "missing"}`,
+                `responseMessageId: ${selectedTurn.responseMessageId ?? "missing"}`,
+                `eventTypes: ${selectedTurn.eventTypes.join(", ") || "missing"}`,
+                `token: ${formatTurnToken(selectedTurn)}`,
+                selectedTurn.resultReason ? `result: ${selectedTurn.resultReason}` : null,
+                selectedTurn.failureReason ? `failure: ${selectedTurn.failureReason}` : null,
+              ].filter(Boolean).join("\n")}
+            />
+            <div className="space-y-sm">
+              <p className="font-label-sm text-label-sm font-bold text-muted">人工审核</p>
+              <div className="flex flex-wrap gap-xs">
+                {reviewOptions.map((option) => (
+                  <Button
+                    key={option.value}
+                    onClick={() => onSetTurnReviewStatus(selectedTurn.flowId, selectedTurn.turnIndex, option.value)}
+                    size="sm"
+                    type="button"
+                    variant={selectedTurn.reviewStatus === option.value ? "secondary" : "outline"}
+                  >
+                    <SymbolIcon>{option.icon}</SymbolIcon>
+                    {option.label}
+                  </Button>
+                ))}
               </div>
-              <DetailBlock title="userInput" value={selectedTurn.userInput} />
-              <DetailBlock title="expectedOutput" value={selectedTurn.expectedOutput} />
-              <DetailBlock
-                title="实际输出"
-                value={[
-                  selectedTurn.assistantText || "(无 assistant 文本)",
-                  selectedTurn.visibleOutputKinds.length
-                    ? `visibleOutputs: ${selectedTurn.visibleOutputKinds.join(", ")}`
-                    : "visibleOutputs: missing",
-                  selectedTurn.suggestedQuestions.length
-                    ? `suggestedQuestions: ${selectedTurn.suggestedQuestions.join(" / ")}`
-                    : "suggestedQuestions: missing",
-                ].join("\n")}
-              />
-              <DetailBlock
-                title="诊断"
-                value={[
-                  `conversationId: ${selectedTurn.conversationId ?? "missing"}`,
-                  `responseMessageId: ${selectedTurn.responseMessageId ?? "missing"}`,
-                  `eventTypes: ${selectedTurn.eventTypes.join(", ") || "missing"}`,
-                  `token: ${formatTurnToken(selectedTurn)}`,
-                  selectedTurn.resultReason ? `result: ${selectedTurn.resultReason}` : null,
-                  selectedTurn.failureReason ? `failure: ${selectedTurn.failureReason}` : null,
-                ].filter(Boolean).join("\n")}
-              />
-              <div className="space-y-sm">
-                <p className="font-label-sm text-label-sm font-bold text-muted">人工审核</p>
-                <div className="flex flex-wrap gap-xs">
-                  {reviewOptions.map((option) => (
-                    <Button
-                      key={option.value}
-                      onClick={() => onSetTurnReviewStatus(selectedTurn.flowId, selectedTurn.turnIndex, option.value)}
-                      size="sm"
-                      type="button"
-                      variant={selectedTurn.reviewStatus === option.value ? "secondary" : "outline"}
-                    >
-                      <SymbolIcon>{option.icon}</SymbolIcon>
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="font-body-sm text-body-sm text-muted">选择一个 flow 或 turn 查看详情。</p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+            </div>
+          </>
+        ) : (
+          <p className="font-body-sm text-body-sm text-muted">选择一个 flow 或 turn 查看详情。</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -265,8 +265,11 @@ describe("dev LLM blackbox reviewer layout contract", () => {
     expect(bodyScrollScopeSource).toContain("document.body.classList.add");
     expect(bodyScrollScopeSource).toContain("document.body.classList.remove");
     expect(reviewerSource).toContain("<LlmBlackboxBodyScrollScope />");
-    expect(reviewerSource.match(/h-\[calc\(100vh-190px\)\] overflow-hidden/g)).toHaveLength(2);
-    expect(reviewerSource.match(/h-\[calc\(100vh-284px\)\].*overflow-y-auto/g)).toHaveLength(2);
+    expect(reviewerSource).toContain("app-mesh-bg flex h-screen min-h-0 flex-col overflow-hidden text-ink");
+    expect(reviewerSource).toContain("<RunStatsPanel stats={stats} />");
+    expect(reviewerSource).toContain("grid min-h-0 flex-1 gap-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]");
+    expect(reviewerSource.match(/flex h-full min-h-0 flex-col overflow-hidden/g)).toHaveLength(3);
+    expect(reviewerSource.match(/custom-scrollbar min-h-0 flex-1 .*overflow-y-auto/g)).toHaveLength(3);
   });
 });
 
