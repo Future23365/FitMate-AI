@@ -4,12 +4,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChatMessage } from "@/features/chat/types";
-import { mergeFixtureFlowsWithRunResults } from "@/features/dev/llm-blackbox/llm-blackbox-reviewer";
 import {
   calculateLlmBlackboxRunStats,
   cancelPendingLlmBlackboxWork,
   completeLlmBlackboxTurn,
   createLlmBlackboxReviewRun,
+  finalizeLlmBlackboxRun,
+  findLatestLlmBlackboxFlowResult,
+  mergeFixtureFlowsWithLatestRunResults,
   skipRemainingFlowTurnsAfterFailure,
   startLlmBlackboxTurn,
   updateLlmBlackboxTurnReview,
@@ -176,39 +178,51 @@ describe("dev LLM blackbox runner state", () => {
     expect(calculateLlmBlackboxRunStats(run).cancelledTurnCount).toBe(3);
   });
 
-  it("keeps the full fixture flow list after running a single flow", () => {
+  it("keeps completed single-flow results visible after later single-flow runs", () => {
     const fixture = createFixture();
-    let run = createLlmBlackboxReviewRun({
-      fixture,
-      flows: [fixture.flows[0]],
-      mode: "single",
-      createId: () => "run-single",
-    });
-
-    run = completeLlmBlackboxTurn(
-      startLlmBlackboxTurn(run, {
-        flowId: "F01",
-        turnIndex: 1,
-        conversationId: "conversation-1",
-        responseMessageId: "assistant-1",
-        startedAt: new Date("2026-06-15T10:00:01.000Z"),
-      }),
-      "F01",
-      1,
-      {
-        status: "passed",
-        assistantMessage: createAssistantMessage("assistant-1", "完成。"),
-        eventTypes: ["content", "done"],
-        endedAt: new Date("2026-06-15T10:00:03.000Z"),
-        durationMs: 2000,
-      },
-    );
-
-    const flows = mergeFixtureFlowsWithRunResults(fixture.flows, run.flows);
+    const firstRun = createCompletedSingleFlowRun(fixture, "F01", "run-f01", "2026-06-15T10:00:00.000Z");
+    const secondRun = createCompletedSingleFlowRun(fixture, "F02", "run-f02", "2026-06-15T10:01:00.000Z");
+    const flows = mergeFixtureFlowsWithLatestRunResults(fixture.flows, [secondRun, firstRun]);
 
     expect(flows.map((flow) => flow.id)).toEqual(["F01", "F02"]);
-    expect(flows.find((flow) => flow.id === "F01")?.status).toBe("running");
-    expect(flows.find((flow) => flow.id === "F02")?.status).toBe("queued");
+    expect(flows.find((flow) => flow.id === "F01")).toMatchObject({
+      status: "passed",
+      turns: [
+        expect.objectContaining({ status: "passed", assistantText: "F01 turn 1 完成。" }),
+        expect.objectContaining({ status: "passed", assistantText: "F01 turn 2 完成。" }),
+      ],
+    });
+    expect(flows.find((flow) => flow.id === "F02")).toMatchObject({
+      status: "passed",
+      turns: [
+        expect.objectContaining({ status: "passed", assistantText: "F02 turn 1 完成。" }),
+      ],
+    });
+    expect(findLatestLlmBlackboxFlowResult([secondRun, firstRun], "F01")?.turns[0].assistantText)
+      .toBe("F01 turn 1 完成。");
+
+    const oldF01Run = createCompletedSingleFlowRun(
+      fixture,
+      "F01",
+      "run-f01-old",
+      "2026-06-15T09:00:00.000Z",
+      "旧 F01",
+    );
+    const newerF01Run = createCompletedSingleFlowRun(
+      fixture,
+      "F01",
+      "run-f01-new",
+      "2026-06-15T10:02:00.000Z",
+      "新 F01",
+    );
+    const preferredFlows = mergeFixtureFlowsWithLatestRunResults(
+      fixture.flows,
+      [newerF01Run, secondRun, firstRun, oldF01Run],
+      oldF01Run,
+    );
+
+    expect(preferredFlows.find((flow) => flow.id === "F01")?.turns[0].assistantText)
+      .toBe("旧 F01 turn 1 完成。");
   });
 });
 
@@ -425,6 +439,52 @@ function createAssistantMessage(id: string, content: string): ChatMessage {
     createdAt: "2026-06-15T10:00:00.000Z",
     isReasoning: false,
   };
+}
+
+function createCompletedSingleFlowRun(
+  fixture: ReturnType<typeof createFixture>,
+  flowId: string,
+  runId: string,
+  startedAt: string,
+  assistantLabel = flowId,
+): LlmBlackboxReviewRun {
+  const flow = fixture.flows.find((item) => item.id === flowId);
+
+  if (!flow) {
+    throw new Error(`Unknown flow: ${flowId}`);
+  }
+
+  const startedMs = new Date(startedAt).getTime();
+  let run = createLlmBlackboxReviewRun({
+    fixture,
+    flows: [flow],
+    mode: "single",
+    now: new Date(startedAt),
+    createId: () => runId,
+  });
+
+  for (const [index, turn] of flow.turns.entries()) {
+    const turnStartedAt = new Date(startedMs + index * 2000 + 1000);
+    const turnEndedAt = new Date(startedMs + index * 2000 + 2000);
+
+    run = startLlmBlackboxTurn(run, {
+      flowId,
+      turnIndex: turn.index,
+      conversationId: `${runId}:conversation`,
+      responseMessageId: `${runId}:assistant:${turn.index}`,
+      startedAt: turnStartedAt,
+    });
+    run = completeLlmBlackboxTurn(run, flowId, turn.index, {
+      status: "passed",
+      assistantMessage: createAssistantMessage(`${runId}:assistant:${turn.index}`, `${assistantLabel} turn ${turn.index} 完成。`),
+      eventTypes: ["content", "done"],
+      endedAt: turnEndedAt,
+      durationMs: turnEndedAt.getTime() - turnStartedAt.getTime(),
+      resultReason: "收到用户可见回答：assistant_text",
+    });
+  }
+
+  return finalizeLlmBlackboxRun(run, new Date(startedMs + flow.turns.length * 2000 + 3000));
 }
 
 function createStoredRun(id: string, createdAt: string, assistantText = ""): LlmBlackboxReviewRun {

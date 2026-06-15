@@ -178,6 +178,72 @@ export function createLlmBlackboxReviewRun({
   };
 }
 
+// createQueuedLlmBlackboxFlowResult 为尚未运行的 fixture flow 生成只读队列态，供累计审核视图补齐列表。
+export function createQueuedLlmBlackboxFlowResult(flow: BasicChatFlow): LlmBlackboxFlowResult {
+  return {
+    id: flow.id,
+    goal: flow.goal,
+    status: "queued",
+    reviewStatus: "unreviewed",
+    turns: flow.turns.map((turn) => ({
+      id: `${flow.id}:${turn.index}`,
+      flowId: flow.id,
+      flowGoal: flow.goal,
+      turnIndex: turn.index,
+      userInput: turn.userInput,
+      expectedOutput: turn.expectation,
+      status: "queued",
+      reviewStatus: "unreviewed",
+      assistantText: "",
+      visibleOutputs: [],
+      visibleOutputKinds: [],
+      suggestedQuestions: [],
+      eventTypes: [],
+    })),
+  };
+}
+
+// mergeFixtureFlowsWithLatestRunResults 形成左侧列表的累计视图：优先展示当前选中批次，其余 flow 使用最近一次运行结果。
+export function mergeFixtureFlowsWithLatestRunResults(
+  fixtureFlows: BasicChatFlow[],
+  runs: LlmBlackboxReviewRun[],
+  preferredRun?: LlmBlackboxReviewRun | null,
+) {
+  const preferredFlowById = new Map(preferredRun?.flows.map((flow) => [flow.id, flow]) ?? []);
+  const latestFlowById = new Map<string, LlmBlackboxFlowResult>();
+
+  for (const run of sortReviewRunsByCreatedAtDesc(runs)) {
+    for (const flow of run.flows) {
+      if (!latestFlowById.has(flow.id)) {
+        latestFlowById.set(flow.id, flow);
+      }
+    }
+  }
+
+  return fixtureFlows.map((flow) =>
+    preferredFlowById.get(flow.id) ?? latestFlowById.get(flow.id) ?? createQueuedLlmBlackboxFlowResult(flow),
+  );
+}
+
+// findLatestLlmBlackboxRunForFlow 定位某个 flow 最近一次所属 run，人工审核写回时不能误写当前 activeRun。
+export function findLatestLlmBlackboxRunForFlow(
+  runs: LlmBlackboxReviewRun[],
+  flowId: string,
+) {
+  return sortReviewRunsByCreatedAtDesc(runs).find((run) =>
+    run.flows.some((flow) => flow.id === flowId),
+  );
+}
+
+// findLatestLlmBlackboxFlowResult 为详情区读取累计视图中的最新 flow 结果，避免切换 activeRun 后旧结果消失。
+export function findLatestLlmBlackboxFlowResult(
+  runs: LlmBlackboxReviewRun[],
+  flowId: string,
+) {
+  return findLatestLlmBlackboxRunForFlow(runs, flowId)
+    ?.flows.find((flow) => flow.id === flowId);
+}
+
 // startLlmBlackboxTurn 只标记当前 turn 的执行边界，实际请求仍由 headless runner adapter 发出。
 export function startLlmBlackboxTurn(
   run: LlmBlackboxReviewRun,
@@ -363,12 +429,30 @@ export function updateLlmBlackboxFlowReview(
 
 // calculateLlmBlackboxRunStats 为页面和测试提供同一批次统计口径。
 export function calculateLlmBlackboxRunStats(run: LlmBlackboxReviewRun): LlmBlackboxRunStats {
-  const turns = run.flows.flatMap((flow) => flow.turns);
+  return calculateLlmBlackboxFlowStats(
+    run.flows,
+    run.durationMs ?? calculateDurationMs(run.startedAt, run.endedAt ? new Date(run.endedAt) : new Date()),
+  );
+}
+
+// calculateLlmBlackboxLatestFlowStats 汇总累计审核视图，统计口径和左侧最新 flow 状态保持一致。
+export function calculateLlmBlackboxLatestFlowStats(flows: LlmBlackboxFlowResult[]): LlmBlackboxRunStats {
+  return calculateLlmBlackboxFlowStats(
+    flows,
+    flows.reduce((total, flow) => total + (flow.durationMs ?? 0), 0),
+  );
+}
+
+function calculateLlmBlackboxFlowStats(
+  flows: LlmBlackboxFlowResult[],
+  durationMs: number,
+): LlmBlackboxRunStats {
+  const turns = flows.flatMap((flow) => flow.turns);
   const tokenDiagnostics = turns.map((turn) => turn.tokenDiagnostics).filter(Boolean) as LlmBlackboxTokenDiagnostics[];
   const tokenUsage = mergeTokenUsage(tokenDiagnostics.map((diagnostic) => diagnostic.usage));
 
   return {
-    flowTotal: run.flows.length,
+    flowTotal: flows.length,
     turnTotal: turns.length,
     passedTurnCount: turns.filter((turn) => turn.status === "passed").length,
     failedTurnCount: turns.filter((turn) => turn.status === "failed").length,
@@ -380,7 +464,7 @@ export function calculateLlmBlackboxRunStats(run: LlmBlackboxReviewRun): LlmBlac
     acceptedCount: turns.filter((turn) => turn.reviewStatus === "accepted").length,
     rejectedCount: turns.filter((turn) => turn.reviewStatus === "rejected").length,
     needsFollowupCount: turns.filter((turn) => turn.reviewStatus === "needs_followup").length,
-    durationMs: run.durationMs ?? calculateDurationMs(run.startedAt, run.endedAt ? new Date(run.endedAt) : new Date()),
+    durationMs,
     tokenAvailableCount: tokenDiagnostics.filter((item) => item.status === "available").length,
     tokenMissingCount: tokenDiagnostics.filter((item) => item.status === "missing").length,
     tokenUnavailableCount: tokenDiagnostics.filter((item) => item.status === "unavailable").length,
@@ -539,6 +623,16 @@ function calculateDurationMs(startedAt: string | undefined, endedAt: Date) {
   const startedMs = new Date(startedAt).getTime();
 
   return Number.isFinite(startedMs) ? Math.max(0, endedAt.getTime() - startedMs) : 0;
+}
+
+function sortReviewRunsByCreatedAtDesc(runs: LlmBlackboxReviewRun[]) {
+  return [...runs].sort((left, right) => getRunCreatedTime(right) - getRunCreatedTime(left));
+}
+
+function getRunCreatedTime(run: LlmBlackboxReviewRun) {
+  const time = new Date(run.createdAt).getTime();
+
+  return Number.isFinite(time) ? time : 0;
 }
 
 function createBrowserSafeId() {

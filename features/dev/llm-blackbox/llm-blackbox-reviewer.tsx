@@ -13,7 +13,8 @@ import {
 import { ChatTranscript } from "@/features/chat/components/chat-transcript";
 import type { ChatMessage } from "@/features/chat/types";
 import {
-  calculateLlmBlackboxRunStats,
+  calculateLlmBlackboxLatestFlowStats,
+  mergeFixtureFlowsWithLatestRunResults,
   type LlmBlackboxFlowResult,
   type LlmBlackboxReviewStatus,
   type LlmBlackboxRunStats,
@@ -21,10 +22,7 @@ import {
 } from "@/features/dev/llm-blackbox/review-state";
 import { LlmBlackboxBodyScrollScope } from "@/features/dev/llm-blackbox/llm-blackbox-body-scroll-scope";
 import { useLlmBlackboxReviewRunner } from "@/features/dev/llm-blackbox/use-llm-blackbox-review-runner";
-import type {
-  BasicChatFixture,
-  BasicChatFlow,
-} from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
+import type { BasicChatFixture } from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
 
 type LlmBlackboxReviewerProps = {
   fixture: BasicChatFixture;
@@ -41,18 +39,14 @@ const reviewOptions: Array<{ value: LlmBlackboxReviewStatus; label: string; icon
 export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
   const runner = useLlmBlackboxReviewRunner(fixture);
   const flowList = useMemo(
-    () => mergeFixtureFlowsWithRunResults(fixture.flows, runner.activeRun?.flows),
-    [fixture.flows, runner.activeRun],
+    () => mergeFixtureFlowsWithLatestRunResults(fixture.flows, runner.runs, runner.activeRun),
+    [fixture.flows, runner.activeRun, runner.runs],
   );
   const transcriptMessages = useMemo(
     () => buildTranscriptMessages(runner.selectedFlow),
     [runner.selectedFlow],
   );
-  const fallbackStats = useMemo(
-    () => runner.activeRun ? calculateLlmBlackboxRunStats(runner.activeRun) : null,
-    [runner.activeRun],
-  );
-  const stats = runner.activeRunStats ?? fallbackStats;
+  const stats = useMemo(() => calculateLlmBlackboxLatestFlowStats(flowList), [flowList]);
 
   function handleRunAll() {
     const accepted = window.confirm("运行全部 flow 会真实调用 /api/chat 和模型服务，确认继续？");
@@ -329,16 +323,6 @@ function FlowListPanel({
   );
 }
 
-// mergeFixtureFlowsWithRunResults 用完整 fixture 保持左侧列表稳定，只把当前 run 的结果叠加到对应 flow。
-export function mergeFixtureFlowsWithRunResults(
-  fixtureFlows: BasicChatFlow[],
-  runFlows: LlmBlackboxFlowResult[] | undefined,
-) {
-  const runFlowById = new Map(runFlows?.map((flow) => [flow.id, flow]) ?? []);
-
-  return fixtureFlows.map((flow) => runFlowById.get(flow.id) ?? toQueuedFlowResult(flow));
-}
-
 function TurnDetailPanel({
   onSelectTurn,
   onSetTurnReviewStatus,
@@ -485,30 +469,6 @@ function buildTranscriptMessages(flow: LlmBlackboxFlowResult | null): ChatMessag
 
     return assistantMessage ? [userMessage, assistantMessage] : [userMessage];
   });
-}
-
-function toQueuedFlowResult(flow: BasicChatFlow): LlmBlackboxFlowResult {
-  return {
-    id: flow.id,
-    goal: flow.goal,
-    status: "queued",
-    reviewStatus: "unreviewed",
-    turns: flow.turns.map((turn) => ({
-      id: `${flow.id}:${turn.index}`,
-      flowId: flow.id,
-      flowGoal: flow.goal,
-      turnIndex: turn.index,
-      userInput: turn.userInput,
-      expectedOutput: turn.expectation,
-      status: "queued",
-      reviewStatus: "unreviewed",
-      assistantText: "",
-      visibleOutputs: [],
-      visibleOutputKinds: [],
-      suggestedQuestions: [],
-      eventTypes: [],
-    })),
-  };
 }
 
 function getStatusTone(status: string) {

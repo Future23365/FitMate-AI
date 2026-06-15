@@ -16,9 +16,12 @@ import {
   calculateLlmBlackboxRunStats,
   cancelPendingLlmBlackboxWork,
   completeLlmBlackboxTurn,
+  createQueuedLlmBlackboxFlowResult,
   createLlmBlackboxReviewRun,
   createTurnCompletionReason,
   finalizeLlmBlackboxRun,
+  findLatestLlmBlackboxFlowResult,
+  findLatestLlmBlackboxRunForFlow,
   hasLlmBlackboxUserVisibleAnswer,
   skipRemainingFlowTurnsAfterFailure,
   startLlmBlackboxTurn,
@@ -109,31 +112,10 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
   const selectedFlow = useMemo(() => {
     const fixtureFlow = fixture.flows.find((flow) => flow.id === selectedFlowId) ?? fixture.flows[0] ?? null;
     const activeFlow = activeRun?.flows.find((flow) => flow.id === selectedFlowId);
+    const latestFlow = findLatestLlmBlackboxFlowResult(runs, selectedFlowId);
 
-    return activeFlow ?? (fixtureFlow
-      ? {
-          id: fixtureFlow.id,
-          goal: fixtureFlow.goal,
-          status: "queued" as const,
-          reviewStatus: "unreviewed" as const,
-          turns: fixtureFlow.turns.map((turn) => ({
-            id: `${fixtureFlow.id}:${turn.index}`,
-            flowId: fixtureFlow.id,
-            flowGoal: fixtureFlow.goal,
-            turnIndex: turn.index,
-            userInput: turn.userInput,
-            expectedOutput: turn.expectation,
-            status: "queued" as const,
-            reviewStatus: "unreviewed" as const,
-            assistantText: "",
-            visibleOutputs: [],
-            visibleOutputKinds: [],
-            suggestedQuestions: [],
-            eventTypes: [],
-          })),
-        }
-      : null);
-  }, [activeRun, fixture.flows, selectedFlowId]);
+    return activeFlow ?? latestFlow ?? (fixtureFlow ? createQueuedLlmBlackboxFlowResult(fixtureFlow) : null);
+  }, [activeRun, fixture.flows, runs, selectedFlowId]);
   const selectedTurn = useMemo(() => {
     if (!selectedFlow) {
       return null;
@@ -242,32 +224,51 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
     setSelectedFlowId(fixture.flows[0]?.id ?? "");
   }, [fixture.flows]);
 
+  const selectRun = useCallback((runId: string) => {
+    const targetRun = runs.find((run) => run.id === runId);
+
+    setActiveRunId(runId);
+    setSelectedTurnKey(null);
+
+    if (targetRun?.flows[0]) {
+      setSelectedFlowId(targetRun.flows[0].id);
+    }
+  }, [runs]);
+
   const setTurnReviewStatus = useCallback((
     flowId: string,
     turnIndex: number,
     reviewStatus: LlmBlackboxReviewStatus,
   ) => {
-    if (!activeRun) {
+    const targetRun = activeRun?.flows.some((flow) => flow.id === flowId)
+      ? activeRun
+      : findLatestLlmBlackboxRunForFlow(runs, flowId);
+
+    if (!targetRun) {
       return;
     }
 
-    updateStoredRun(activeRun.id, (run) =>
+    updateStoredRun(targetRun.id, (run) =>
       updateLlmBlackboxTurnReview(run, flowId, turnIndex, reviewStatus),
     );
-  }, [activeRun, updateStoredRun]);
+  }, [activeRun, runs, updateStoredRun]);
 
   const setFlowReviewStatus = useCallback((
     flowId: string,
     reviewStatus: LlmBlackboxReviewStatus,
   ) => {
-    if (!activeRun) {
+    const targetRun = activeRun?.flows.some((flow) => flow.id === flowId)
+      ? activeRun
+      : findLatestLlmBlackboxRunForFlow(runs, flowId);
+
+    if (!targetRun) {
       return;
     }
 
-    updateStoredRun(activeRun.id, (run) =>
+    updateStoredRun(targetRun.id, (run) =>
       updateLlmBlackboxFlowReview(run, flowId, reviewStatus),
     );
-  }, [activeRun, updateStoredRun]);
+  }, [activeRun, runs, updateStoredRun]);
 
   return {
     activeRun,
@@ -283,7 +284,7 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
     selectedFlowId,
     selectedTurn,
     selectedTurnKey,
-    setActiveRunId,
+    setActiveRunId: selectRun,
     setFlowReviewStatus,
     setSelectedFlowId,
     setSelectedTurnKey,
