@@ -550,28 +550,34 @@ describe("AgentActivityIndicator", () => {
   });
 });
 
-describe("ChatPage activity placement", () => {
+describe("ChatTranscript activity placement", () => {
   it("renders Agent activity above the active answer bubble while keeping the thinking indicator inside the bubble", () => {
-    const source = readFileSync(
+    const transcriptSource = readFileSync(
+      fileURLToPath(new URL("../features/chat/components/chat-transcript.tsx", import.meta.url)),
+      "utf8",
+    );
+    const pageSource = readFileSync(
       fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
       "utf8",
     );
-    const inputShellIndex = source.indexOf("app-shell-glass-soft border-t border-line/60");
-    const activityIndex = source.lastIndexOf("<AgentActivityIndicator", inputShellIndex);
-    const assistantBranchIndex = source.lastIndexOf('message.role === "assistant"', activityIndex);
-    const bubbleIndex = source.indexOf("ai-chat-bubble", activityIndex);
-    const thinkingIndex = source.indexOf("<ChatThinkingIndicator", bubbleIndex);
-    const inputShellSource = source.slice(inputShellIndex);
+    const inputShellIndex = pageSource.indexOf("app-shell-glass-soft border-t border-line/60");
+    const activityIndex = transcriptSource.indexOf("<AgentActivityIndicator");
+    const assistantBranchIndex = transcriptSource.lastIndexOf('message.role === "assistant"', activityIndex);
+    const bubbleIndex = transcriptSource.indexOf("ai-chat-bubble", activityIndex);
+    const assistantContentIndex = transcriptSource.indexOf("<ChatAssistantMessageContent", bubbleIndex);
+    const thinkingIndex = transcriptSource.indexOf("<ChatThinkingIndicator", assistantContentIndex);
+    const inputShellSource = pageSource.slice(inputShellIndex);
 
     expect(activityIndex).toBeGreaterThan(assistantBranchIndex);
     expect(bubbleIndex).toBeGreaterThan(activityIndex);
-    expect(thinkingIndex).toBeGreaterThan(bubbleIndex);
+    expect(assistantContentIndex).toBeGreaterThan(bubbleIndex);
+    expect(thinkingIndex).toBeGreaterThan(assistantContentIndex);
     expect(inputShellSource).not.toContain("<AgentActivityIndicator");
   });
 
   it("keeps long Agent activity text from stretching the answer bubble width", () => {
     const source = readFileSync(
-      fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
+      fileURLToPath(new URL("../features/chat/components/chat-transcript.tsx", import.meta.url)),
       "utf8",
     );
     const activityIndex = source.indexOf("<AgentActivityIndicator");

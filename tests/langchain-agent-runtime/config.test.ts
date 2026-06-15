@@ -45,12 +45,14 @@ describe("LangChain Agent runtime config", () => {
 
   it("keeps LangChain run budgets synchronized with graph recursion semantics", () => {
     expect(agentRuntimeConfig.langChain.runBudget).toMatchObject({
-      maxModelCalls: 21,
-      maxToolCalls: 20,
-      maxToolCallsPerTool: 2,
+      maxModelCalls: 16,
+      maxToolCalls: 15,
+      maxToolCallsPerTool: 5,
       overallTimeoutMs: 40_000,
     });
-    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(63);
+    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(
+      agentRuntimeConfig.langChain.runBudget.maxModelCalls * 3,
+    );
     expect(agentRuntimeConfig.langChain.runBudget.maxModelCalls).toBe(
       agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1,
     );
