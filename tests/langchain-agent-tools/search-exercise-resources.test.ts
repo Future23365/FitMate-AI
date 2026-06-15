@@ -103,6 +103,12 @@ describe("searchExerciseResources LangChain tool", () => {
         allRequestedSectionsHaveCandidates: true,
         repeatQueryBoundary: expect.stringContaining("重复调用不会新增事实"),
       },
+      resourceBoundary: {
+        catalogRole: expect.stringContaining("产品可渲染动作资源"),
+        emptyResultMeaning: expect.stringContaining("不表示现实训练动作或训练知识不存在"),
+        plainTextKnowledgeBoundary: expect.stringContaining("普通文本建议"),
+        structuredOutputBoundary: expect.stringContaining("exerciseId 必须来自"),
+      },
       candidateGroups: [
         {
           suitability: "training",
@@ -163,6 +169,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage.coverage).not.toHaveProperty("missingSections");
     expect(modelMessage.coverage.repeatQueryBoundary).not.toContain("searchExerciseResources");
     expect(modelMessage.coverage.repeatQueryBoundary).not.toContain("submitVisibleTrainingProposal");
+    expect(modelMessage.resourceBoundary).not.toHaveProperty("missingExerciseNames");
     expect(modelMessage.query).not.toHaveProperty("candidateCountPerSection");
     expect(modelMessage.query).not.toHaveProperty("sort");
     expect(modelMessage.query).not.toHaveProperty("equipment");
@@ -503,6 +510,10 @@ describe("searchExerciseResources LangChain tool", () => {
     const modelMessage = JSON.parse(result.modelMessage);
 
     expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(modelMessage.resourceBoundary).toMatchObject({
+      missingExerciseNames: ["火星跳跃"],
+      emptyResultMeaning: expect.stringContaining("产品动作库没有匹配的可渲染资源"),
+    });
     expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_not_found");
     expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_ambiguous");
     expect(JSON.stringify(modelMessage)).not.toContain("exercise_name_filter_mismatch");
@@ -572,6 +583,10 @@ describe("searchExerciseResources LangChain tool", () => {
     const modelMessage = JSON.parse(result.modelMessage);
 
     expect(modelMessage).not.toHaveProperty("diagnostics");
+    expect(modelMessage.resourceBoundary).toMatchObject({
+      catalogRole: expect.stringContaining("产品可渲染动作资源"),
+      emptyResultMeaning: expect.stringContaining("不表示现实训练动作或训练知识不存在"),
+    });
     expect(modelMessage.coverage).toMatchObject({
       hasCandidates: false,
       sectionsWithCandidates: [],

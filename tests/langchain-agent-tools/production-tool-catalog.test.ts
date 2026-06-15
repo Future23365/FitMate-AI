@@ -88,6 +88,9 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
     expect(descriptions).toContain("存在能满足当前目标的可选择子集");
     expect(descriptions).toContain("候选池不要求完全纯净，也不要求先排除未选候选");
+    expect(descriptions).toContain("产品可渲染动作资源库");
+    expect(descriptions).toContain("不是现实世界训练知识全集");
+    expect(descriptions).toContain("不表示现实训练动作或训练知识不存在");
     expect(descriptions).toContain("不要求最终输出使用全部候选");
     expect(descriptions).toContain("candidateCountPerSection");
     expect(descriptions).toContain("不是分页、offset、cursor 或最终展示数量承诺");
@@ -136,6 +139,10 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
     expect(systemPrompt).toContain("不要因为输出类型从 routine 派生成 plan，就默认重新查询动作");
     expect(systemPrompt).toContain("schedule 是 plan 的日程结构字段，不是动作库查询结果");
+    expect(systemPrompt).toContain("产品可渲染动作资源库");
+    expect(systemPrompt).toContain("不是现实训练知识全集");
+    expect(systemPrompt).toContain("不表示现实训练动作不存在");
+    expect(systemPrompt).toContain("不能用通用训练知识编造成数据库资源");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
     expect(systemPrompt).not.toContain("缺少 stretch");

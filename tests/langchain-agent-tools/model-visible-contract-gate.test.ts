@@ -83,6 +83,9 @@ describe("Agent model-visible contract gate", () => {
     for (const summaryJson of searchModelSummaries) {
       expect(summaryJson).toContain("candidateGroups");
       expect(summaryJson).toContain("coverage");
+      expect(summaryJson).toContain("resourceBoundary");
+      expect(summaryJson).toContain("catalogRole");
+      expect(summaryJson).toContain("emptyResultMeaning");
       expect(summaryJson).toContain("sectionsWithCandidates");
       expect(summaryJson).toContain("sectionsWithoutCandidates");
       expect(summaryJson).not.toContain("\"groups\"");
@@ -187,6 +190,13 @@ describe("Agent model-visible contract gate", () => {
           sectionsWithoutCandidates: [],
           allRequestedSectionsHaveCandidates: true,
           repeatQueryBoundary: "同一 run 内等价 input 已有查询事实；重复调用不会新增事实。请基于当前可见事实推理、澄清或失败收口。",
+        },
+        resourceBoundary: {
+          catalogRole: "Exercise 动作库提供产品可渲染动作资源，用于动作卡片、图片、动作详情、结构化训练结果和训练执行项。",
+          emptyResultMeaning: "空候选或点名动作未命中只表示当前查询口径下产品动作库没有匹配的可渲染资源；不表示现实训练动作或训练知识不存在。",
+          plainTextKnowledgeBoundary: "不展示产品动作卡片、图片、结构化训练结果或训练执行项时，可以基于用户输入、上下文和通用训练知识给普通文本建议，并说明这些内容不是数据库动作条目。",
+          structuredOutputBoundary: "需要展示具体数据库动作条目、动作卡片、图片、visibleTrainingProposal、routine、plan 或训练执行项时，具体 exerciseId 必须来自模型可见数据库动作事实或受控业务事实。",
+          missingExerciseNames: ["跪姿俯卧撑"],
         },
         candidateGroups: [{
           suitability: "training",

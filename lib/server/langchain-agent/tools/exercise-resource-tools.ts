@@ -362,6 +362,9 @@ export function createSearchExerciseResourcesLangChainTool(
       "Output Meaning：candidateGroups[].exercises 是动作候选池，不是最终推荐清单；候选动作可以被选择、跳过或用于后续结构化输出，未选择的候选不需要通过再次查询移除。",
       "Output Meaning：candidateGroups[].exercises 只要存在能满足当前目标的可选择子集，就可以支撑动作推荐集合；候选池不要求完全纯净，也不要求先排除未选候选。",
       "Output Meaning：coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选；它不是用户目标满足度、训练方案生成结果或下一步 tool 调用指令。",
+      "Resource Boundary：Exercise 动作库是 FitMate 的产品可渲染动作资源库，用于动作卡片、图片、动作详情、结构化训练结果和训练执行项；它不是现实世界训练知识全集。",
+      "Resource Boundary：空候选或点名动作未命中只表示当前查询口径下产品动作库没有匹配的可渲染资源；不表示现实训练动作或训练知识不存在。",
+      "Resource Boundary：不需要产品动作卡片、图片、结构化训练结果或训练执行项的普通文本知识回答，可以不依赖数据库动作条目；需要这些产品资源时，具体 exerciseId 仍必须来自数据库动作事实或受控业务事实。",
       "Output Meaning：candidateGroups[].exercises[].executionTaxonomy 是动作执行条件的候选事实摘要；null 或 unknown 表示事实未补齐，不能当作低门槛事实。",
       "Output Meaning：多 muscles 查询用于获得覆盖多个请求肌群的候选；结果只提供候选动作事实，不保证每个候选都同等适合作为最终推荐，也不要求最终输出使用全部候选。",
       'Output Meaning：query.muscleMatchRole 会回填本次肌群匹配角色；primary 表示主练肌群候选口径，any 表示主练或辅助参与候选口径。',
@@ -546,6 +549,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
           ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
         },
+        resourceBoundary: createModelVisibleResourceBoundary(output),
         coverage: createModelVisibleCandidateCoverage(output),
         candidateGroups: mapModelVisibleCandidateGroups(
           output.groups,
@@ -610,6 +614,26 @@ export function createSearchExerciseResourcesLangChainTool(
 
 /** searchExerciseResourcesLangChainTool 是生产 LangChain 默认动作库查询能力，facet catalog 可由 route 注入替换。 */
 export const searchExerciseResourcesLangChainTool = createSearchExerciseResourcesLangChainTool();
+
+// createModelVisibleResourceBoundary 告诉 Planner 动作库只是产品资源库，不是现实训练知识全集。
+function createModelVisibleResourceBoundary(output: SearchExerciseResourcesOutput) {
+  const missingExerciseNames = collectMissingExerciseNames(output.diagnostics);
+
+  return {
+    catalogRole: "Exercise 动作库提供产品可渲染动作资源，用于动作卡片、图片、动作详情、结构化训练结果和训练执行项。",
+    emptyResultMeaning: "空候选或点名动作未命中只表示当前查询口径下产品动作库没有匹配的可渲染资源；不表示现实训练动作或训练知识不存在。",
+    plainTextKnowledgeBoundary: "不展示产品动作卡片、图片、结构化训练结果或训练执行项时，可以基于用户输入、上下文和通用训练知识给普通文本建议，并说明这些内容不是数据库动作条目。",
+    structuredOutputBoundary: "需要展示具体数据库动作条目、动作卡片、图片、visibleTrainingProposal、routine、plan 或训练执行项时，具体 exerciseId 必须来自模型可见数据库动作事实或受控业务事实。",
+    ...(missingExerciseNames.length ? { missingExerciseNames } : {}),
+  };
+}
+
+// collectMissingExerciseNames 只把点名未命中投影成资源缺失事实，不泄漏内部 diagnostic code。
+function collectMissingExerciseNames(diagnostics: SearchExerciseResourcesOutput["diagnostics"]) {
+  return [...new Set(diagnostics
+    .filter((diagnostic) => diagnostic.code === "exercise_name_not_found" && diagnostic.exerciseName)
+    .map((diagnostic) => diagnostic.exerciseName as string))];
+}
 
 function toExerciseResourceOutput(summary: ExerciseResourceSummary): ExerciseResourceOutput {
   return {
