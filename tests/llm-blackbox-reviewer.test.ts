@@ -251,6 +251,23 @@ describe("dev LLM blackbox token diagnostics", () => {
   });
 });
 
+describe("dev LLM blackbox reviewer layout contract", () => {
+  it("enables route-scoped body scrolling for the reviewer page", async () => {
+    const [globalCss, bodyScrollScopeSource, reviewerSource] = await Promise.all([
+      readFile("app/globals.css", "utf8"),
+      readFile("features/dev/llm-blackbox/llm-blackbox-body-scroll-scope.tsx", "utf8"),
+      readFile("features/dev/llm-blackbox/llm-blackbox-reviewer.tsx", "utf8"),
+    ]);
+
+    expect(globalCss).toContain("body.dev-llm-blackbox-scroll-body");
+    expect(globalCss).toContain("overflow: auto;");
+    expect(bodyScrollScopeSource).toContain('"dev-llm-blackbox-scroll-body"');
+    expect(bodyScrollScopeSource).toContain("document.body.classList.add");
+    expect(bodyScrollScopeSource).toContain("document.body.classList.remove");
+    expect(reviewerSource).toContain("<LlmBlackboxBodyScrollScope />");
+  });
+});
+
 describe("dev LLM blackbox session storage", () => {
   it("saves, restores, clears and limits stored runs", () => {
     const storage = new MemoryStorage();

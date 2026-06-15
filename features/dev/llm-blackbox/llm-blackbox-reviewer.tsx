@@ -19,6 +19,7 @@ import {
   type LlmBlackboxRunStats,
   type LlmBlackboxTurnResult,
 } from "@/features/dev/llm-blackbox/review-state";
+import { LlmBlackboxBodyScrollScope } from "@/features/dev/llm-blackbox/llm-blackbox-body-scroll-scope";
 import { useLlmBlackboxReviewRunner } from "@/features/dev/llm-blackbox/use-llm-blackbox-review-runner";
 import type {
   BasicChatFixture,
@@ -63,6 +64,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink">
+      <LlmBlackboxBodyScrollScope />
       <header className="sticky top-0 z-10 border-b border-line/70 bg-white/92 px-xl py-lg shadow-nav backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-md">
           <div>

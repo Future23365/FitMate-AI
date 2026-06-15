@@ -259,6 +259,11 @@ body {
   transition: background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* 开发态 LLM 黑盒审核页使用自然文档流，需要临时覆盖全局固定 shell 的 body 禁滚规则。 */
+body.dev-llm-blackbox-scroll-body {
+  overflow: auto;
+}
+
 button:not(:disabled),
 [role="button"]:not(:disabled) {
   cursor: pointer;
