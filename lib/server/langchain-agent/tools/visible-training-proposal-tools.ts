@@ -97,9 +97,9 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
   name: "inspectVisibleTrainingProposals",
   description: [
     "只读查询并导入当前会话中用户已经看到的 visibleTrainingProposal 业务事实。",
-    "operation = \"list_recent\" 返回受控压缩事实，可供模型复用、派生、保留、替换或调整。",
+    "operation = \"list_recent\" 返回受控压缩事实，可供模型复用、派生、保留、替换或调整；历史 routine fact 中的 exerciseItems、section 和 prescription 可以作为后续 routine 或 plan 的受控事实来源。",
     "不要传入内部引用、分页、limit、cursor、userId 或 conversationId；该 tool 只读取当前会话范围内的可见事实。",
-    "本 tool 只读取历史事实，不生成最终新训练方案；最终新结构仍必须通过服务端 validator。",
+    "本 tool 只读取历史事实，不生成最终新训练方案，不决定下一步 tool；最终新结构仍必须通过服务端 validator。",
   ].join("\n"),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
   outputSchema: inspectVisibleTrainingProposalsOutputSchema,
@@ -162,6 +162,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
       },
       factCount: output.facts.length,
       facts: output.facts,
+      derivationFacts: summarizeDerivationFacts(output.facts),
       sectionSummary: coverage.sectionSummary,
       availableSections: coverage.availableSections,
       missingSections: coverage.missingSections,
@@ -264,6 +265,57 @@ function summarizeBusinessFactsCoverage(facts: readonly VisibleTrainingProposalB
     ...coverage,
     hasSchedule: facts.some((fact) => Boolean(fact.schedule)),
   };
+}
+
+// summarizeDerivationFacts 只描述历史事实的可复用字段和派生缺口，不提供固定 workflow 或交付就绪判断。
+function summarizeDerivationFacts(facts: readonly VisibleTrainingProposalBusinessFact[]) {
+  return facts.map((fact) => ({
+    index: fact.index,
+    proposalKind: fact.proposalKind,
+    reusableFields: summarizeReusableFields(fact),
+    missingForPlan: summarizeMissingFieldsForPlan(fact),
+    boundary: "仅表达该历史事实中已有和缺失的结构字段；是否派生成新结构由模型结合本轮用户目标、当前可见事实和 validator 边界判断。",
+  }));
+}
+
+function summarizeReusableFields(fact: VisibleTrainingProposalBusinessFact) {
+  const fields = ["exerciseItems"];
+
+  if (fact.exerciseItems.some((item) => Boolean(item.section))) {
+    fields.push("section");
+  }
+
+  if (fact.exerciseItems.some((item) => Boolean(item.prescription))) {
+    fields.push("prescription");
+  }
+
+  if (fact.schedule) {
+    fields.push("schedule");
+  }
+
+  return fields;
+}
+
+function summarizeMissingFieldsForPlan(fact: VisibleTrainingProposalBusinessFact) {
+  const missingFields: string[] = [];
+
+  if (fact.exerciseItems.length === 0) {
+    missingFields.push("exerciseItems");
+  }
+
+  if (!fact.exerciseItems.some((item) => item.section === "training")) {
+    missingFields.push("training section");
+  }
+
+  if (fact.exerciseItems.some((item) => !item.prescription)) {
+    missingFields.push("prescription");
+  }
+
+  if (!fact.schedule) {
+    missingFields.push("schedule");
+  }
+
+  return missingFields;
 }
 
 function summarizeSections(items: readonly Pick<VisibleTrainingExerciseItem, "section">[]): SectionSummary {

@@ -56,6 +56,14 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
       factCount: 1,
       currentRunImport: { imported: true },
       sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+      derivationFacts: [
+        {
+          index: 1,
+          proposalKind: "routine",
+          reusableFields: ["exerciseItems", "section", "prescription"],
+          missingForPlan: ["schedule"],
+        },
+      ],
       facts: [
         expect.objectContaining({
           index: 1,
@@ -72,6 +80,39 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
     expect(modelJson).not.toContain("read_recent");
     expect(modelJson).not.toContain("fulfillment");
     expect(modelJson).not.toContain("supportsOutputKinds");
+    expect(modelJson).not.toContain("final_answer_with_visible_outputs");
+  });
+
+  it("exposes reusable fields and plan gaps without next-action hints", async () => {
+    factStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createExerciseSelectionVisibleTrainingProposalSummary(),
+    ]);
+    const { executeLangChainToolWrapper, inspectVisibleTrainingProposalsLangChainTool } = await importLangChainTool();
+
+    const result = await executeLangChainToolWrapper(
+      inspectVisibleTrainingProposalsLangChainTool,
+      { operation: "list_recent" },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(modelMessage).toMatchObject({
+      status: "succeeded",
+      operation: "list_recent",
+      factLevel: "visible_training_facts",
+      derivationFacts: [
+        {
+          index: 1,
+          proposalKind: "exercise_selection",
+          reusableFields: ["exerciseItems", "section"],
+          missingForPlan: ["prescription", "schedule"],
+        },
+      ],
+    });
+    const modelJson = JSON.stringify(modelMessage);
+    expect(modelJson).not.toContain("nextActionHints");
+    expect(modelJson).not.toContain("supportsOutputKinds");
+    expect(modelJson).not.toContain("canDeliverPlan");
     expect(modelJson).not.toContain("final_answer_with_visible_outputs");
   });
 
@@ -177,6 +218,32 @@ function createRecentVisibleTrainingProposalSummary() {
       { ...payload.exerciseItems[0], nameZh: "开合跳", nameEn: "Jumping Jack", equipmentZh: "自重", primaryMusclesZh: ["全身"], allowedSections: ["warmup"], imageUrl: null },
       { ...payload.exerciseItems[1], nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
       { ...payload.exerciseItems[2], nameZh: "站姿股四头肌拉伸", nameEn: "Standing Quad Stretch", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["stretch"], imageUrl: null },
+    ],
+    schedule: undefined,
+  };
+}
+
+function createExerciseSelectionVisibleTrainingProposalSummary() {
+  return {
+    factRef: "fact-2",
+    messageId: "assistant-2",
+    kind: "visible_training_proposal_displayed",
+    status: "active",
+    schemaVersion: 1,
+    createdAt: "2026-06-03T15:30:00.000Z",
+    proposalKind: "exercise_selection",
+    exerciseItems: [
+      {
+        exerciseId: "squat",
+        section: "training" as const,
+        order: 1,
+        nameZh: "深蹲",
+        nameEn: "Squat",
+        equipmentZh: "自重",
+        primaryMusclesZh: ["股四头肌"],
+        allowedSections: ["training"],
+        imageUrl: null,
+      },
     ],
     schedule: undefined,
   };

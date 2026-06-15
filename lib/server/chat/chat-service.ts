@@ -79,11 +79,14 @@ export function prepareChatRequest(
     summary: savedSummary ?? request.conversationSummary,
     latestUserMessage: request.latestUserMessage,
   });
+  const currentRunConversationContext = buildFitnessConversationContext(rawMessages);
   const savedConversationContext = savedConversation
     ? buildHydratedConversationContext(savedConversation, rawMessages)
     : undefined;
-  const internalConversationContext =
-    savedConversationContext ?? request.conversationContext ?? buildFitnessConversationContext(rawMessages);
+  const historicalConversationContext = savedConversationContext ?? request.conversationContext;
+  const internalConversationContext = historicalConversationContext
+    ? mergeCurrentRunConversationContext(historicalConversationContext, currentRunConversationContext)
+    : currentRunConversationContext;
   const recentArtifactSummaries = hydrationInput.recentArtifactSummaries ?? [];
   const hydration = createChatHistoryHydrationMetadata({
     source: savedConversationContext || savedMessages.length > 0
@@ -147,6 +150,69 @@ function buildHydratedConversationContext(
         }
       : baseContext.knownFacts,
   });
+}
+
+// 当前 run 的真实用户消息优先级最高；历史 context 只补充本轮没有重新出现的长期事实。
+function mergeCurrentRunConversationContext(
+  historicalContext: FitnessConversationContext,
+  currentRunContext: FitnessConversationContext,
+): FitnessConversationContext {
+  const mergedKnownFacts = {
+    ...historicalContext.knownFacts,
+    goal: currentRunContext.knownFacts.goal ?? historicalContext.knownFacts.goal,
+    experience: currentRunContext.knownFacts.experience ?? historicalContext.knownFacts.experience,
+    sessionMinutes: currentRunContext.knownFacts.sessionMinutes ?? historicalContext.knownFacts.sessionMinutes,
+    weeklyFrequency: currentRunContext.knownFacts.weeklyFrequency ?? historicalContext.knownFacts.weeklyFrequency,
+    calendarHorizonDays: currentRunContext.knownFacts.calendarHorizonDays
+      ?? historicalContext.knownFacts.calendarHorizonDays,
+    equipment: currentRunContext.knownFacts.equipment.length > 0
+      ? currentRunContext.knownFacts.equipment
+      : historicalContext.knownFacts.equipment,
+    injuryLimitations: currentRunContext.knownFacts.injuryLimitations.length > 0
+      ? currentRunContext.knownFacts.injuryLimitations
+      : historicalContext.knownFacts.injuryLimitations,
+    preferences: currentRunContext.knownFacts.preferences.length > 0
+      ? currentRunContext.knownFacts.preferences
+      : historicalContext.knownFacts.preferences,
+    avoidances: currentRunContext.knownFacts.avoidances.length > 0
+      ? currentRunContext.knownFacts.avoidances
+      : historicalContext.knownFacts.avoidances,
+    latestUserMessage: currentRunContext.knownFacts.latestUserMessage
+      ?? historicalContext.knownFacts.latestUserMessage,
+  };
+  const mergedContext = {
+    ...historicalContext,
+    currentIntent: currentRunContext.currentIntent ?? historicalContext.currentIntent,
+    knownFacts: mergedKnownFacts,
+    unresolvedQuestions: currentRunContext.unresolvedQuestions.length > 0
+      ? currentRunContext.unresolvedQuestions
+      : historicalContext.unresolvedQuestions,
+    pendingReplacementSelection: currentRunContext.pendingReplacementSelection
+      ?? historicalContext.pendingReplacementSelection,
+  };
+
+  return fitnessConversationContextSchema.parse({
+    ...mergedContext,
+    summary: summarizeMergedConversationContext(mergedContext),
+  });
+}
+
+function summarizeMergedConversationContext(context: FitnessConversationContext) {
+  const facts = context.knownFacts;
+  const parts = [
+    facts.goal ? `目标：${facts.goal}` : "",
+    facts.experience ? `经验：${facts.experience}` : "",
+    facts.sessionMinutes ? `单次时长：${facts.sessionMinutes}分钟` : "",
+    facts.weeklyFrequency ? `频率：每周${facts.weeklyFrequency}次` : "",
+    facts.calendarHorizonDays ? `日历范围：未来${facts.calendarHorizonDays}天` : "",
+    facts.equipment.length > 0 ? `器械：${facts.equipment.join("、")}` : "",
+    facts.preferences.length > 0 ? `偏好：${facts.preferences.join("、")}` : "",
+    facts.avoidances.length > 0 ? `避免：${facts.avoidances.join("、")}` : "",
+    context.currentIntent ? `当前意图：${context.currentIntent.intentType}` : "",
+    facts.latestUserMessage ? `最近用户输入：${facts.latestUserMessage}` : "",
+  ].filter(Boolean);
+
+  return parts.join("；").slice(0, 2000);
 }
 
 function appendLatestUserMessageIfMissing(

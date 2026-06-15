@@ -107,6 +107,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不需要获取全部候选");
     expect(descriptions).toContain("不需要扩大候选数量");
     expect(descriptions).toContain("不需要把未选候选排除");
+    expect(descriptions).toContain("历史 routine fact 中的 exerciseId、section 和 prescription 可以作为新的 routine 或 plan 的事实来源");
+    expect(descriptions).toContain("schedule 不要求来自动作库查询结果");
     expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
     expect(descriptions).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
@@ -118,6 +120,8 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("kind=exercise_selection 时不得填写");
     expect(schemaDescriptions).toContain("kind=routine 或 kind=plan 时每个动作项都必须填写");
     expect(schemaDescriptions).toContain("kind=plan 时必须填写");
+    expect(schemaDescriptions).toContain("inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实");
+    expect(schemaDescriptions).toContain("schedule 可由模型基于本轮用户目标");
     expect(schemaDescriptions).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(schemaDescriptions).toContain("每个请求 section 最多返回多少个动作候选");
     expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
@@ -130,6 +134,8 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("不代表用户长期偏好");
     expect(systemPrompt).toContain("不先做无执行场景的宽泛查询");
     expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
+    expect(systemPrompt).toContain("不要因为输出类型从 routine 派生成 plan，就默认重新查询动作");
+    expect(systemPrompt).toContain("schedule 是 plan 的日程结构字段，不是动作库查询结果");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
     expect(systemPrompt).not.toContain("缺少 stretch");

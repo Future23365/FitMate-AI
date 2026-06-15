@@ -34,7 +34,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造；exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -88,8 +88,11 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",
       "Input Source：payload.exerciseItems[] 可以从当前模型可见候选事实中选择子集构造；不要求使用候选池中的全部动作，也不要求先排除未使用动作。",
+      "Input Source：payload.exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实；历史 routine fact 中的 exerciseId、section 和 prescription 可以作为新的 routine 或 plan 的事实来源。",
+      "Input Source：payload.kind=plan 的 schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；schedule 不要求来自动作库查询结果，但必须符合 schema 并通过服务端 validator。",
       "Output Meaning：accepted 表示 payload 已通过服务端 validator 并生成用户可见投影；rejected 表示结构或确定性事实校验失败。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
       "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不替模型生成 prescription、不保存计划、不写入用户数据；所选 exerciseItems[].exerciseId 来自模型可见受控动作事实，并满足当前 payload.kind、section 和 validator 边界时，可以提交结构化训练结果；如果提交 routine 或 plan，模型必须在 payload 中提供 prescription。",
+      "Grounding Rules：当当前可见历史事实已经覆盖 plan 所需的动作、section 和 prescription 时，不需要为了重新确认同一批动作而再次查询动作库。",
       "Grounding Rules：payload.kind=exercise_selection 可以从当前候选事实中选择贴合目标的子集；不需要获取全部候选、不需要扩大候选数量、不需要把未选候选排除。",
       "accepted summary 会暴露已校验 payload 的 sectionSummary、availableSections、missingSections；这些字段只描述当前结构覆盖事实。",
       "accepted 表示结构已通过服务端 validator 并生成可渲染投影；rejected 只表示结构或确定性事实校验失败。",

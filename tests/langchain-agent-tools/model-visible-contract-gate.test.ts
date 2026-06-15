@@ -68,8 +68,17 @@ describe("Agent model-visible contract gate", () => {
     const searchTraceSummaries = samples
       .filter((sample) => sample.id.startsWith("searchExerciseResources.") && sample.kind === "trace_summary")
       .map((sample) => JSON.stringify(sample.value));
+    const inspectModelSummaries = samples
+      .filter((sample) => sample.id.startsWith("inspectVisibleTrainingProposals.") && sample.kind === "tool_result_summary")
+      .map((sample) => JSON.stringify(sample.value));
 
     expect(findings).toEqual([]);
+    expect(inspectModelSummaries.some((summaryJson) => summaryJson.includes("derivationFacts"))).toBe(true);
+    expect(inspectModelSummaries.some((summaryJson) => summaryJson.includes("reusableFields"))).toBe(true);
+    expect(inspectModelSummaries.some((summaryJson) => summaryJson.includes("missingForPlan"))).toBe(true);
+    expect(inspectModelSummaries.join("\n")).not.toContain("supportsOutputKinds");
+    expect(inspectModelSummaries.join("\n")).not.toContain("nextActionHints");
+    expect(inspectModelSummaries.join("\n")).not.toContain("canDeliverPlan");
     expect(searchModelSummaries.length).toBeGreaterThan(0);
     for (const summaryJson of searchModelSummaries) {
       expect(summaryJson).toContain("candidateGroups");
@@ -292,6 +301,72 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
         status: "succeeded",
         operation: "list_recent",
         facts: [],
+      },
+    },
+    {
+      id: "routine_fact",
+      output: {
+        status: "succeeded",
+        operation: "list_recent",
+        facts: [
+          {
+            index: 1,
+            displayLabel: "最近第 1 条已展示训练方案",
+            kind: "visible_training_proposal_displayed",
+            status: "active",
+            createdAt: "2026-06-03T14:30:00.000Z",
+            proposalKind: "routine",
+            visibleOutputSchemaVersion: "1",
+            factSchemaVersion: 1,
+            sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+            exerciseItems: [
+              {
+                exerciseId: "jumping-jack",
+                section: "warmup",
+                order: 1,
+                prescription: createPrescription({ mode: "reps", target: 20 }),
+                nameZh: "开合跳",
+                nameEn: "Jumping Jack",
+                equipmentZh: "自重",
+                primaryMusclesZh: ["全身"],
+                allowedSections: ["warmup"],
+                imageUrl: null,
+              },
+              {
+                exerciseId: "squat",
+                section: "training",
+                order: 1,
+                prescription: createPrescription({ mode: "reps", target: 12 }),
+                nameZh: "深蹲",
+                nameEn: "Squat",
+                equipmentZh: "自重",
+                primaryMusclesZh: ["股四头肌"],
+                allowedSections: ["training"],
+                imageUrl: null,
+              },
+              {
+                exerciseId: "standing-quad-stretch",
+                section: "stretch",
+                order: 1,
+                prescription: createPrescription({ mode: "duration", target: 30 }),
+                nameZh: "站姿股四头肌拉伸",
+                nameEn: "Standing Quad Stretch",
+                equipmentZh: "自重",
+                primaryMusclesZh: ["股四头肌"],
+                allowedSections: ["stretch"],
+                imageUrl: null,
+              },
+            ],
+            reusableTrainingExerciseCount: 1,
+            reusableTrainingExercises: [{
+              exerciseId: "squat",
+              order: 1,
+              section: "training",
+              nameZh: "深蹲",
+              nameEn: "Squat",
+            }],
+          },
+        ],
       },
     },
     {
@@ -527,6 +602,16 @@ function createExerciseResource() {
     riskTags: [],
     reviewStatus: "human_reviewed",
     isPublished: true,
+  };
+}
+
+function createPrescription(input: { mode: "reps" | "duration"; target: number }) {
+  return {
+    mode: input.mode,
+    sets: 2,
+    target: input.target,
+    setRestSeconds: 45,
+    transitionRestSeconds: 30,
   };
 }
 
