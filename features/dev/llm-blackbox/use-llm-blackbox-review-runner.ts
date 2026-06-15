@@ -23,6 +23,7 @@ import {
   findLatestLlmBlackboxFlowResult,
   findLatestLlmBlackboxRunForFlow,
   hasLlmBlackboxUserVisibleAnswer,
+  isLlmBlackboxFlowScheduledInRun,
   skipRemainingFlowTurnsAfterFailure,
   startLlmBlackboxTurn,
   updateLlmBlackboxFlowReview,
@@ -74,11 +75,13 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [selectedFlowId, setSelectedFlowId] = useState<string>(fixture.flows[0]?.id ?? "");
   const [selectedTurnKey, setSelectedTurnKey] = useState<SelectedTurnKey | null>(null);
+  const [queuedSingleFlowIds, setQueuedSingleFlowIds] = useState<string[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const activeRunRef = useRef<LlmBlackboxReviewRun | null>(null);
   const isExecutingRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const queuedSingleFlowIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +132,33 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
   }, [selectedFlow, selectedTurnKey]);
   const isRunning = activeRun?.status === "running" || isExecuting;
 
+  const commitQueuedSingleFlowIds = useCallback((nextIds: string[]) => {
+    queuedSingleFlowIdsRef.current = nextIds;
+    setQueuedSingleFlowIds(nextIds);
+  }, []);
+
+  const enqueueSingleFlowId = useCallback((flowId: string) => {
+    const flowExists = fixture.flows.some((flow) => flow.id === flowId);
+
+    if (!flowExists || isLlmBlackboxFlowScheduledInRun(activeRunRef.current, flowId)) {
+      return;
+    }
+
+    commitQueuedSingleFlowIds(addQueuedLlmBlackboxFlowId(queuedSingleFlowIdsRef.current, flowId));
+  }, [commitQueuedSingleFlowIds, fixture.flows]);
+
+  const removeQueuedSingleFlowId = useCallback((flowId: string) => {
+    commitQueuedSingleFlowIds(removeQueuedLlmBlackboxFlowId(queuedSingleFlowIdsRef.current, flowId));
+  }, [commitQueuedSingleFlowIds]);
+
+  const takeNextQueuedSingleFlowId = useCallback(() => {
+    const [nextFlowId, ...restFlowIds] = queuedSingleFlowIdsRef.current;
+
+    commitQueuedSingleFlowIds(restFlowIds);
+
+    return nextFlowId;
+  }, [commitQueuedSingleFlowIds]);
+
   const commitRun = useCallback((nextRun: LlmBlackboxReviewRun) => {
     activeRunRef.current = nextRun;
     setRuns((currentRuns) => {
@@ -162,30 +192,47 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
   const runSingleFlow = useCallback(async (flowId: string) => {
     const flow = fixture.flows.find((item) => item.id === flowId);
 
-    if (!flow || isExecutingRef.current) {
+    if (!flow) {
       return;
     }
 
-    await executeRun({
-      fixture,
-      flows: [flow],
-      mode: "single",
-      commitRun,
-      setActiveRunId,
-      setSelectedFlowId,
-      setSelectedTurnKey,
-      activeAbortControllerRef,
-      isExecutingRef,
-      setIsExecuting,
-      stopRequestedRef,
-    });
-  }, [commitRun, fixture]);
+    if (isExecutingRef.current) {
+      enqueueSingleFlowId(flowId);
+      return;
+    }
+
+    let nextFlowId: string | undefined = flowId;
+
+    while (nextFlowId) {
+      const nextFlow = fixture.flows.find((item) => item.id === nextFlowId);
+      removeQueuedSingleFlowId(nextFlowId);
+
+      if (nextFlow) {
+        await executeRun({
+          fixture,
+          flows: [nextFlow],
+          mode: "single",
+          commitRun,
+          setActiveRunId,
+          setSelectedFlowId,
+          setSelectedTurnKey,
+          activeAbortControllerRef,
+          isExecutingRef,
+          setIsExecuting,
+          stopRequestedRef,
+        });
+      }
+
+      nextFlowId = takeNextQueuedSingleFlowId();
+    }
+  }, [commitRun, enqueueSingleFlowId, fixture, removeQueuedSingleFlowId, takeNextQueuedSingleFlowId]);
 
   const runAllFlows = useCallback(async () => {
     if (isExecutingRef.current) {
       return;
     }
 
+    commitQueuedSingleFlowIds([]);
     await executeRun({
       fixture,
       flows: fixture.flows,
@@ -199,17 +246,18 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
       setIsExecuting,
       stopRequestedRef,
     });
-  }, [commitRun, fixture]);
+  }, [commitQueuedSingleFlowIds, commitRun, fixture]);
 
   const stopRun = useCallback(() => {
     stopRequestedRef.current = true;
+    commitQueuedSingleFlowIds([]);
     activeAbortControllerRef.current?.abort();
 
     const currentRun = activeRunRef.current;
     if (currentRun?.status === "running") {
       commitRun(cancelPendingLlmBlackboxWork(currentRun, "开发者停止了当前批次。"));
     }
-  }, [commitRun]);
+  }, [commitQueuedSingleFlowIds, commitRun]);
 
   const clearRuns = useCallback(() => {
     if (isExecutingRef.current) {
@@ -218,11 +266,12 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
 
     clearLlmBlackboxReviewRuns();
     activeRunRef.current = null;
+    commitQueuedSingleFlowIds([]);
     setRuns([]);
     setActiveRunId(null);
     setSelectedTurnKey(null);
     setSelectedFlowId(fixture.flows[0]?.id ?? "");
-  }, [fixture.flows]);
+  }, [commitQueuedSingleFlowIds, fixture.flows]);
 
   const selectRun = useCallback((runId: string) => {
     const targetRun = runs.find((run) => run.id === runId);
@@ -279,6 +328,7 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
     isRunning,
     runAllFlows,
     runSingleFlow,
+    queuedSingleFlowIds,
     runs,
     selectedFlow,
     selectedFlowId,
@@ -291,6 +341,16 @@ export function useLlmBlackboxReviewRunner(fixture: BasicChatFixture) {
     setTurnReviewStatus,
     stopRun,
   };
+}
+
+// addQueuedLlmBlackboxFlowId 保持单例执行队列去重，避免重复点击生成重复批次。
+export function addQueuedLlmBlackboxFlowId(queue: string[], flowId: string) {
+  return queue.includes(flowId) ? queue : [...queue, flowId];
+}
+
+// removeQueuedLlmBlackboxFlowId 在 flow 开始执行或取消时移除待执行标记。
+export function removeQueuedLlmBlackboxFlowId(queue: string[], flowId: string) {
+  return queue.filter((queuedFlowId) => queuedFlowId !== flowId);
 }
 
 async function executeRun(input: {

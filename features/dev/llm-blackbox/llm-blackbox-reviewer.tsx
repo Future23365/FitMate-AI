@@ -14,6 +14,7 @@ import { ChatTranscript } from "@/features/chat/components/chat-transcript";
 import type { ChatMessage } from "@/features/chat/types";
 import {
   calculateLlmBlackboxLatestFlowStats,
+  isLlmBlackboxFlowScheduledInRun,
   mergeFixtureFlowsWithLatestRunResults,
   type LlmBlackboxFlowResult,
   type LlmBlackboxReviewStatus,
@@ -47,6 +48,8 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
     [runner.selectedFlow],
   );
   const stats = useMemo(() => calculateLlmBlackboxLatestFlowStats(flowList), [flowList]);
+  const selectedFlowIsScheduled = isLlmBlackboxFlowScheduledInRun(runner.activeRun, runner.selectedFlowId);
+  const selectedFlowIsQueued = runner.queuedSingleFlowIds.includes(runner.selectedFlowId);
 
   function handleRunAll() {
     const accepted = window.confirm("运行全部 flow 会真实调用 /api/chat 和模型服务，确认继续？");
@@ -71,12 +74,12 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
           </div>
           <div className="flex flex-wrap items-center gap-sm">
             <Button
-              disabled={runner.isRunning || !runner.selectedFlowId}
+              disabled={!runner.selectedFlowId || selectedFlowIsScheduled || selectedFlowIsQueued}
               onClick={() => void runner.runSingleFlow(runner.selectedFlowId)}
               type="button"
             >
               <SymbolIcon>play_arrow</SymbolIcon>
-              运行当前
+              {selectedFlowIsQueued ? "已排队" : runner.isRunning ? "加入队列" : "运行当前"}
             </Button>
             <Button
               disabled={runner.isRunning || fixture.flows.length === 0}
@@ -121,6 +124,7 @@ export function LlmBlackboxReviewer({ fixture }: LlmBlackboxReviewerProps) {
           <FlowListPanel
             activeRun={runner.activeRun}
             flows={flowList}
+            queuedSingleFlowIds={runner.queuedSingleFlowIds}
             selectedFlowId={runner.selectedFlow?.id ?? runner.selectedFlowId}
             onRunFlow={(flowId) => void runner.runSingleFlow(flowId)}
             onSelectFlow={(flowId) => {
@@ -245,11 +249,13 @@ function FlowListPanel({
   onRunFlow,
   onSelectFlow,
   onSetFlowReviewStatus,
+  queuedSingleFlowIds,
   selectedFlowId,
 }: {
   activeRun: ReturnType<typeof useLlmBlackboxReviewRunner>["activeRun"];
   flows: LlmBlackboxFlowResult[];
   isRunning: boolean;
+  queuedSingleFlowIds: string[];
   selectedFlowId: string;
   onRunFlow: (flowId: string) => void;
   onSelectFlow: (flowId: string) => void;
@@ -262,64 +268,135 @@ function FlowListPanel({
       </CardHeader>
       <CardContent className="custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto overscroll-contain px-md py-md">
         {flows.map((flow) => (
-          <div
-            className={`rounded-xl border bg-white p-md transition-colors ${
-              flow.id === selectedFlowId
-                ? "border-primary/45 shadow-[0_10px_24px_rgba(36,89,230,0.12)]"
-                : "border-line hover:border-primary/30"
-            }`}
+          <FlowListItem
+            activeRun={activeRun}
+            flow={flow}
+            isRunning={isRunning}
+            isQueued={queuedSingleFlowIds.includes(flow.id)}
+            isSelected={flow.id === selectedFlowId}
             key={flow.id}
-          >
-            <button
-              className="block w-full text-left"
-              onClick={() => onSelectFlow(flow.id)}
-              type="button"
-            >
-              <div className="flex items-start justify-between gap-sm">
-                <div>
-                  <p className="font-label-md text-label-md font-extrabold text-ink">{flow.id}</p>
-                  <p className="mt-1 line-clamp-2 font-body-sm text-body-sm leading-relaxed text-muted">
-                    {flow.goal}
-                  </p>
-                </div>
-                <StatusBadge status={flow.status} />
-              </div>
-              <p className="mt-sm font-label-sm text-label-sm text-muted">
-                {flow.turns.length} turns · 人工 {reviewStatusLabel(flow.reviewStatus)}
-              </p>
-            </button>
-            <div className="mt-sm flex flex-wrap gap-xs">
-              <Button
-                disabled={isRunning}
-                onClick={() => onRunFlow(flow.id)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <SymbolIcon>play_arrow</SymbolIcon>
-                运行
-              </Button>
-              {activeRun?.flows.some((runFlow) => runFlow.id === flow.id) ? (
-                reviewOptions.map((option) => (
-                  <button
-                    className={`rounded-full border px-xs py-1 font-label-xs text-label-xs ${
-                      flow.reviewStatus === option.value
-                        ? "border-primary bg-primary-soft text-primary"
-                        : "border-line bg-surface-container-low text-muted"
-                    }`}
-                    key={option.value}
-                    onClick={() => onSetFlowReviewStatus(flow.id, option.value)}
-                    type="button"
-                  >
-                    {option.label}
-                  </button>
-                ))
-              ) : null}
-            </div>
-          </div>
+            onRunFlow={onRunFlow}
+            onSelectFlow={onSelectFlow}
+            onSetFlowReviewStatus={onSetFlowReviewStatus}
+          />
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+function FlowListItem({
+  activeRun,
+  flow,
+  isQueued,
+  isRunning,
+  isSelected,
+  onRunFlow,
+  onSelectFlow,
+  onSetFlowReviewStatus,
+}: {
+  activeRun: ReturnType<typeof useLlmBlackboxReviewRunner>["activeRun"];
+  flow: LlmBlackboxFlowResult;
+  isQueued: boolean;
+  isRunning: boolean;
+  isSelected: boolean;
+  onRunFlow: (flowId: string) => void;
+  onSelectFlow: (flowId: string) => void;
+  onSetFlowReviewStatus: (flowId: string, status: LlmBlackboxReviewStatus) => void;
+}) {
+  const isScheduled = isLlmBlackboxFlowScheduledInRun(activeRun, flow.id);
+
+  return (
+    <div
+      className={`rounded-xl border bg-white p-md transition-colors ${
+        isSelected
+          ? "border-primary/45 shadow-[0_10px_24px_rgba(36,89,230,0.12)]"
+          : "border-line hover:border-primary/30"
+      }`}
+    >
+      <button
+        className="block w-full text-left"
+        onClick={() => onSelectFlow(flow.id)}
+        type="button"
+      >
+        <div className="flex items-start justify-between gap-sm">
+          <div>
+            <p className="font-label-md text-label-md font-extrabold text-ink">{flow.id}</p>
+            <p className="mt-1 line-clamp-2 font-body-sm text-body-sm leading-relaxed text-muted">
+              {flow.goal}
+            </p>
+          </div>
+          <StatusBadge status={flow.status} />
+        </div>
+        <p className="mt-sm font-label-sm text-label-sm text-muted">
+          {flow.turns.length} turns · 人工 {reviewStatusLabel(flow.reviewStatus)}
+        </p>
+      </button>
+      <div className="mt-sm flex flex-wrap gap-xs">
+        <Button
+          disabled={isScheduled || isQueued}
+          onClick={() => onRunFlow(flow.id)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <SymbolIcon>play_arrow</SymbolIcon>
+          {isScheduled ? "批次中" : isQueued ? "已排队" : isRunning ? "加入队列" : "运行"}
+        </Button>
+        {activeRun?.flows.some((runFlow) => runFlow.id === flow.id) ? (
+          reviewOptions.map((option) => (
+            <button
+              className={`rounded-full border px-xs py-1 font-label-xs text-label-xs ${
+                flow.reviewStatus === option.value
+                  ? "border-primary bg-primary-soft text-primary"
+                  : "border-line bg-surface-container-low text-muted"
+              }`}
+              key={option.value}
+              onClick={() => onSetFlowReviewStatus(flow.id, option.value)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          ))
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TurnQuestionList({
+  onSelectTurn,
+  selectedFlow,
+  selectedTurn,
+}: {
+  selectedFlow: LlmBlackboxFlowResult;
+  selectedTurn: LlmBlackboxTurnResult | null;
+  onSelectTurn: (turnIndex: number) => void;
+}) {
+  return (
+    <section className="space-y-xs">
+      <p className="font-label-sm text-label-sm font-bold text-muted">用户提问</p>
+      {selectedFlow.turns.map((turn) => (
+        <button
+          className={`block w-full rounded-xl border p-sm text-left transition-colors ${
+            selectedTurn?.turnIndex === turn.turnIndex
+              ? "border-primary/45 bg-primary-soft"
+              : "border-line bg-white hover:border-primary/30"
+          }`}
+          key={turn.id}
+          onClick={() => onSelectTurn(turn.turnIndex)}
+          type="button"
+        >
+          <div className="flex items-center justify-between gap-sm">
+            <span className="font-label-xs text-label-xs font-bold text-muted">T{turn.turnIndex}</span>
+            <StatusBadge status={turn.status} />
+          </div>
+          <p className="mt-xs line-clamp-2 font-body-sm text-body-sm leading-relaxed text-ink">
+            {turn.userInput}
+          </p>
+        </button>
+      ))}
+    </section>
   );
 }
 
@@ -341,22 +418,11 @@ function TurnDetailPanel({
       </CardHeader>
       <CardContent className="custom-scrollbar min-h-0 flex-1 space-y-md overflow-y-auto overscroll-contain px-lg py-md">
         {selectedFlow ? (
-          <div className="flex flex-wrap gap-xs">
-            {selectedFlow.turns.map((turn) => (
-              <button
-                className={`rounded-full border px-sm py-1 font-label-sm text-label-sm ${
-                  selectedTurn?.turnIndex === turn.turnIndex
-                    ? "border-primary bg-primary-soft text-primary"
-                    : "border-line bg-white text-muted"
-                }`}
-                key={turn.id}
-                onClick={() => onSelectTurn(turn.turnIndex)}
-                type="button"
-              >
-                T{turn.turnIndex}
-              </button>
-            ))}
-          </div>
+          <TurnQuestionList
+            onSelectTurn={onSelectTurn}
+            selectedFlow={selectedFlow}
+            selectedTurn={selectedTurn}
+          />
         ) : null}
 
         {selectedTurn ? (

@@ -244,6 +244,19 @@ export function findLatestLlmBlackboxFlowResult(
     ?.flows.find((flow) => flow.id === flowId);
 }
 
+// isLlmBlackboxFlowScheduledInRun 只表示当前运行批次中尚未结束的 flow，用于避免重复排队同一在途 flow。
+export function isLlmBlackboxFlowScheduledInRun(
+  run: LlmBlackboxReviewRun | null | undefined,
+  flowId: string,
+) {
+  return Boolean(
+    run?.status === "running"
+    && run.flows.some((flow) =>
+      flow.id === flowId && (flow.status === "queued" || flow.status === "running"),
+    ),
+  );
+}
+
 // startLlmBlackboxTurn 只标记当前 turn 的执行边界，实际请求仍由 headless runner adapter 发出。
 export function startLlmBlackboxTurn(
   run: LlmBlackboxReviewRun,

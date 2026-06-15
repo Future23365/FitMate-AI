@@ -11,6 +11,7 @@ import {
   createLlmBlackboxReviewRun,
   finalizeLlmBlackboxRun,
   findLatestLlmBlackboxFlowResult,
+  isLlmBlackboxFlowScheduledInRun,
   mergeFixtureFlowsWithLatestRunResults,
   skipRemainingFlowTurnsAfterFailure,
   startLlmBlackboxTurn,
@@ -24,7 +25,11 @@ import {
   readLlmBlackboxReviewRuns,
   writeLlmBlackboxReviewRuns,
 } from "@/features/dev/llm-blackbox/review-storage";
-import { readTokenUsageFromTrace } from "@/features/dev/llm-blackbox/use-llm-blackbox-review-runner";
+import {
+  addQueuedLlmBlackboxFlowId,
+  readTokenUsageFromTrace,
+  removeQueuedLlmBlackboxFlowId,
+} from "@/features/dev/llm-blackbox/use-llm-blackbox-review-runner";
 import { parseBasicChatFixtureFromJson } from "@/lib/shared/llm-blackbox/basic-chat-fixture-schema";
 
 vi.mock("next/dynamic", () => ({
@@ -224,6 +229,42 @@ describe("dev LLM blackbox runner state", () => {
     expect(preferredFlows.find((flow) => flow.id === "F01")?.turns[0].assistantText)
       .toBe("旧 F01 turn 1 完成。");
   });
+
+  it("deduplicates queued single-flow requests and detects active scheduled flows", () => {
+    const fixture = createFixture();
+    let queue = addQueuedLlmBlackboxFlowId([], "F01");
+    queue = addQueuedLlmBlackboxFlowId(queue, "F01");
+    queue = addQueuedLlmBlackboxFlowId(queue, "F02");
+
+    expect(queue).toEqual(["F01", "F02"]);
+    expect(removeQueuedLlmBlackboxFlowId(queue, "F01")).toEqual(["F02"]);
+
+    let run = createLlmBlackboxReviewRun({
+      fixture,
+      flows: fixture.flows,
+      mode: "all",
+      createId: () => "run-all",
+    });
+
+    expect(isLlmBlackboxFlowScheduledInRun(run, "F01")).toBe(true);
+    run = startLlmBlackboxTurn(run, {
+      flowId: "F01",
+      turnIndex: 1,
+      conversationId: "conversation-f01",
+      responseMessageId: "assistant-f01",
+      startedAt: new Date("2026-06-15T10:00:01.000Z"),
+    });
+    expect(isLlmBlackboxFlowScheduledInRun(run, "F01")).toBe(true);
+    run = completeLlmBlackboxTurn(run, "F01", 1, {
+      status: "passed",
+      assistantMessage: createAssistantMessage("assistant-f01", "完成。"),
+      eventTypes: ["content", "done"],
+      endedAt: new Date("2026-06-15T10:00:02.000Z"),
+      durationMs: 1000,
+    });
+    expect(isLlmBlackboxFlowScheduledInRun(run, "F01")).toBe(true);
+    expect(isLlmBlackboxFlowScheduledInRun(finalizeLlmBlackboxRun(run), "F01")).toBe(false);
+  });
 });
 
 describe("dev LLM blackbox token diagnostics", () => {
@@ -281,6 +322,13 @@ describe("dev LLM blackbox reviewer layout contract", () => {
     expect(reviewerSource).toContain("<LlmBlackboxBodyScrollScope />");
     expect(reviewerSource).toContain("app-mesh-bg flex h-screen min-h-0 flex-col overflow-hidden text-ink");
     expect(reviewerSource).toContain("<HeaderStatsBar stats={stats} />");
+    expect(reviewerSource).toContain("queuedSingleFlowIds={runner.queuedSingleFlowIds}");
+    expect(reviewerSource).toContain("加入队列");
+    expect(reviewerSource).toContain("已排队");
+    expect(reviewerSource).toContain("批次中");
+    expect(reviewerSource).toContain("<TurnQuestionList");
+    expect(reviewerSource).toContain("用户提问");
+    expect(reviewerSource).toContain("{turn.userInput}");
     expect(reviewerSource).not.toContain("<RunStatsPanel stats={stats} />");
     expect(reviewerSource).toContain("min-h-0 flex-1 px-xl py-lg");
     expect(reviewerSource).toContain("grid h-full min-h-0 gap-lg xl:grid-cols-[320px_minmax(0,1fr)_380px]");
