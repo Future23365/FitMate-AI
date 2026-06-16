@@ -218,6 +218,7 @@ export type TraceLogModelInputRecord = {
   runtimeStep?: number;
   requestStepId?: string;
   messageCount?: number;
+  messageRefs: TraceLogLongTextRef[];
   toolCount?: number;
   toolNames: string[];
   toolCatalogRef?: string;
@@ -2509,7 +2510,9 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]):
     ? externalized.events.filter((item): item is TraceLogEventRecord => isRecord(item))
     : events;
   const externalizedModelInputs = Array.isArray(externalized.modelInputs)
-    ? externalized.modelInputs.filter((item): item is TraceLogModelInputRecord => isRecord(item))
+    ? externalized.modelInputs
+        .filter((item): item is TraceLogModelInputRecord => isRecord(item))
+        .map(addModelInputMessageRefs)
     : modelInputs;
   const longTexts = Array.isArray(externalized.longTexts)
     ? externalized.longTexts.filter((item): item is TraceLogLongTextEntry => isRecord(item))
@@ -2569,6 +2572,7 @@ function createTraceLogModelInputRecords(
       ? requestInput.modelVisibleInputSnapshot
       : undefined;
     const audit = createPlannerModelVisibleInputAuditReport(snapshot);
+    const snapshotToolNames = readStringArray(snapshot?.toolNames);
     const toolNames = readStringArray(requestInput.toolNames);
     const registeredRefs = snapshot
       ? registerModelVisibleSnapshotDedupeRefs(snapshot, index, dedupeState)
@@ -2587,8 +2591,9 @@ function createTraceLogModelInputRecords(
       messageCount: Array.isArray(requestInput.messages)
         ? requestInput.messages.length
         : readNumber(requestOutput.messageCount) ?? readNumber(snapshot?.messageCount),
-      toolCount: readNumber(requestOutput.toolCount) ?? toolNames.length ?? readNumber(snapshot?.toolCount),
-      toolNames,
+      messageRefs: [],
+      toolCount: readNumber(requestOutput.toolCount) ?? readNumber(snapshot?.toolCount) ?? toolNames.length,
+      toolNames: toolNames.length > 0 ? toolNames : snapshotToolNames,
       ...registeredRefs,
       budget: requestOutput.budget ?? snapshot?.budget,
       toolAvailability: requestOutput.toolAvailability ?? snapshot?.toolAvailability,
@@ -2723,10 +2728,53 @@ function createDedupeRef(kind: TraceLogDedupeTextKind, index: number) {
       return `tool_catalog_${suffix}`;
     case "system_prompt":
       return `system_prompt_${suffix}`;
+    case "tool_description":
+      return `tool_description_${suffix}`;
+    case "tool_schema":
+      return `tool_schema_${suffix}`;
+    case "schema_description":
+      return `schema_description_${suffix}`;
     case "finalization_schema":
       return `finalization_schema_${suffix}`;
-    default:
-      return `schema_${suffix}`;
+  }
+}
+
+function addModelInputMessageRefs(record: TraceLogModelInputRecord): TraceLogModelInputRecord {
+  return {
+    ...record,
+    messageRefs: collectTraceLogContentRefs(record.evidence),
+  };
+}
+
+function collectTraceLogContentRefs(value: unknown): TraceLogLongTextRef[] {
+  const refs = new Map<string, TraceLogLongTextRef>();
+
+  visitTraceLogContentRefs(value, (ref) => {
+    refs.set(ref.contentRef, ref);
+  });
+
+  return Array.from(refs.values());
+}
+
+function visitTraceLogContentRefs(value: unknown, onRef: (ref: TraceLogLongTextRef) => void) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitTraceLogContentRefs(item, onRef);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  if (typeof value.contentRef === "string") {
+    onRef(value as TraceLogLongTextRef);
+    return;
+  }
+
+  for (const child of Object.values(value)) {
+    visitTraceLogContentRefs(child, onRef);
   }
 }
 
@@ -2986,7 +3034,7 @@ function createTraceLogLookupGuide() {
     byModelInputRef: "rg '\"modelInputRef\":\"model_input_0001\"' codex_logs/ai_trace_model_inputs.jsonl",
     byContentRef: "rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl",
     byDetailRef: "rg '\"detailRef\":\"detail_0001\"' codex_logs/ai_trace_texts.jsonl",
-    bySchemaRef: "rg '\"ref\":\"schema_0001\"' codex_logs/ai_trace_texts.jsonl",
+    bySchemaRef: "rg '\"ref\":\"tool_schema_0001\"' codex_logs/ai_trace_texts.jsonl",
     byParentRef: "rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl",
   };
 }

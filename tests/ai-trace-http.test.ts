@@ -584,7 +584,7 @@ describe("AI trace store and HTTP request helpers", () => {
             toolCount: 1,
             toolNames: ["searchExerciseResources"],
             toolCatalogRef: "tool_catalog_0001",
-            schemaRefs: ["schema_0001"],
+            schemaRefs: ["tool_schema_0001"],
             audit: { completeness: "complete" },
           },
         ],
@@ -601,7 +601,7 @@ describe("AI trace store and HTTP request helpers", () => {
           },
           {
             recordType: "deduped_text",
-            ref: "schema_0001",
+            ref: "tool_schema_0001",
             refKind: "tool_schema",
             path: "$.modelInputs[0].tools[0].inputSchema",
             hash: "fnv1a:schema",
@@ -642,7 +642,7 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedModelInputs).toContain("\"modelInputRef\":\"model_input_0001\"");
     expect(savedModelInputs).toContain("\"toolCatalogRef\":\"tool_catalog_0001\"");
     expect(savedTexts).toContain("\"ref\":\"tool_catalog_0001\"");
-    expect(savedTexts).toContain("\"ref\":\"schema_0001\"");
+    expect(savedTexts).toContain("\"ref\":\"tool_schema_0001\"");
     expect(savedTexts).toContain("\"recordType\":\"deduped_text_chunk\"");
   });
 

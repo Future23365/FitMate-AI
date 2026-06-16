@@ -194,16 +194,27 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 ## 调试与日志规则
 
 - 当我说“看一下 log”、“看一下日志”时，先读取项目根目录下的 `codex_logs/ai_trace_log.js`。
-- `codex_logs/ai_trace_log.js` 是基础轻量报告，默认用于快速定位当前问题：先看 `Saved at`、`title`、`agentLoops`、`plannerModelCalls`、`runtimeTraceEvents`、`tool_execution`、`tokenUsage`、错误 code、tool input/output summary、model request/response summary。
-- `codex_logs/ai_trace_texts.jsonl` 是详细日志映射文件，保存长 prompt、model input、tool observation、raw response 和结构化详情 chunks。不要默认整文件读取，避免 token 过大。
-- 当 `ai_trace_log.js` 中出现 `contentRef` 或 `detailRef` 时，先用 `rg` 在详细日志里查 header：
+- `codex_logs/ai_trace_log.js` 是基础轻量索引报告，默认用于快速定位当前问题：先看 `Saved at`、`traceSummary`、`loopTimeline`、`failureIndex`、`tokenUsageSummary`、`lookupGuide`、`fileManifest`，不要先读完整 JSONL。
+- `codex_logs/ai_trace_events.jsonl` 是事件映射文件，按 `eventRef`、`loopNumber`、`stepId`、`toolName` 检索 model call、model response、tool execution、runtime validation、final response projection 和 terminal failure。
+- `codex_logs/ai_trace_model_inputs.jsonl` 是模型输入映射文件，按 `modelInputRef` 检索模型输入审计摘要、message refs、tool catalog ref、budget 和 toolAvailability。
+- `codex_logs/ai_trace_texts.jsonl` 是文本和详情映射文件，保存 `contentRef` 长文本、`detailRef` 结构化详情、去重后的 prompt / tool catalog / schema / description，以及对应 chunks。不要默认整文件读取，避免 token 过大。
+- 当 `ai_trace_log.js` 中出现 `eventRef`、`modelInputRef`、`contentRef`、`detailRef`、`toolCatalogRef` 或 schema ref 时，先用 `rg` 在对应映射文件里查 header：
+  - `rg '"eventRef":"event_0001"' codex_logs/ai_trace_events.jsonl`
+  - `rg '"loopNumber":1' codex_logs/ai_trace_events.jsonl`
+  - `rg '"toolName":"searchExerciseResources"' codex_logs/ai_trace_events.jsonl`
+  - `rg '"modelInputRef":"model_input_0001"' codex_logs/ai_trace_model_inputs.jsonl`
   - `rg '"contentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl`
   - `rg '"detailRef":"detail_0001"' codex_logs/ai_trace_texts.jsonl`
+  - `rg '"ref":"tool_catalog_0001"' codex_logs/ai_trace_texts.jsonl`
+  - `rg '"ref":"tool_schema_0001"' codex_logs/ai_trace_texts.jsonl`
 - 需要完整内容时，再按 `parentRef` 查 chunks，并按 `chunkIndex` 顺序拼接：
   - `rg '"parentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl`
   - `rg '"parentRef":"detail_0001"' codex_logs/ai_trace_texts.jsonl`
+- 去重 prompt / schema / tool catalog 的完整内容也按 `parentRef` 查 chunks，例如：
+  - `rg '"parentRef":"tool_catalog_0001"' codex_logs/ai_trace_texts.jsonl`
+  - `rg '"parentRef":"tool_schema_0001"' codex_logs/ai_trace_texts.jsonl`
 - 如果怀疑日志不是最新，先检查 `ai_trace_log.js` 顶部的 `Saved at` 和 `title`；不要沿用旧日志结论。
-- `codex_logs/ai_trace_log.js` / `ai_trace_texts.jsonl` 是从 `/dev/ai-traces` 保存出来的导出文件，不是 `/dev/ai-traces` 页面的实时数据源。
+- `codex_logs/ai_trace_log.js` / `ai_trace_events.jsonl` / `ai_trace_model_inputs.jsonl` / `ai_trace_texts.jsonl` 是从 `/dev/ai-traces` 保存出来的导出文件，不是 `/dev/ai-traces` 页面的实时数据源。
 
 ## Git 提交规则
 

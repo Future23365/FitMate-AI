@@ -1000,7 +1000,7 @@ describe("AI trace viewer step grouping", () => {
   });
 
   it("keeps the default trace report compact while refs resolve to mapping records", () => {
-    const systemPrompt = `系统提示 ${"保持稳定合同。".repeat(80)}`;
+    const systemPrompt = `系统提示 ${"保持稳定合同。".repeat(120)}`;
     const toolDescription = `工具说明 ${"只查询数据库动作事实。".repeat(80)}`;
     const schemaDescription = `字段说明 ${"用户明确表达的训练目标。".repeat(80)}`;
     const toolSchema = JSON.stringify({
@@ -1125,6 +1125,9 @@ describe("AI trace viewer step grouping", () => {
     expect(reportText).not.toContain(schemaDescription);
     expect(reportText).not.toContain("fitmate_final_response");
     expect(payload.modelInputs).toHaveLength(2);
+    expect(payload.modelInputs[0].messageRefs.map((ref) => ref.contentRef)).toEqual(expect.arrayContaining([
+      "text_0001",
+    ]));
     expect(payload.modelInputs[0].toolCatalogRef).toBe(payload.modelInputs[1].toolCatalogRef);
     expect(payload.modelInputs[0].schemaRefs).toEqual(payload.modelInputs[1].schemaRefs);
     expect(payload.texts.filter((item) => item.refKind === "tool_catalog")).toHaveLength(1);
@@ -1132,6 +1135,7 @@ describe("AI trace viewer step grouping", () => {
     expect(payload.texts.filter((item) => item.refKind === "tool_schema")).toHaveLength(1);
     expect(payload.texts.filter((item) => item.refKind === "schema_description")).toHaveLength(1);
     expect(payload.texts.filter((item) => item.refKind === "finalization_schema")).toHaveLength(1);
+    expect(new Set(payload.texts.map((item) => item.ref)).size).toBe(payload.texts.length);
     expect(payload.report.fileManifest).toMatchObject({
       files: {
         report: "codex_logs/ai_trace_log.js",
@@ -1510,7 +1514,11 @@ function resolveBundleRefs(payload: ReturnType<typeof createTraceLogPayload>) {
     if (key === "contentRef" && !contentRefs.has(value)) {
       missing.push(value);
     }
-    if (key === "ref" && /^(schema|tool_catalog|system_prompt|finalization_schema)_/.test(value) && !textRefs.has(value)) {
+    if (
+      key === "ref" &&
+      /^(tool_description|tool_schema|schema_description|tool_catalog|system_prompt|finalization_schema)_/.test(value) &&
+      !textRefs.has(value)
+    ) {
       missing.push(value);
     }
   });
