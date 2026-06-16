@@ -9,7 +9,26 @@
 - Shadow 阶段只能读取 runner 导出的模型可见输入，不能读源码、memory、历史修复经验、debug-only trace 或数据库 raw payload。
 - 项目侧脚本负责校验 Codex 决策和执行真实 dev-safe tool handler；Codex skill 不直接调用生产内部函数。
 - 本 change 必须完成可实际使用的文件型 CLI 闭环，不接 UI，不启动 dev server。
-- 该能力只服务开发诊断，不改变生产用户请求、DeepSeek provider、LangChain runtime 或用户可见输出。
+- 该能力只服务开发诊断，不改变生产用户请求、DeepSeek provider、业务 tool handler 或用户可见输出；如需补充 LangChain runtime trace 字段，只能作为 dev-only 观测字段，不改变 provider request 或运行策略。
+
+### 当前 AI trace 链路审计结论
+
+本 change 在实现前必须吸收当前 trace 链路审计结论，避免 Shadow Probe 建在不完整日志之上。
+
+已确认可信的部分：
+
+- `codex_logs/ai_trace_log.js` 能复盘本次请求的 `Saved at`、会话来源、agent loop、provider `tool_calls`、tool 执行状态、失败码、token usage、response projection 和 tool result 的模型可见摘要。
+- tool execution 报告中 `enteredModelContext`、`modelVisibleSummary`、`userProjection`、`traceSummary` 和 `visibilityByPath` 可以区分模型可见摘要与 debug-only 字段。
+- 最新 trace 第 6 轮出现 `toolNames=["inspectVisibleTrainingProposals","submitVisibleTrainingProposal"]`，但 provider 仍输出 `searchExerciseResources`，这个“不在当前 request 暴露 tool 内的 provider tool call”可以从现有 trace 里直接看到。
+
+已确认不完整的部分：
+
+- LangChain model call trace 的 `requestSummary` 目前只保存 `messageCount`、`messagePreviews`、`toolCount` 和 `toolNames`，没有保存独立的 `systemPrompt` / system message、tool description、schema description、finalization tool schema、模型参数或完整 ToolMessage content。
+- `/dev/ai-traces` 导出的 `longTexts` 只能外置已经进入 payload 的长文本；如果 runtime 从未把 system prompt、tool description 或 schema description 放入 trace payload，导出文件无法补回这些字段。
+- `ai_trace_log.js` 中“Long prompt/model text is stored separately”的说明容易被误读为所有 prompt 都已保存；当前实际只能说明 payload 中已有的长文本会被拆到 `ai_trace_texts.jsonl`，不能证明完整模型输入已被记录。
+- 最新 trace 的模型请求摘要里出现两条相同 human message；现有证据更像是 `server_saved` hydration 后进入 LangChain 的实际 message package，而不是导出器凭空生成，但仍需要在 input exporter 中加入重复消息审计，避免把上游输入包问题误判成模型决策问题。
+
+因此，Shadow Probe 的输入来源不能直接依赖现有 AI trace 的 `requestSummary.messagePreviews`。首版 exporter 必须从生产 prompt / tool catalog / tool wrapper / finalization tool / tool result summary 的装配入口导出模型可见输入；如果后续支持从 `/dev/ai-traces` 导入真实聊天 trace，导入器必须先检查 trace 是否含完整 `systemPrompt` 和 tool schema 快照，缺失时只能标记为 `incomplete_trace_source`，不得声称该 trace 已证明“提示词没有生效”或“提示词已经生效”。
 
 ## Goals / Non-Goals
 
@@ -25,7 +44,7 @@
 **Non-Goals:**
 
 - 不让 Codex skill 成为生产 LLM provider。
-- 不修改生产 `/api/chat`、LangChain runtime、DeepSeek model factory 或 production tool handler 行为。
+- 不修改生产 `/api/chat`、DeepSeek model factory 或 production tool handler 行为；不改变 LangChain runtime 的模型调用行为、工具选择策略或预算策略。
 - 不新增 UI，不接 `/dev/ai-traces` 或 `/dev/llm-blackbox`。
 - 不把 Shadow 诊断结果作为普通自动化测试默认通过条件。
 - 不在 Shadow 阶段读取源码来推导正确答案。
@@ -72,6 +91,7 @@ npm run shadow:llm-probe -- --report <runId>
 
 `round-xxx-input.json` 只能包含：
 
+- `modelVisibleInputAudit`：记录本轮 system prompt、messages、tools、finalization tool、tool result summary 和预算说明的来源、长度、hash / fingerprint、完整性状态和缺失字段
 - `systemPrompt`
 - `messages`
 - 当前 provider request 暴露的 `tools` 名称、description、input schema 和 schema descriptions
@@ -81,6 +101,19 @@ npm run shadow:llm-probe -- --report <runId>
 - 可选的 `sourceRefs`，用于指向输入包内部字段，不指向源码路径或 trace debug-only 字段
 
 `sourceRefs` 应使用输入包内部路径，例如 `$.systemPrompt`、`$.messages[0].content`、`$.tools[1].inputSchema`，让 Codex 能在 decision 中引用证据，而不暴露源码路径或实现细节。
+
+`modelVisibleInputAudit` 应使用输入包内部路径，例如 `$.modelVisibleInputAudit.systemPrompt.hash` 和 `$.modelVisibleInputAudit.tools[0].descriptionHash`，用于证明 Shadow 决策看到的合同字段确实由 exporter 提供。
+
+`modelVisibleInputAudit` 最少包含：
+
+- `sourceKind`：`production_assembly`、`runtime_model_request` 或 `trace_import`。
+- `completeness`：`complete` 或 `incomplete`。
+- `missingModelVisibleParts[]`：当来源缺少 system prompt、tool description、schema description、finalization tool 或完整 messages 时必须列出。
+- `systemPrompt`：长度、hash / fingerprint、来源标签。
+- `messages`：message count、每条 message 的 role、长度、hash / fingerprint、重复消息风险标记。
+- `tools`：当前 request 暴露 tool 的 name、description hash、schema hash、schema description hash。
+- `finalizationTool`：name、description hash、schema hash。
+- `budget`：tool 可用性、剩余额度、当前轮次和预算来源。
 
 明确禁止：
 
@@ -94,6 +127,7 @@ npm run shadow:llm-probe -- --report <runId>
 
 - 白名单会牺牲一部分调试便利，但能让结果真正反映模型可见合同是否足够清晰。
 - 如果某个判断只能靠源码或历史经验得出，Shadow 决策必须输出 `contract_gap`，而不是猜一个看似正确的 tool call。
+- 显式审计字段会让输入包更长，但它能回答“日志是不是完整、prompt 是否真的进入模型、tool schema 是否真的暴露”这些排障前提问题。
 
 ### 3. Codex decision 使用稳定 JSON Schema
 
@@ -234,6 +268,8 @@ runner 不负责：
 - **Codex 无法物理忘记当前线程记忆** → 通过新线程使用 skill、shadow input 白名单、每轮证据引用和 `contaminationAudit` 降低污染；无法引用 shadow input 的判断必须标记为 `contract_gap`。
 - **Shadow LLM 能做对不代表 DeepSeek 一定能做对** → 报告只证明合同对强 LLM 是否清晰，不替代真实模型黑盒；DeepSeek 行为仍由现有 manual blackbox 或专项回归验证。
 - **Shadow input 导出不完整会误报合同缺口** → input exporter 必须来自生产 prompt/tool/schema/result summary 装配入口，并用测试证明不漏当前 provider request 中模型可见的关键字段。
+- **沿用现有 AI trace 会误导根因判断** → 当前 trace 对 tool 执行链路可信，但对完整模型可见输入不完整；Shadow Probe 必须用 `modelVisibleInputAudit` 明确来源和完整性，并在 trace import 缺字段时 fail closed。
+- **上游 message package 可能重复用户消息** → exporter 必须记录 message hash 和重复风险，报告中把输入包重复归为 input assembly / hydration 风险，而不是直接归因给 prompt 或 tool description。
 - **runner 调用真实 tool handler 可能写入数据** → 首版必须通过 dev-safe adapter 禁止持久化；只读 tool 可直接执行，`submitVisibleTrainingProposal` 只能走非持久化 validator path。任何真实保存、用户事实写入或高风险 tool 必须在后续 change 中单独设计。
 - **报告可能包含敏感信息** → shadow input 和 report 必须沿用现有 trace 脱敏原则，不保存密钥、cookie、完整 raw provider response 或数据库 raw payload。
 - **能力与现有黑盒测试重叠** → 明确职责分离：黑盒测试验证真实模型最终用户可见输出，Shadow Probe 验证模型可见合同是否可执行。
