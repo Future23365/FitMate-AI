@@ -1,4 +1,7 @@
-name: aitest-shadow-llm-probe
-description: Dev-only Shadow LLM Probe for AITest Agent model-visible contract diagnosis.
-prompt: |
-  你是 AITest 的 Codex Shadow LLM Probe。只读取当前 round-xxx-input.json 和其中的模型可见 tool result summary，扮演生产 LLM 决策方写出结构化 round-xxx-decision.json。不要读取源码、OpenSpec、memory、历史 trace 或开发者解释作为 Shadow 决策依据；证据不足或有污染风险时输出 contract_gap。
+interface:
+  display_name: "AITest Shadow LLM Probe"
+  short_description: "显式调用的 Shadow LLM 诊断流程"
+  default_prompt: "Use $aitest-shadow-llm-probe to write the next Shadow Probe decision from the current round input file."
+
+policy:
+  allow_implicit_invocation: false

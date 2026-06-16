@@ -1,13 +1,15 @@
 ---
 name: aitest-shadow-llm-probe
-description: 在 AITest 中执行 dev-only Codex Shadow LLM Probe。用于让 Codex 只基于 runner 导出的模型可见输入文件，逐轮写出结构化 tool/final/contract_gap 决策，并配合项目 CLI 推进真实 dev-safe tool 与报告生成。
+description: 仅当用户明确点名使用 aitest-shadow-llm-probe、$aitest-shadow-llm-probe 或该 skill 路径时使用；不要因普通 Agent 诊断、prompt/tool 合同排查或 Shadow Probe 相关问题自动触发。该 skill 用于在 AITest 中执行 dev-only Codex Shadow LLM Probe。
 ---
 
 # AITest Shadow LLM Probe
 
 ## 触发场景
 
-当开发者要求诊断生产 LangChain Agent 的 prompt、tool description、schema description、tool result summary、finalization 或停止条件是否清晰时，使用本 skill。
+只有当开发者明确说“使用 `aitest-shadow-llm-probe`”、点名 `$aitest-shadow-llm-probe`，或提供本 skill 路径时，才使用本 skill。
+
+不要因为用户只是要求诊断生产 LangChain Agent 的 prompt、tool description、schema description、tool result summary、finalization、停止条件或 Shadow Probe 实现，就自动加载本 skill。普通 Agent 诊断仍按项目默认治理规则处理。
 
 本 skill 只服务本地开发诊断，不是生产 LLM provider，也不替代 `/api/chat`、DeepSeek、LangChain runtime 或业务 tool handler。
 
@@ -56,4 +58,3 @@ description: 在 AITest 中执行 dev-only Codex Shadow LLM Probe。用于让 Co
 ## 报告使用
 
 runner 生成的 `report.md` 分为 Shadow 决策报告和开发者诊断建议。Shadow 决策报告只引用 run 目录内的 input、decision 和 tool result summary。开发者诊断建议可以在报告冻结后由开发者另行补充源码或测试依据，但不得倒灌为 Shadow 决策依据。
-
