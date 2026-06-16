@@ -254,27 +254,9 @@ describe("AI trace store and HTTP request helpers", () => {
     const longToolSummary = `ToolMessage 摘要 ${"候选动作事实进入模型。".repeat(800)}`;
     const diagnosticPayloadText = `保留可排查 payload ${"exercise ".repeat(120)}`;
     const toolOutputVisibility = {
-      modelVisibleSummary: {
-        visibility: "llm_visible",
-        modelVisible: true,
-        label: "LLM 可见 / ToolMessage 内容",
-        consumer: "LangChain ToolMessage -> LLM",
-        note: "此区块会作为 tool result 摘要回填给模型。",
-      },
-      userProjection: {
-        visibility: "user_projection",
-        modelVisible: false,
-        label: "用户投影 / 前端投影",
-        consumer: "前端投影，不回填模型",
-        note: "此区块供用户可见投影或前端事件消费，不进入模型上下文。",
-      },
-      traceSummary: {
-        visibility: "debug_only",
-        modelVisible: false,
-        label: "debug-only / 调试摘要",
-        consumer: "trace / log 调试，不回填模型",
-        note: "此区块只用于开发排查。",
-      },
+      modelVisibleSummary: "llm_visible",
+      userProjection: "user_projection",
+      traceSummary: "debug_only",
     };
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
@@ -391,10 +373,8 @@ describe("AI trace store and HTTP request helpers", () => {
             candidateDiagnosticsVisibility: {
               fields: ["totalMatches", "returnedCount", "truncated"],
               visibility: "debug_only",
-              modelVisible: false,
             },
             enteredModelContext: true,
-            enteredModelContextMeaning: "enteredModelContext=true 仅表示 modelVisibleSummary 已作为 ToolMessage 进入模型上下文。",
           },
         ],
         detailRefs: [
@@ -485,7 +465,9 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).toContain("\"detailRef\": \"detail_0001\"");
     expect(savedContent).toContain("\"visibility\": \"llm_visible\"");
     expect(savedContent).toContain("\"visibility\": \"debug_only\"");
-    expect(savedContent).toContain("\"modelVisible\": false");
+    expect(savedContent).toContain("\"traceSummary\": \"debug_only\"");
+    expect(savedContent).not.toContain("\"modelVisible\": false");
+    expect(savedContent).not.toContain("trace / log 调试，不回填模型");
     expect(savedContent).toContain("\"totalMatches\": 12");
     expect(savedContent).toContain("\"prompt_tokens\": 10");
     expect(savedContent).not.toContain("rawTrace");
@@ -503,8 +485,10 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(longTextContent).toContain("\"recordType\":\"text_chunk\"");
     expect(longTextContent).toContain("\"recordType\":\"detail\"");
     expect(longTextContent).toContain("\"recordType\":\"detail_chunk\"");
-    expect(longTextContent).toContain("\"visibility\":{\"visibility\":\"llm_visible\"");
-    expect(longTextContent).toContain("\"visibility\":{\"modelVisibleSummary\"");
+    expect(longTextContent).toContain("\"visibility\":\"llm_visible\"");
+    expect(longTextContent).toContain("\"visibility\":{\"modelVisibleSummary\":\"llm_visible\"");
+    expect(longTextContent).not.toContain("debug-only / 调试摘要");
+    expect(longTextContent).not.toContain("trace / log 调试，不回填模型");
     expect(longTextContent).toContain(diagnosticPayloadText.slice(0, 80));
     expect(longTextContent).not.toContain("Bearer secret-token");
     expect(longTextContent).not.toContain("...[truncated]");
@@ -525,17 +509,14 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(detailRefRecords).toHaveLength(1);
     expect(toolSummaryRefRecords).toHaveLength(1);
     expect(toolSummaryRefRecords[0]).toMatchObject({
-      visibility: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+      visibility: "llm_visible",
       visibilityByPath: {
-        "$.langChainToolExecutions[0].modelVisibleSummary": expect.objectContaining({
-          visibility: "llm_visible",
-          modelVisible: true,
-        }),
+        "$.langChainToolExecutions[0].modelVisibleSummary": "llm_visible",
       },
     });
     expect(detailRefRecords[0]).toMatchObject({
       visibility: expect.objectContaining({
-        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        traceSummary: "debug_only",
       }),
     });
     expect(textChunks.every((record) => record.contentRef === undefined)).toBe(true);

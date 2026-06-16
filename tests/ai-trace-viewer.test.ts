@@ -1015,41 +1015,40 @@ describe("AI trace viewer step grouping", () => {
       userProjection: expect.objectContaining({ resourceType: "exercise_search_results" }),
       traceSummary: { totalMatches: 12, returnedCount: 1, truncated: true },
       outputVisibility: {
-        modelVisibleSummary: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
-        userProjection: expect.objectContaining({ visibility: "user_projection", modelVisible: false }),
-        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        modelVisibleSummary: "llm_visible",
+        userProjection: "user_projection",
+        traceSummary: "debug_only",
       },
       candidateDiagnosticsVisibility: {
         fields: ["totalMatches", "returnedCount", "truncated"],
         visibility: "debug_only",
-        modelVisible: false,
       },
-      enteredModelContextMeaning: expect.stringContaining("仅表示 modelVisibleSummary"),
     });
+    expect(toolExecution).not.toHaveProperty("enteredModelContextMeaning");
     expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("totalMatches");
     expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("returnedCount");
     expect(JSON.stringify(toolExecution.modelVisibleSummary)).not.toContain("truncated");
     expect(detailRef).toMatchObject({
       kind: "tool_execution_detail",
       visibility: {
-        modelVisibleSummary: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
-        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        modelVisibleSummary: "llm_visible",
+        traceSummary: "debug_only",
       },
       summary: expect.objectContaining({
         outputVisibility: expect.objectContaining({
-          traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+          traceSummary: "debug_only",
         }),
       }),
     });
     expect(detailHeader).toMatchObject({
       visibility: expect.objectContaining({
-        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        traceSummary: "debug_only",
       }),
     });
     expect(detail.content).toMatchObject({
       traceSummary: { totalMatches: 12, returnedCount: 1, truncated: true },
       outputVisibility: expect.objectContaining({
-        traceSummary: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+        traceSummary: "debug_only",
       }),
     });
   });
@@ -1081,29 +1080,23 @@ describe("AI trace viewer step grouping", () => {
 
     expect(modelVisibleRef).toMatchObject({
       contentRef: "text_0001",
-      visibility: expect.objectContaining({ visibility: "llm_visible", modelVisible: true }),
+      visibility: "llm_visible",
     });
     expect(traceDiagnosticRef).toMatchObject({
       contentRef: "text_0002",
-      visibility: expect.objectContaining({ visibility: "debug_only", modelVisible: false }),
+      visibility: "debug_only",
     });
     expect(longTextRefs).toEqual([
       expect.objectContaining({
         contentRef: "text_0001",
         visibilityByPath: {
-          "$.langChainToolExecutions[0].modelVisibleSummary": expect.objectContaining({
-            visibility: "llm_visible",
-            modelVisible: true,
-          }),
+          "$.langChainToolExecutions[0].modelVisibleSummary": "llm_visible",
         },
       }),
       expect.objectContaining({
         contentRef: "text_0002",
         visibilityByPath: {
-          "$.langChainToolExecutions[0].traceSummary.diagnostic": expect.objectContaining({
-            visibility: "debug_only",
-            modelVisible: false,
-          }),
+          "$.langChainToolExecutions[0].traceSummary.diagnostic": "debug_only",
         },
       }),
     ]);

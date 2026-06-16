@@ -1,5 +1,50 @@
 ## ADDED Requirements
 
+### Requirement: Shadow Probe 必须提供可运行的 CLI 文件闭环
+
+系统 SHALL 提供 dev-only CLI 或等价脚本，使开发者无需启动浏览器或真实模型调用即可为单条用户消息创建 shadow run、推进 Codex decision、执行 dev-safe tool，并生成报告。
+
+#### Scenario: 启动单条消息 shadow run
+- **WHEN** 开发者通过 CLI 为单条用户消息启动 Codex Shadow LLM Probe
+- **THEN** 系统 MUST 创建 `codex_logs/shadow_llm_probe/<runId>/manifest.json`
+- **AND** 系统 MUST 创建 `round-001-input.json`
+- **AND** CLI MUST 输出 `runId`、下一步需要 Codex 写入的 decision 文件路径和报告路径
+- **AND** CLI MUST NOT 调用 DeepSeek 或任何外部模型 provider
+
+#### Scenario: 推进已有 shadow run
+- **WHEN** 开发者通过 CLI 继续一个已有 shadow run
+- **AND** 当前轮 `round-xxx-decision.json` 已存在
+- **THEN** 系统 MUST 校验该 decision
+- **AND** 合法 `call_tool` MUST 推进到真实 dev-safe tool 执行和下一轮 input
+- **AND** `final_answer`、`contract_gap`、预算耗尽、decision 校验失败或 tool 执行失败 MUST 写入终态 manifest
+
+#### Scenario: 生成或刷新报告
+- **WHEN** 开发者通过 CLI 为已有 shadow run 生成报告
+- **THEN** 系统 MUST 读取该 run 的 manifest、input、decision 和 tool result 文件
+- **AND** 系统 MUST 生成或刷新 `report.md` 和 `report.json`
+- **AND** 报告生成 MUST NOT 重新执行 tool handler 或调用模型 provider
+
+### Requirement: Shadow Probe skill 必须作为决策执行说明落地
+
+系统 SHALL 提供项目级 `aitest-shadow-llm-probe` Codex skill，指导 Codex 在隔离输入内扮演生产 LLM 决策方，并按稳定 decision schema 写入每轮决策。
+
+#### Scenario: Skill 文件结构完整
+- **WHEN** 实现 Codex Shadow LLM Probe
+- **THEN** 系统 MUST 创建 `.codex/skills/aitest-shadow-llm-probe/SKILL.md`
+- **AND** 系统 MUST 提供 shadow input contract、decision output schema 和 diagnosis rubric 的 references
+- **AND** 系统 MUST 提供 `agents/openai.yaml` 或等价 skill metadata
+
+#### Scenario: Skill 明确禁止外部知识污染
+- **WHEN** Codex 使用该 skill 执行 Shadow 决策
+- **THEN** skill MUST 要求 Codex 只读取当前轮 shadow input 和上一轮模型可见 tool result summary
+- **AND** skill MUST 禁止把仓库源码、Codex memory、历史 trace、OpenSpec 说明、开发者解释或 debug-only 字段作为决策依据
+- **AND** skill MUST 要求无法从 shadow input 推出的判断输出 `contract_gap`
+
+#### Scenario: Skill 要求每轮写入结构化文件
+- **WHEN** Codex 完成任一轮 Shadow 决策
+- **THEN** skill MUST 要求 Codex 写入 `round-xxx-decision.json`
+- **AND** skill MUST 要求 decision 包含证据、字段理由、缺失事实、合同疑点和污染审计
+
 ### Requirement: Shadow Probe 必须导出隔离的模型可见输入
 
 系统 SHALL 为 Codex Shadow LLM Probe 生成隔离的 shadow input，使 Codex 只能看到当前生产 LLM 在等价请求中可见的 prompt、messages、tools schema、tool descriptions、schema descriptions、tool result summary 和预算边界。
@@ -10,6 +55,7 @@
 - **AND** 该文件 MUST 包含当前生产 LangChain 主链实际使用的 system prompt、用户消息、当前 request 暴露的 tool 名称、tool description、input schema 和 schema description
 - **AND** 该文件 MUST 包含当前模型可见的 finalization tool description / schema
 - **AND** 该文件 MUST 包含当前模型可见的运行预算摘要
+- **AND** 该文件 MUST 包含可被 decision 引用的输入包内部 `sourceRefs` 或等价路径标识
 
 #### Scenario: Shadow input 禁止包含 debug-only 内容
 - **WHEN** 系统生成任一轮 shadow input
@@ -74,9 +120,28 @@
 - **AND** runner MUST 使用与生产模型可见 summary 等价的投影方式生成 tool result summary
 - **AND** runner MUST 记录 tool 执行状态、错误码和下一轮输入路径
 
+#### Scenario: 支持完整首版 tool 推进范围
+- **WHEN** Shadow runner 执行首版支持的 tool
+- **THEN** runner MUST 支持 `inspectVisibleTrainingProposals` 的只读事实导入
+- **AND** runner MUST 支持 `searchExerciseResources` 的只读动作资源查询
+- **AND** runner MUST 支持 `submitVisibleTrainingProposal` 的非持久化结构校验和 visible output validator path
+- **AND** runner MUST 支持 `fitmate_final_response` 或等价 finalization 终态记录
+
+#### Scenario: 禁止诊断 run 写入业务事实
+- **WHEN** Shadow runner 执行 `submitVisibleTrainingProposal` 或等价结构化收口校验
+- **THEN** runner MUST NOT 保存聊天消息
+- **AND** runner MUST NOT 写入 visible training proposal facts
+- **AND** runner MUST NOT 改变用户真实会话状态
+- **AND** runner MUST 只保留诊断 run 文件中的校验结果和模型可见 summary
+
 #### Scenario: Shadow runner 不替代 LLM 语义判断
 - **WHEN** runner 推进 Shadow Probe loop
 - **THEN** runner MUST NOT 基于用户自然语言、关键词、正则、同义词、短句模板或历史摘要替 Codex 选择 tool、改写 tool input、改变调用顺序或生成 final answer
+
+#### Scenario: 终态 manifest 可复现
+- **WHEN** Shadow Probe loop 到达任一终态
+- **THEN** runner MUST 在 manifest 中记录终态类型、终态轮次、失败原因或 final / contract gap 摘要
+- **AND** 后续报告生成 MUST 能仅凭该 run 目录中的文件复现报告
 
 ### Requirement: Shadow 报告必须按轮次解释决策和合同问题
 
@@ -118,3 +183,11 @@
 - **WHEN** 实现本 change 的首版任务
 - **THEN** 系统 MUST 通过文件型 CLI / script 闭环完成诊断
 - **AND** 系统 MUST NOT 要求启动 dev server、打开浏览器或修改 `/dev/ai-traces`、`/dev/llm-blackbox` 页面
+
+#### Scenario: 首版交付不得只是静态导出
+- **WHEN** 实现本 change 的首版任务完成
+- **THEN** 系统 MUST 能从一条用户消息生成首轮 shadow input
+- **AND** 系统 MUST 能读取 Codex 写出的合法 `call_tool` decision 并执行 dev-safe tool
+- **AND** 系统 MUST 能生成下一轮 input
+- **AND** 系统 MUST 能在终态生成 report
+- **AND** 只有 prompt 导出、skill 空壳或静态文档 MUST NOT 被视为完成

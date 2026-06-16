@@ -7,8 +7,8 @@
 关键约束：
 
 - Shadow 阶段只能读取 runner 导出的模型可见输入，不能读源码、memory、历史修复经验、debug-only trace 或数据库 raw payload。
-- 项目侧脚本负责校验 Codex 决策和执行真实 tool handler；Codex skill 不直接调用生产内部函数。
-- 先完成文件型闭环，不接 UI，不启动 dev server。
+- 项目侧脚本负责校验 Codex 决策和执行真实 dev-safe tool handler；Codex skill 不直接调用生产内部函数。
+- 本 change 必须完成可实际使用的文件型 CLI 闭环，不接 UI，不启动 dev server。
 - 该能力只服务开发诊断，不改变生产用户请求、DeepSeek provider、LangChain runtime 或用户可见输出。
 
 ## Goals / Non-Goals
@@ -18,8 +18,9 @@
 - 建立 `aitest-shadow-llm-probe` skill 的使用流程和污染控制规则。
 - 定义 shadow input 白名单，确保 Codex Shadow 决策只看到真实模型可见内容。
 - 定义结构化 decision 输出，明确 tool call / final / contract gap 的证据、参数来源和污染审计。
-- 定义 dev-only runner 如何执行真实 tool handler、推进多轮输入和生成报告。
+- 实现 dev-only runner 如何执行真实 dev-safe tool handler、推进多轮输入和生成报告。
 - 定义最终报告的合同归因分类，帮助区分 prompt、tool description、schema description、tool result summary、finalization 和 runtime budget 问题。
+- 提供一条用户消息即可启动的 CLI 工作流，使首版无需 UI 也能完成完整 probe。
 
 **Non-Goals:**
 
@@ -29,6 +30,7 @@
 - 不把 Shadow 诊断结果作为普通自动化测试默认通过条件。
 - 不在 Shadow 阶段读取源码来推导正确答案。
 - 不新增服务端自然语言关键词分流、用户 phrasing 特判或 provider `tool_calls` 改写。
+- 不在首版支持从浏览器页面一键触发；真实聊天 trace 导入可以由后续 change 接 UI 或 trace viewer。
 
 ## Decisions
 
@@ -49,11 +51,22 @@ codex_logs/shadow_llm_probe/<runId>/
 
 runner 先导出 `round-001-input.json`，Codex skill 读取后写出 `round-001-decision.json`。项目脚本校验 decision 并执行真实 tool handler，再写出下一轮 input。循环直到 final、contract gap、预算耗尽或 decision 校验失败。
 
+首版 CLI 应支持以下最小完整工作流：
+
+```bash
+npm run shadow:llm-probe -- --message "今天我想练胸"
+npm run shadow:llm-probe -- --continue <runId>
+npm run shadow:llm-probe -- --report <runId>
+```
+
+其中 `--message` 负责创建 run 并导出 `round-001-input.json`；`--continue` 负责读取最近一轮 `round-xxx-decision.json`、校验并推进下一轮；`--report` 负责在任意终态生成或刷新报告。命令名可在实现中按项目脚本命名约定调整，但必须提供等价能力。
+
 取舍：
 
 - 文件型闭环可审计、可复现，便于人工检查每一轮输入和决策。
 - 不接 UI 可以避免把未稳定的诊断流程混进开发页面状态模型。
 - 不直接接生产请求可以保证线上行为不依赖 Codex 当前会话或 skill 可用性。
+- CLI 拆成 start / continue / report 是为了让 Codex 决策仍由当前 Codex 会话人工写入文件，同时 runner 保持确定性推进。
 
 ### 2. Shadow input 只包含模型可见白名单
 
@@ -66,6 +79,8 @@ runner 先导出 `round-001-input.json`，Codex skill 读取后写出 `round-001
 - 当前可见 finalization tool description / schema
 - 当前 run 的模型可见预算说明，例如 allowed tools、remaining tool calls、当前 round index
 - 可选的 `sourceRefs`，用于指向输入包内部字段，不指向源码路径或 trace debug-only 字段
+
+`sourceRefs` 应使用输入包内部路径，例如 `$.systemPrompt`、`$.messages[0].content`、`$.tools[1].inputSchema`，让 Codex 能在 decision 中引用证据，而不暴露源码路径或实现细节。
 
 明确禁止：
 
@@ -119,6 +134,18 @@ Codex Shadow 决策必须写入结构化 JSON，核心形态：
 - `final_answer`：可基于当前可见事实终止并给出最终回答意图。
 - `contract_gap`：模型可见合同不足以可靠决策，或 Shadow 决策受到污染风险。
 
+decision schema 必须支持以下字段族：
+
+- `runId`、`roundId`：绑定当前 run 和轮次，避免误读其他轮文件。
+- `decision`：`call_tool`、`final_answer` 或 `contract_gap`。
+- `toolName`、`toolInput`：仅 `call_tool` 时允许。
+- `finalAnswer`：仅 `final_answer` 时允许，表达 Codex 作为 LLM 会提交的最终回答意图。
+- `evidence[]`：引用 shadow input 内部路径和摘要。
+- `fieldRationale[]`：解释 tool input 或 final answer 中关键字段的来源。
+- `missingFacts[]`：列出无法从模型可见输入获得的事实。
+- `contractConcerns[]`：列出 prompt、tool、schema、summary、finalization 或 budget 疑点。
+- `contaminationAudit`：声明是否只使用 shadow input，以及疑似污染点。
+
 取舍：
 
 - 结构化输出会增加 Codex 操作成本，但能让 runner 做 deterministic validation。
@@ -135,6 +162,7 @@ runner 职责：
 - 调用真实 dev-safe tool wrapper / handler。
 - 将 handler 输出压缩为真实模型可见 tool result summary。
 - 记录执行状态、错误码和下一轮输入。
+- 对 `final_answer` 和 `contract_gap` 生成终态 manifest，确保 `report` 命令可以无额外推理地产生报告。
 
 runner 不负责：
 
@@ -142,13 +170,30 @@ runner 不负责：
 - 修复 Codex 的非法 tool input。
 - 把 debug-only trace 补给 Codex。
 - 修改生产 prompt、tool description 或 finalization 合同。
+- 在 Codex decision 缺失时自动向 Codex 发请求或调用真实模型补齐决策。
 
 取舍：
 
 - runner 做 deterministic validation，可以暴露 schema description 是否真的足够指导字段构造。
 - 不自动修复 decision，能保留合同缺口证据。
 
-### 5. 报告分为 Shadow 决策报告和开发者诊断建议
+### 5. 首版支持完整 dev-safe tool 范围
+
+首版不是只导出 prompt 的静态检查。runner 必须支持至少以下 dev-safe 推进范围：
+
+- `inspectVisibleTrainingProposals`：只读导入当前用户最近可见训练事实。
+- `searchExerciseResources`：只读动作资源查询，并生成与生产模型可见 summary 等价的 ToolMessage content。
+- `submitVisibleTrainingProposal`：只允许走结构校验和可见输出 validator，默认不持久化、不写聊天历史、不写训练事实；用于验证 Codex 何时会进入结构化收口。
+- `fitmate_final_response` 或等价 finalization tool：作为 final_answer 的报告终态，不调用 DeepSeek。
+
+如果某个 tool 当前生产 wrapper 强绑定流式响应、持久化或用户事实写入，实现必须拆出 dev-safe adapter，复用同一 schema、validator 和模型可见 summary，而不是在 runner 中复制业务逻辑。
+
+取舍：
+
+- 纳入 `submitVisibleTrainingProposal` 的非持久化 validation path，能完整验证“查到候选后是否知道收口”的核心问题。
+- 禁止持久化可以避免诊断 run 污染真实聊天历史和用户业务事实。
+
+### 6. 报告分为 Shadow 决策报告和开发者诊断建议
 
 `report.md` 分两段：
 
@@ -173,28 +218,39 @@ runner 不负责：
 - 分段报告能保留 Shadow 阶段的纯净性，同时给开发者足够落地建议。
 - 不把开发者诊断混入 Shadow 决策，避免“知道源码后倒推模型应该怎么做”。
 
+### 7. 完成定义
+
+本 change 只有在以下能力全部可用时才算实现完成：
+
+- 开发者可通过 CLI 为一条用户消息创建 shadow run，并得到 `round-001-input.json`。
+- Codex 可按 skill 要求写入 `round-001-decision.json`。
+- runner 可校验该 decision，执行合法 dev-safe tool，并生成下一轮 input。
+- 多轮 loop 可推进到 `final_answer`、`contract_gap`、预算耗尽或校验失败终态。
+- `report.md` 和 `report.json` 可由已存在 run 生成，报告包含每轮证据、字段来源、污染审计和合同归因。
+- 普通自动化测试覆盖 schema、白名单、runner 校验、dev-safe tool 推进、报告生成和生产隔离。
+
 ## Risks / Trade-offs
 
 - **Codex 无法物理忘记当前线程记忆** → 通过新线程使用 skill、shadow input 白名单、每轮证据引用和 `contaminationAudit` 降低污染；无法引用 shadow input 的判断必须标记为 `contract_gap`。
 - **Shadow LLM 能做对不代表 DeepSeek 一定能做对** → 报告只证明合同对强 LLM 是否清晰，不替代真实模型黑盒；DeepSeek 行为仍由现有 manual blackbox 或专项回归验证。
 - **Shadow input 导出不完整会误报合同缺口** → input exporter 必须来自生产 prompt/tool/schema/result summary 装配入口，并用测试证明不漏当前 provider request 中模型可见的关键字段。
-- **runner 调用真实 tool handler 可能写入数据** → 首版只允许只读 tool 或已确认 dev-safe 的 finalization validation path；任何持久化、保存用户事实或高风险 tool 必须在后续 change 中单独设计。
+- **runner 调用真实 tool handler 可能写入数据** → 首版必须通过 dev-safe adapter 禁止持久化；只读 tool 可直接执行，`submitVisibleTrainingProposal` 只能走非持久化 validator path。任何真实保存、用户事实写入或高风险 tool 必须在后续 change 中单独设计。
 - **报告可能包含敏感信息** → shadow input 和 report 必须沿用现有 trace 脱敏原则，不保存密钥、cookie、完整 raw provider response 或数据库 raw payload。
 - **能力与现有黑盒测试重叠** → 明确职责分离：黑盒测试验证真实模型最终用户可见输出，Shadow Probe 验证模型可见合同是否可执行。
 
 ## Migration Plan
 
-1. 新增 `aitest-shadow-llm-probe` skill 和 references，先定义操作规则，不接生产代码。
-2. 新增 shadow input / decision / report 的 schema 和 fixture 测试。
-3. 新增 CLI 或脚本生成 `round-001-input.json`，优先支持单轮最新用户消息和生产 tool catalog。
-4. 新增 decision validator 和只读 tool 推进能力，完成文件型多轮 loop。
+1. 新增 `aitest-shadow-llm-probe` skill 和 references，定义操作规则、输入白名单、decision schema 和污染审计。
+2. 新增 shadow input / decision / report 的 schema、fixture 和白名单测试。
+3. 新增 CLI 或脚本生成 `round-001-input.json`，支持单条用户消息和生产 tool catalog。
+4. 新增 decision validator、dev-safe tool executor 和 loop 推进能力，完成文件型多轮 loop。
 5. 新增报告生成器，输出 `report.json` 和 `report.md`。
-6. 根据真实使用结果，再单独评估是否接入 `/dev/ai-traces` 或 `/dev/llm-blackbox`。
+6. 增加生产隔离测试，确认 `/api/chat` 不依赖 Shadow Probe。
+7. 根据真实使用结果，再单独评估是否接入 `/dev/ai-traces` 或 `/dev/llm-blackbox`。
 
 回滚方式：删除或停用 dev-only script / skill，不影响生产 `/api/chat`。生成的 `codex_logs/shadow_llm_probe/**` 文件可按诊断输出处理，不参与生产数据恢复。
 
 ## Open Questions
 
-- 首版是否只允许 `searchExerciseResources` 和 `inspectVisibleTrainingProposals` 等只读 tool，还是允许 `submitVisibleTrainingProposal` 走非持久化 validator path？
-- Shadow input 是否直接复用现有 AI trace export，还是新增专门的 production model-visible input exporter？
-- Codex decision 是否由人工复制到文件，还是后续通过更自动化的本地工具写入？
+- 是否在后续 change 中接入 `/dev/ai-traces` 或 `/dev/llm-blackbox`，让真实聊天 trace 可一键生成 shadow run？
+- 是否在后续 change 中允许更高风险或写入类 tool 通过显式确认进入 Shadow Probe？

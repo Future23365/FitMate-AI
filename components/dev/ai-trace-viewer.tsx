@@ -108,6 +108,8 @@ export type ToolExecutionVisibilityMetadata = {
   note: string;
 };
 
+type ToolExecutionVisibilityExportMap = Record<ToolExecutionVisibilityField, ToolExecutionVisibilityKind>;
+
 export type ToolExecutionVisibilitySection = ToolExecutionVisibilityMetadata & {
   field: ToolExecutionVisibilityField;
   title: string;
@@ -125,8 +127,8 @@ export type TraceLogLongTextRef = {
   originalLength: number;
   hash: string;
   preview: string;
-  visibility?: ToolExecutionVisibilityMetadata;
-  visibilityByPath?: Record<string, ToolExecutionVisibilityMetadata>;
+  visibility?: ToolExecutionVisibilityKind;
+  visibilityByPath?: Record<string, ToolExecutionVisibilityKind>;
   textFile: "codex_logs/ai_trace_texts.jsonl";
 };
 
@@ -141,7 +143,7 @@ export type TraceLogDetailRef = {
   kind: TraceLogDetailKind;
   hash: string;
   summary: Record<string, unknown>;
-  visibility?: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata>;
+  visibility?: ToolExecutionVisibilityExportMap;
   detailFile: "codex_logs/ai_trace_texts.jsonl";
 };
 
@@ -1682,12 +1684,12 @@ export function createToolExecutionVisibilitySections(execution: Record<string, 
   });
 }
 
-// createToolExecutionOutputVisibility 是导出报告中的稳定字段级可见性合同，不携带 payload 本身。
+// createToolExecutionOutputVisibility 是导出报告中的紧凑字段级可见性合同，UI 文案由 viewer 渲染时补齐。
 function createToolExecutionOutputVisibility() {
   return {
-    modelVisibleSummary: toolExecutionVisibilityDefinitions.modelVisibleSummary,
-    userProjection: toolExecutionVisibilityDefinitions.userProjection,
-    traceSummary: toolExecutionVisibilityDefinitions.traceSummary,
+    modelVisibleSummary: toolExecutionVisibilityDefinitions.modelVisibleSummary.visibility,
+    userProjection: toolExecutionVisibilityDefinitions.userProjection.visibility,
+    traceSummary: toolExecutionVisibilityDefinitions.traceSummary.visibility,
   };
 }
 
@@ -2209,6 +2211,7 @@ function createLangChainRuntimeSummaryReport(summary: Record<string, unknown>) {
 
 function createLangChainToolExecutionReport(execution: Record<string, unknown>) {
   const outputVisibility = createToolExecutionOutputVisibility();
+  const diagnosticFields = readCandidateDiagnosticFields(execution.traceSummary);
 
   return {
     toolCallId: readString(execution.toolCallId),
@@ -2220,14 +2223,15 @@ function createLangChainToolExecutionReport(execution: Record<string, unknown>) 
     userProjection: execution.userProjection,
     traceSummary: execution.traceSummary,
     outputVisibility,
-    candidateDiagnosticsVisibility: {
-      fields: readCandidateDiagnosticFields(execution.traceSummary),
-      visibility: outputVisibility.traceSummary.visibility,
-      modelVisible: outputVisibility.traceSummary.modelVisible,
-      note: "traceSummary 中的候选数量诊断字段只用于 debug-only 排查，不回填模型。",
-    },
+    ...(diagnosticFields.length > 0
+      ? {
+        candidateDiagnosticsVisibility: {
+          fields: diagnosticFields,
+          visibility: outputVisibility.traceSummary,
+        },
+      }
+      : {}),
     enteredModelContext: execution.enteredModelContext,
-    enteredModelContextMeaning: formatEnteredModelContextMeaning(execution.enteredModelContext === true),
     sequence: readNumber(execution.sequence),
     modelCallIndex: readNumber(execution.modelCallIndex),
     runtimeStep: readNumber(execution.runtimeStep),
@@ -2255,7 +2259,6 @@ function createLangChainToolExecutionReports(
     .map((execution, index) => {
       const outputVisibility = createToolExecutionOutputVisibility();
       const report = createLangChainToolExecutionReport(execution);
-      const enteredModelContextMeaning = formatEnteredModelContextMeaning(execution.enteredModelContext === true);
 
       return {
         ...report,
@@ -2270,13 +2273,13 @@ function createLangChainToolExecutionReports(
             runtimeStep: readNumber(execution.runtimeStep),
             modelCallIndex: readNumber(execution.modelCallIndex),
             outputVisibility,
-            enteredModelContextMeaning,
           },
           content: {
             ...execution,
             outputVisibility,
-            candidateDiagnosticsVisibility: report.candidateDiagnosticsVisibility,
-            enteredModelContextMeaning,
+            ...(report.candidateDiagnosticsVisibility
+              ? { candidateDiagnosticsVisibility: report.candidateDiagnosticsVisibility }
+              : {}),
           },
         }),
       };
@@ -2438,7 +2441,7 @@ function createTraceLogDetailEntry(
     path: string;
     kind: TraceLogDetailKind;
     summary: Record<string, unknown>;
-    visibility?: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata>;
+    visibility?: ToolExecutionVisibilityExportMap;
     content: unknown;
   },
 ): TraceLogDetailRef {
@@ -2667,7 +2670,7 @@ function createLongTextMappingRef(
 function inferToolExecutionPathVisibility(path: string) {
   const visibilityField = readToolExecutionVisibilityFieldFromPath(path);
 
-  return visibilityField ? toolExecutionVisibilityDefinitions[visibilityField] : undefined;
+  return visibilityField ? toolExecutionVisibilityDefinitions[visibilityField].visibility : undefined;
 }
 
 function readToolExecutionVisibilityFieldFromPath(path: string): ToolExecutionVisibilityField | undefined {
