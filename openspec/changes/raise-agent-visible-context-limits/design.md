@@ -12,6 +12,7 @@
 - 提高 JSON 投影的数组项数和对象字段数预算，避免结构层面提前丢候选。
 - 提高动作候选、历史 visibleTrainingProposal 事实、失败收口输入和相关 trace / NDJSON 投影预算。
 - 保持所有预算来自集中配置或明确 hard cap，方便后续 token 优化时统一回收。
+- 保持模型调用次数、整轮业务 tool 调用次数和单 tool 重复调用次数的原预算不变。
 
 **Non-Goals:**
 
@@ -19,6 +20,7 @@
 - 不修改 `/api/chat` 主链路、LangChain runtime 主循环或 provider payload 合同。
 - 不增加服务端关键词、正则、同义词或用户 phrasing 分流。
 - 不移除所有确定性上限；provider 上下文、请求延迟和浏览器响应仍需要有限边界。
+- 不调大 `maxModelCalls`、`maxToolCalls` 或 `maxToolCallsPerTool`。
 
 ## Decisions
 

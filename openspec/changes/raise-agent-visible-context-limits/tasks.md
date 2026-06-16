@@ -1,6 +1,6 @@
 ## 1. 配置和预算
 
-- [x] 1.1 调大 Agent runtime、tool wrapper、terminal failure finalizer、trace / NDJSON 投影和业务 tool 候选数量配置。
+- [x] 1.1 调大模型输出/等待窗口、tool wrapper、terminal failure finalizer、trace / NDJSON 投影和业务 tool 候选数量配置，并保持调用次数预算原值。
 - [x] 1.2 将 `toLangChainJsonValue()` 的数组项数和对象字段数裁剪纳入集中配置，并让模型可见摘要、projection、trace 和 finalizer 使用该预算。
 - [x] 1.3 同步调大 `searchExerciseResources` repository hard cap 和 `inspectVisibleTrainingProposals` fact store hard cap，避免配置被旧上限静默截断。
 

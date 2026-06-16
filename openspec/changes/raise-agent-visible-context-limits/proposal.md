@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 调大 LangChain Agent 主链、tool wrapper、terminal failure finalizer、trace / NDJSON 投影和业务 tool 候选读取预算。
+- 调大 LangChain 模型输出/等待窗口、tool wrapper、terminal failure finalizer、trace / NDJSON 投影和业务 tool 候选读取预算；不调大模型调用次数、整轮 tool 调用次数或单 tool 重复调用次数。
 - 将 `toLangChainJsonValue()` 中数组项数和对象字段数的硬编码裁剪纳入集中配置，并在模型可见摘要、userProjection、traceSummary、finalizer 输入和 visible output 投影中统一使用。
 - 同步调大 `searchExerciseResources` 的候选数量配置和 repository hard cap，避免只改配置但底层仍被旧 hard cap 截断。
 - 同步调大 `inspectVisibleTrainingProposals` 的最近事实读取配置和 fact store hard cap，避免历史可见训练事实过早丢失。
@@ -18,12 +18,12 @@
 
 ### Modified Capabilities
 
-- `agent-runtime-configuration`: 调整 Agent runtime、tool wrapper、finalizer 和业务 tool 可见事实预算，要求集中配置和 hard cap 同步。
+- `agent-runtime-configuration`: 调整模型输出/等待窗口、tool wrapper、finalizer 和业务 tool 可见事实预算，要求集中配置和 hard cap 同步；调用次数预算保持原值。
 - `ai-model-payload-budget`: 调整模型可见 payload 预算策略，在准确度优先阶段保留更完整的受控事实，同时仍保持确定性上限。
 
 ## Impact
 
-- 影响 `lib/server/config/agent-runtime-config.ts` 中的运行预算、投影预算和 tool 候选数量配置。
+- 影响 `lib/server/config/agent-runtime-config.ts` 中的输出/等待窗口、投影预算和 tool 候选数量配置；不改变调用次数预算。
 - 影响 `lib/server/langchain-agent/utils.ts` 及其调用方的 JSON 投影结构裁剪行为。
 - 影响动作资源 repository 和 visible training proposal fact store 的 hard cap。
 - 需要更新相关 runtime、tool、response adapter 和 OpenSpec 验证测试。

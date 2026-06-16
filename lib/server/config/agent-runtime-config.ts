@@ -136,12 +136,12 @@ export const agentRuntimeConfig = {
     },
     /** runBudget 控制 LangChain agent harness 最大推进范围，避免 provider/tool 循环拖垮请求。 */
     runBudget: {
-      /** maxModelCalls 限制单次聊天最多 provider 模型调用次数；准确度优先阶段放宽，避免合法多轮 tool 消费被过早中断。 */
-      maxModelCalls: 31,
-      /** maxToolCalls 限制单次聊天最多业务 tool 总执行次数；准确度优先阶段放宽，避免候选查询和结构化收口预算不足。 */
-      maxToolCalls: 30,
-      /** maxToolCallsPerTool 限制同一业务 tool 的连续调用次数；仍保留保险丝，但降低正常多次查询被截断的概率。 */
-      maxToolCallsPerTool: 10,
+      /** maxModelCalls 限制单次聊天最多 provider 模型调用次数；这是调用预算保险丝，不属于模型可见内容截断配置。 */
+      maxModelCalls: 16,
+      /** maxToolCalls 限制单次聊天最多业务 tool 总执行次数；保持原调用预算，避免放大无目标重复查询。 */
+      maxToolCalls: 15,
+      /** maxToolCallsPerTool 限制同一业务 tool 的连续调用次数；保持原重复调用上限。 */
+      maxToolCallsPerTool: 5,
       /** overallTimeoutMs 是整次 LangChain run 墙钟预算；准确度优先阶段给长候选与 finalization 留出执行时间。 */
       overallTimeoutMs: 90_000,
     },
