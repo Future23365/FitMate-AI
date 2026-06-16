@@ -347,29 +347,27 @@ export function createSearchExerciseResourcesLangChainTool(
   return defineLangChainToolWrapper<typeof searchExerciseResourcesInputSchema, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
     description: [
-      "Purpose：只读查询 Exercise 动作库中的发布态动作候选事实，Planner-visible 结果返回按查询口径分组的 candidateGroups[]。",
-      "Use When：需要基于动作库 facet、高层执行条件、suitabilities 查询口径、受控 exerciseId 或动作名称获取动作候选时使用。",
+      "Purpose：只读查询 Exercise 动作库中的发布态动作候选事实，结果按 candidateGroups[] 分组返回。",
+      "Use When：需要基于动作库 facet、高层执行条件、suitabilities、受控 exerciseId 或动作名称获取候选动作时使用。",
+      "Use When：一次 routine 或 plan 同时需要热身、主训练和拉伸候选时，可以在同一次调用中传入多个 suitabilities，例如 warmup、training、stretch。",
       "Do Not Use When：不要用本 tool 生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程、保存结果、读取单个动作完整详情、分页或自然语言语义搜索。",
-      "Do Not Use When：当前缺口是从已有候选中选择子集、排序、安排 section、生成 prescription、生成 schedule、决定 routine / plan 结构或解释推荐理由；这些属于模型编排任务，不属于动作库查询任务。",
-      "Do Not Use When：已有 broad query 返回了可用于目标 section 的候选，且用户没有新增硬约束、替换要求或更多候选要求时，不要再把同一目标拆成更窄 muscles / suitabilities 查询。",
-      "Do Not Use When：用户没有指定具体肌群，且 broad query 已返回可用于当前 routine 的 training 候选时，不要为了完整覆盖继续拆成胸、背、腿、肩、手臂、核心或等价全身肌群查询。",
+      "Do Not Use When：当前缺口是从已有候选中选择子集、排序、安排 section、生成 prescription、生成 schedule、决定 routine / plan 结构或解释推荐理由；这些属于模型编排或结构化收口，不属于动作库查询。",
+      "Do Not Use When：已有候选事实能支撑当前输出，且用户没有新增硬约束、替换要求或更多候选要求时，不要为了完整 inventory、所有肌群或更纯净候选池继续拆分查询。",
       `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；宽泛动作推荐、动作筛选或结构化训练结果候选缺少明确器械、场地或可用设施偏好时，默认使用 no_equipment 作为低门槛无器械口径；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
       `Input Source：home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。`,
       "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
       "Input Source：impactLimit 和 noiseLimit 是上限筛选；适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用。",
-      "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令。",
+      "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令；需要多个阶段候选时优先一次性传入多个值。",
       "Input Source：muscles 只能来自用户明确指定的目标肌群、已验证上下文中的目标肌群，或模型已经收敛出的少量必要训练目标；不要把宽泛目标、常规训练知识或未指定肌群扩展成全身肌群清单。",
       'Input Source：muscles 用于目标肌群动作推荐、训练动作筛选或结构化训练结果候选时，默认使用 muscleMatchRole = "primary"，表示请求肌群是动作主练目标。',
       'Input Source：需要查询肌群是否参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作时，使用 muscleMatchRole = "any"；any 不代表候选动作都同等适合作为目标肌群主练推荐。',
       "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量；它不是分页、offset、cursor 或最终展示数量承诺。",
       "Output Meaning：candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径，不是动作 placement eligibility 或最终训练阶段指令。",
-      "Output Meaning：candidateGroups[].exercises 是动作候选池，不是最终推荐清单；候选动作可以被选择、跳过或用于后续结构化输出，未选择的候选不需要通过再次查询移除。",
-      "Output Meaning：candidateGroups[].exercises 只要存在能满足当前目标的可选择子集，就可以支撑动作推荐集合；候选池不要求完全纯净，也不要求先排除未选候选。",
+      "Output Meaning：candidateGroups[].exercises 是可消费动作候选事实，不是最终推荐清单；候选动作可以被选择、跳过或用于后续结构化输出。",
       "Output Meaning：本 tool 只返回动作候选事实，不返回 prescription、schedule、routine 或 plan；缺口是 prescription 或 schedule 时，重复查询动作库不会新增该类事实。",
       "Output Meaning：truncated=true 或 totalMatches 大，只表示本次返回的是候选池切片；它不表示当前候选不足，也不要求继续分页、扩大数量或拆分查询。",
       "Output Meaning：coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选；它不是用户目标满足度、训练方案生成结果或下一步 tool 调用指令。",
       "Output Meaning：training 候选用于支撑主训练动作选择；warmup / stretch 候选用于支撑辅助阶段选择。除非用户明确要求特定覆盖，否则辅助阶段不要求每个目标肌群都有 primary 候选。",
-      "Output Meaning：辅助阶段的局部窄查询缺口只表示当前查询口径下候选不完整；如果已有可用辅助候选和主训练候选，它不等于整体 routine 或 plan 不可提交。",
       "Resource Boundary：Exercise 动作库是 FitMate 的产品可渲染动作资源库，用于动作卡片、图片、动作详情、结构化训练结果和训练执行项；它不是现实世界训练知识全集。",
       "Resource Boundary：空候选或点名动作未命中只表示当前查询口径下产品动作库没有匹配的可渲染资源；不表示现实训练动作或训练知识不存在。",
       "Resource Boundary：不需要产品动作卡片、图片、结构化训练结果或训练执行项的普通文本知识回答，可以不依赖数据库动作条目；需要这些产品资源时，具体 exerciseId 仍必须来自数据库动作事实或受控业务事实。",
@@ -379,10 +377,9 @@ export function createSearchExerciseResourcesLangChainTool(
       "当模型已经从用户请求、上下文或 tool result summary 中结构化提取动作名称时，使用 exerciseNames 查询动作名称字段；exerciseNames 不接受完整用户消息，也不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入候选列表；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "Output Boundary：内部 diagnostics 只用于 trace / userProjection / debug，不作为 Planner 成功候选事实，也不是继续查询或下一步 tool 调用指令。",
-      "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；候选池中存在可选择子集并能支撑用户目标时，应基于该子集进入最终回答或结构化训练收口；本 tool 不直接生成 visibleTrainingProposal。",
-      "Grounding Rules：本 tool 已返回与当前约束匹配的候选后，除非用户明确要求更多候选、更换查询口径，或当前候选没有可用子集，否则重复等价 input 不会补充新事实。",
-      "Grounding Rules：如果当前缺口是 prescription 或 schedule，应基于已有候选、用户目标和结构化收口合同构造、澄清或失败收口；除非动作候选本身不足、查询约束变化或用户明确要求更多候选，否则不要重复查询动作库。",
-      "Grounding Rules：再次查询必须以新增必需数据库动作事实为目的；如果新的查询只是为了获得更完整、更理想、更纯净或更细分的候选池，应停止查询并消费已有事实。",
+      "Grounding Rules：该结果属于动作候选事实，可用于普通事实回答、下一轮结构化 tool input 或后续 finalization 的候选来源；本 tool 不直接生成 visibleTrainingProposal。",
+      "Grounding Rules：同一 run 内等价 input 不会补充新事实；新的查询应来自用户新增约束、替换要求、更多候选要求或当前候选没有可用子集。",
+      "Grounding Rules：如果当前缺口是 prescription 或 schedule，应基于已有候选、用户目标和结构化收口合同构造、澄清或失败收口；动作候选事实本身不足、查询约束变化或用户要求更多候选时，才需要新的动作库查询。",
       formatFacetCatalogForDescription(options.facetCatalog),
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,
@@ -537,10 +534,11 @@ export function createSearchExerciseResourcesLangChainTool(
     },
     toModelVisibleSummary: (output) => {
       const broadQuery = isBroadExerciseResourceQueryOutput(output);
+      const hasCandidates = hasModelVisibleCandidateFacts(output);
 
       return {
         status: output.status,
-        factLevel: broadQuery ? "diagnostic" : "candidate",
+        factLevel: hasCandidates ? "candidate" : "diagnostic",
         query: {
           suitabilities: output.query.suitabilities,
           ...(output.query.exerciseNames ? { exerciseNames: output.query.exerciseNames } : {}),
@@ -559,6 +557,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
           ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
         },
+        queryBoundary: createModelVisibleQueryBoundary(output, broadQuery),
         resourceBoundary: createModelVisibleResourceBoundary(output),
         coverage: createModelVisibleCandidateCoverage(output),
         candidateGroups: mapModelVisibleCandidateGroups(
@@ -1069,6 +1068,26 @@ function createModelVisibleCandidateCoverage(output: SearchExerciseResourcesOutp
     sectionsWithoutCandidates,
     allRequestedSectionsHaveCandidates: sectionsWithoutCandidates.length === 0,
     repeatQueryBoundary: "同一 run 内等价 input 已有查询事实；重复调用不会新增事实。请基于当前可见事实推理、澄清或失败收口。",
+  };
+}
+
+// hasModelVisibleCandidateFacts 只根据是否存在可投影候选决定事实等级，查询宽窄不再降低候选可消费性。
+function hasModelVisibleCandidateFacts(output: SearchExerciseResourcesOutput) {
+  return Object.values(output.groups).some((group) => (group?.exercises.length ?? 0) > 0);
+}
+
+// createModelVisibleQueryBoundary 把 broad/default 查询口径与 candidate factLevel 分开，避免模型误把可用候选当作诊断。
+function createModelVisibleQueryBoundary(output: SearchExerciseResourcesOutput, broadQuery: boolean) {
+  const defaultedSuitabilities = output.query.suitabilities.length === 1
+    && output.query.suitabilities[0] === "training"
+    && output.query.appliedFilters.every((filter) => filter.field !== "suitabilities");
+
+  return {
+    scope: broadQuery ? "broad" : "constrained",
+    candidateFactBoundary: "candidateGroups[].exercises 若存在，表示可选择的动作候选事实；查询口径较宽或使用默认条件不会改变该候选事实等级。",
+    ...(defaultedSuitabilities
+      ? { defaultedSuitabilities: "未显式填写 suitabilities 时按 training 候选查询；这是查询默认值，不是最终训练编排指令。" }
+      : {}),
   };
 }
 

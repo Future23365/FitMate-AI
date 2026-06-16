@@ -22,6 +22,8 @@ export function buildChatMarkdownContentPromptRules() {
 export function buildChatMarkdownContentSchemaDescription() {
   return [
     "用户可见正文。使用中文，简洁可执行。",
+    "不要输出未校验 JSON、NDJSON event 或工具调用参数。",
+    "当回答包含已校验 visibleTrainingProposal、routine 或 plan 时，content 只解释、提醒或总结已校验结构；不要把正文当作结构化训练 payload，也不要在正文中补写 payload 未承载的动作、处方或 schedule 事实。",
     `只能使用适合聊天正文的 Markdown 子集：${chatMarkdownContentContract.allowedSyntax}；emoji 可以正常使用。`,
     `禁止使用会改变聊天正文结构或造成误解的语法：${chatMarkdownContentContract.disallowedSyntax}。`,
     `禁止使用 Markdown 水平分割线或装饰性分隔行，包括${chatMarkdownContentContract.dividerSyntax}。`,

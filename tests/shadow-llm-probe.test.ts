@@ -160,6 +160,45 @@ describe("Codex Shadow LLM Probe", () => {
     });
   });
 
+  it("accepts a generic routine probe that batch-queries warmup training and stretch without muscles", async () => {
+    const cwd = await createTempCwd();
+    const handlerInputs: unknown[] = [];
+    const tool = createSearchFixtureTool((input) => {
+      handlerInputs.push(input);
+    });
+    const started = await startShadowLlmProbeRun({
+      cwd,
+      message: "帮我编一个 30 分钟在家训练，直接能照着练",
+      toolWrappers: [tool],
+    });
+    const store = createShadowLlmProbeFileStore(cwd);
+
+    await writeDecision(store.decisionPath(started.runId, "round-001"), {
+      runId: started.runId,
+      roundId: "round-001",
+      decision: "call_tool",
+      toolName: "searchExerciseResources",
+      toolInput: {
+        suitabilities: ["warmup", "training", "stretch"],
+      },
+    });
+
+    const continued = await continueShadowLlmProbeRun({
+      cwd,
+      runId: started.runId,
+      toolWrappers: [tool],
+    });
+    const toolResult = JSON.parse(await readFile(store.toolResultPath(started.runId, "round-001"), "utf8"));
+
+    expect(continued.status).toBe("active");
+    expect(handlerInputs).toEqual([{ suitabilities: ["warmup", "training", "stretch"] }]);
+    expect(JSON.stringify(handlerInputs)).not.toContain("muscles");
+    expect(toolResult.modelVisibleSummary).toContain("\"factLevel\":\"candidate\"");
+    expect(toolResult.modelVisibleSummary).toContain("\"warmup\"");
+    expect(toolResult.modelVisibleSummary).toContain("\"training\"");
+    expect(toolResult.modelVisibleSummary).toContain("\"stretch\"");
+  });
+
   it("accepts runtimeMetadata in shadow decisions while keeping handlers business-only", async () => {
     const cwd = await createTempCwd();
     const handlerInputs: unknown[] = [];
@@ -367,17 +406,19 @@ async function writeDecision(filePath: string, partial: Record<string, unknown>)
   await writeFile(filePath, `${JSON.stringify(decision, null, 2)}\n`, "utf8");
 }
 
-function createSearchFixtureTool(onExecute?: (input: { suitabilities?: Array<"training"> }) => void): LangChainToolWrapper {
+type SearchFixtureSuitability = "warmup" | "training" | "stretch";
+
+function createSearchFixtureTool(onExecute?: (input: { suitabilities?: SearchFixtureSuitability[] }) => void): LangChainToolWrapper {
   return defineLangChainToolWrapper({
     name: "searchExerciseResources",
-    description: "Purpose：只读查询动作候选事实。Use When：需要展示具体数据库动作条目时使用。",
+    description: "Purpose：只读查询动作候选事实。Use When：需要展示具体数据库动作条目时使用；一次 routine 可同时传入 warmup、training、stretch。",
     inputSchema: z.object({
-      suitabilities: z.array(z.enum(["training"])).optional(),
+      suitabilities: z.array(z.enum(["warmup", "training", "stretch"])).optional(),
     }).strict(),
     outputSchema: z.object({
       status: z.literal("succeeded"),
       candidateGroups: z.array(z.object({
-        suitability: z.literal("training"),
+        suitability: z.enum(["warmup", "training", "stretch"]),
         exercises: z.array(z.object({
           exerciseId: z.string(),
           nameZh: z.string(),
@@ -388,12 +429,10 @@ function createSearchFixtureTool(onExecute?: (input: { suitabilities?: Array<"tr
       onExecute?.(input);
       return {
         status: "succeeded",
-        candidateGroups: [
-          {
-            suitability: "training",
-            exercises: [{ exerciseId: "push-up", nameZh: "俯卧撑" }],
-          },
-        ],
+        candidateGroups: (input.suitabilities ?? ["training"]).map((suitability) => ({
+          suitability,
+          exercises: [{ exerciseId: `${suitability}-fixture`, nameZh: `${suitability} 动作` }],
+        })),
       };
     },
     toModelVisibleSummary: (output) => ({

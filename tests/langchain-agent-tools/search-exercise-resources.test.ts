@@ -537,7 +537,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(JSON.stringify(result.record)).not.toContain("nameMatches");
   });
 
-  it("marks default-only searches as diagnostic instead of fulfilled facts", async () => {
+  it("keeps default-only broad searches as candidate facts when candidate groups contain exercises", async () => {
     const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
         query: input,
@@ -553,7 +553,11 @@ describe("searchExerciseResources LangChain tool", () => {
     const modelMessage = JSON.parse(result.modelMessage);
 
     expect(modelMessage).toMatchObject({
-      factLevel: "diagnostic",
+      factLevel: "candidate",
+      queryBoundary: {
+        scope: "broad",
+        candidateFactBoundary: expect.stringContaining("查询口径较宽或使用默认条件不会改变该候选事实等级"),
+      },
     });
     expect(modelMessage).not.toHaveProperty("querySpecificity");
     expect(modelMessage).not.toHaveProperty("fulfillment");
@@ -985,23 +989,20 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(modelVisibleText).toContain("suitabilities 可声明 warmup、training、stretch");
     expect(modelVisibleText).toContain("候选用途查询口径，不是最终训练编排命令");
+    expect(modelVisibleText).toContain("需要多个阶段候选时优先一次性传入多个值");
     expect(modelVisibleText).toContain("当前缺口是从已有候选中选择子集、排序、安排 section、生成 prescription、生成 schedule");
-    expect(modelVisibleText).toContain("这些属于模型编排任务，不属于动作库查询任务");
-    expect(modelVisibleText).toContain("已有 broad query 返回了可用于目标 section 的候选");
-    expect(modelVisibleText).toContain("不要再把同一目标拆成更窄 muscles / suitabilities 查询");
-    expect(modelVisibleText).toContain("用户没有指定具体肌群，且 broad query 已返回可用于当前 routine 的 training 候选");
-    expect(modelVisibleText).toContain("不要为了完整覆盖继续拆成胸、背、腿、肩、手臂、核心或等价全身肌群查询");
+    expect(modelVisibleText).toContain("这些属于模型编排或结构化收口，不属于动作库查询");
+    expect(modelVisibleText).toContain("已有候选事实能支撑当前输出");
+    expect(modelVisibleText).toContain("不要为了完整 inventory、所有肌群或更纯净候选池继续拆分查询");
     expect(modelVisibleText).toContain("candidateCountPerSection");
     expect(modelVisibleText).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
-    expect(modelVisibleText).toContain("candidateGroups[].exercises 是动作候选池，不是最终推荐清单");
+    expect(modelVisibleText).toContain("candidateGroups[].exercises 是可消费动作候选事实");
     expect(modelVisibleText).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
     expect(modelVisibleText).toContain("training 候选用于支撑主训练动作选择");
     expect(modelVisibleText).toContain("warmup / stretch 候选用于支撑辅助阶段选择");
     expect(modelVisibleText).toContain("辅助阶段不要求每个目标肌群都有 primary 候选");
-    expect(modelVisibleText).toContain("辅助阶段的局部窄查询缺口");
-    expect(modelVisibleText).toContain("它不等于整体 routine 或 plan 不可提交");
     expect(modelVisibleText).toContain("本 tool 只返回动作候选事实");
     expect(modelVisibleText).toContain("不返回 prescription、schedule、routine 或 plan");
     expect(modelVisibleText).toContain("缺口是 prescription 或 schedule 时");
@@ -1011,11 +1012,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不表示当前候选不足");
     expect(modelVisibleText).toContain("不要求继续分页、扩大数量或拆分查询");
     expect(modelVisibleText).toContain("coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选");
-    expect(modelVisibleText).toContain("重复等价 input 不会补充新事实");
-    expect(modelVisibleText).toContain("应基于已有候选、用户目标和结构化收口合同构造、澄清或失败收口");
-    expect(modelVisibleText).toContain("再次查询必须以新增必需数据库动作事实为目的");
-    expect(modelVisibleText).toContain("如果新的查询只是为了获得更完整、更理想、更纯净或更细分的候选池");
-    expect(modelVisibleText).toContain("应停止查询并消费已有事实");
+    expect(modelVisibleText).toContain("同一 run 内等价 input 不会补充新事实");
+    expect(modelVisibleText).toContain("新的查询应来自用户新增约束、替换要求、更多候选要求或当前候选没有可用子集");
     expect(modelVisibleText).toContain("不要求最终输出使用全部候选");
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
