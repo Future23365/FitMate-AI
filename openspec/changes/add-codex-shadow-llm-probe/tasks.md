@@ -28,6 +28,7 @@
 - [x] 4.3 CLI continue 命令读取当前轮 decision，校验后推进 tool 执行、下一轮 input 或终态 manifest。
 - [x] 4.4 CLI report 命令仅基于 run 目录文件生成或刷新 `report.json` 和 `report.md`，不得重新执行 tool 或调用模型。
 - [x] 4.5 CLI 支持列出当前 run 状态，方便开发者知道下一步该写 decision、继续推进还是查看报告。
+- [x] 4.6 `runId` 目录名使用 `shadow-YYYY-MM-DD-HHmm-xxxxxxxx`，时间按 `Asia/Shanghai` 生成，提升人工读取诊断目录时的可读性。
 
 ## 5. Shadow Runner 与 Tool 推进
 

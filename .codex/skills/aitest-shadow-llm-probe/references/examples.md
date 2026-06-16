@@ -4,7 +4,7 @@
 
 ```json
 {
-  "runId": "shadow-20260616-demo",
+  "runId": "shadow-2026-06-16-1554-demo",
   "roundId": "round-001",
   "messages": [
     {
@@ -24,7 +24,7 @@
 
 ```json
 {
-  "runId": "shadow-20260616-demo",
+  "runId": "shadow-2026-06-16-1554-demo",
   "roundId": "round-001",
   "decision": "call_tool",
   "toolName": "searchExerciseResources",
@@ -63,4 +63,3 @@
   }
 }
 ```
-

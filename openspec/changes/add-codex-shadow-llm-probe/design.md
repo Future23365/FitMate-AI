@@ -51,6 +51,8 @@ codex_logs/shadow_llm_probe/<runId>/
 
 runner 先导出 `round-001-input.json`，Codex skill 读取后写出 `round-001-decision.json`。项目脚本校验 decision 并执行真实 tool handler，再写出下一轮 input。循环直到 final、contract gap、预算耗尽或 decision 校验失败。
 
+`runId` 使用 `shadow-YYYY-MM-DD-HHmm-xxxxxxxx` 格式，其中时间按 `Asia/Shanghai` 生成，只服务人工读取目录名；manifest、input 和 report 内部的结构化时间字段继续使用 ISO 8601 UTC。
+
 首版 CLI 应支持以下最小完整工作流：
 
 ```bash

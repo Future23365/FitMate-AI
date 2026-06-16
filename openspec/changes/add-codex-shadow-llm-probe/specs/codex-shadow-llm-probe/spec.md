@@ -11,6 +11,12 @@
 - **AND** CLI MUST 输出 `runId`、下一步需要 Codex 写入的 decision 文件路径和报告路径
 - **AND** CLI MUST NOT 调用 DeepSeek 或任何外部模型 provider
 
+#### Scenario: Run 目录名使用本地可读时间
+- **WHEN** 系统为 Shadow Probe 创建新的 `runId`
+- **THEN** `runId` MUST 使用 `shadow-YYYY-MM-DD-HHmm-xxxxxxxx` 格式
+- **AND** `YYYY-MM-DD-HHmm` MUST 按 `Asia/Shanghai` 时间生成
+- **AND** 该格式 MUST 只用于人工可读目录名，不改变 manifest、input 或 report 内部结构化时间字段的 ISO 8601 UTC 语义
+
 #### Scenario: 推进已有 shadow run
 - **WHEN** 开发者通过 CLI 继续一个已有 shadow run
 - **AND** 当前轮 `round-xxx-decision.json` 已存在

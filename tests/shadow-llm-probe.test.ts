@@ -30,7 +30,7 @@ describe("Codex Shadow LLM Probe", () => {
     });
     const input = ShadowLlmProbeInputSchema.parse(JSON.parse(await readFile(result.inputPath, "utf8")));
 
-    expect(result.runId).toMatch(/^shadow-/);
+    expect(result.runId).toMatch(/^shadow-\d{4}-\d{2}-\d{2}-\d{4}-[a-f0-9]{8}$/);
     expect(input.systemPrompt).toContain("FitMate");
     expect(input.messages).toEqual([{ role: "user", content: "今天我想练胸，给我几个动作" }]);
     expect(input.tools.map((tool) => tool.name)).toEqual(["searchExerciseResources"]);

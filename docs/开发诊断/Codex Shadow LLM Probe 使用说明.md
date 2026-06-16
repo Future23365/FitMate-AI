@@ -101,14 +101,14 @@ npm run shadow:llm-probe -- --status
 
 ```txt
 使用 $aitest-shadow-llm-probe 继续这个 run：
-shadow-20260616T070101Z-f8df9534
+shadow-2026-06-16-1554-f8df9534
 ```
 
 也可以给具体 input 文件：
 
 ```txt
 使用 $aitest-shadow-llm-probe 读取这个文件并写下一轮 decision：
-codex_logs/shadow_llm_probe/shadow-20260616T070101Z-f8df9534/round-002-input.json
+codex_logs/shadow_llm_probe/shadow-2026-06-16-1554-f8df9534/round-002-input.json
 ```
 
 这种情况下，Codex 不需要重新创建 run，而是从已有轮次继续诊断。

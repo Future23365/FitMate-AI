@@ -337,8 +337,24 @@ function summarizeDecisionGap(decision: ShadowLlmProbeDecision) {
 }
 
 function createRunId() {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const timestamp = formatShanghaiRunTimestamp(new Date());
   return `shadow-${timestamp}-${randomUUID().slice(0, 8)}`;
+}
+
+/** formatShanghaiRunTimestamp 只服务人工可读的 shadow run 目录名；结构化时间字段仍使用 ISO UTC。 */
+function formatShanghaiRunTimestamp(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}`;
 }
 
 function formatRoundId(index: number) {
