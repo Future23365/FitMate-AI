@@ -1217,3 +1217,66 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** description MUST 表达覆盖摘要只说明当前查询返回了哪些 section 候选和缺少哪些 section 候选
 - **AND** description MUST 表达重复等价 input 查询不会补充新事实
 - **AND** description MUST NOT 把覆盖摘要描述为固定训练生成 workflow、最终结构化收口指令或用户目标满足度判断
+
+### Requirement: `searchExerciseResources` 必须表达产品动作资源库边界
+系统 SHALL 在 `searchExerciseResources` 的模型可见 description 和 Planner-visible summary 中表达：该 tool 查询的是产品动作库中可用于卡片、图片、动作详情、结构化训练输出和训练执行界面的可渲染动作资源候选。该 tool 的空结果或点名动作未命中 MUST 只表达当前查询口径下产品动作库没有匹配资源，不得表达现实训练动作不存在或模型不能给普通文本建议。
+
+#### Scenario: Tool description 说明资源库角色
+- **WHEN** production registry 序列化 `searchExerciseResources` tool description
+- **THEN** description MUST 表达 Exercise 动作库是产品可渲染动作资源库
+- **AND** description MUST 表达该 tool 不负责检索现实世界全部训练知识
+- **AND** description MUST 表达普通文本知识回答不需要产品动作卡片或结构化训练结果时，可以不依赖数据库动作条目
+
+#### Scenario: Planner-visible summary 包含受控 resourceBoundary
+- **WHEN** `searchExerciseResources` 成功执行并进入下一轮 Planner 输入
+- **THEN** Planner-visible summary MUST 包含 `resourceBoundary`
+- **AND** `resourceBoundary` MUST 表达产品动作库的资源角色
+- **AND** `resourceBoundary` MUST 表达空候选或点名动作未命中只说明产品库当前没有匹配的可渲染资源
+- **AND** `resourceBoundary` MUST 表达需要卡片、图片、`visibleTrainingProposal`、routine、plan 或训练执行项时，具体动作仍必须来自数据库动作事实
+
+#### Scenario: 点名动作未命中只暴露资源缺失事实
+- **WHEN** 内部 `diagnostics` 包含 `exercise_name_not_found`
+- **THEN** Planner-visible summary MAY 在 `resourceBoundary.missingExerciseNames` 中列出未命中的点名动作名称
+- **AND** `resourceBoundary.missingExerciseNames` MUST NOT 包含内部 diagnostic code、命中数量、返回数量、截断状态或过滤执行细节
+- **AND** Planner-visible summary MUST NOT 将该名称表达为现实训练动作不存在
+
+#### Scenario: 内部 diagnostics 继续隔离
+- **WHEN** `searchExerciseResources` 的 Planner-visible summary 表达产品资源库边界
+- **THEN** summary MUST NOT 包含 `diagnostics`
+- **AND** summary MUST NOT 包含 `exercise_name_not_found`、`exercise_name_ambiguous`、`exercise_name_filter_mismatch`、`exercise_name_too_broad` 或等价内部 diagnostic code
+- **AND** summary MUST NOT 指挥模型必须继续调用 `searchExerciseResources`、必须扩大 `candidateCountPerSection` 或必须调用某个下一步 tool
+
+### Requirement: 模型可见合同门禁必须允许资源库边界并继续阻止诊断泄漏
+系统 SHALL 更新 model-visible contract gate，使 `searchExerciseResources` 的 Planner-visible summary 可以包含受控产品资源库边界字段，同时继续递归拒绝内部诊断字段、诊断 code、命中统计、截断状态、分页字段和业务 readiness / workflow 字段。
+
+#### Scenario: Gate 允许受控资源边界字段
+- **WHEN** `searchExerciseResources` 的 Planner-visible summary 包含 `resourceBoundary.catalogRole`、`resourceBoundary.emptyResultMeaning`、`resourceBoundary.plainTextKnowledgeBoundary`、`resourceBoundary.structuredOutputBoundary` 和 `resourceBoundary.missingExerciseNames`
+- **THEN** model-visible contract gate MUST 接受这些字段
+- **AND** gate MUST 继续检查这些字段中的文本是否包含固定 workflow、业务目标满足度或内部诊断泄漏
+
+#### Scenario: Gate 继续拒绝内部诊断泄漏
+- **WHEN** `searchExerciseResources` 的 Planner-visible summary 在任意层级或字符串化 JSON 中包含 `diagnostics`、`exercise_name_ambiguous`、`exercise_name_too_broad`、`candidateCountPerSection`、`totalMatches`、`returnedCount` 或 `truncated`
+- **THEN** model-visible contract gate MUST 返回失败 finding
+- **AND** finding MUST 指出泄漏字段所在路径
+
+### Requirement: `searchExerciseResources` 模型可见说明必须表达非处方边界
+系统 SHALL 在 `searchExerciseResources` 的 tool description、schema description、model-visible summary 或等价模型可见说明中表达：该 tool 只返回动作候选事实，不产出 `prescription`、`schedule`、`routine`、`plan` 或训练卡片事实。该说明 MUST NOT 将查询结果包装成固定结构化收口流程，也 MUST NOT 指挥模型按固定顺序继续查询或提交结果。
+
+#### Scenario: description 表达不产出处方或日程
+- **WHEN** production registry 序列化 `searchExerciseResources` tool description
+- **THEN** 模型可见说明 MUST 表达该 tool 不返回 `prescription`
+- **AND** 模型可见说明 MUST 表达该 tool 不返回 `schedule`
+- **AND** 模型可见说明 MUST 表达该 tool 不生成 `routine` 或 `plan`
+- **AND** 模型可见说明 MUST 表达动作候选可以作为后续结构化输出的动作事实来源
+
+#### Scenario: 缺少 prescription 或 schedule 时不重复查询动作库
+- **WHEN** `searchExerciseResources` 已返回满足当前动作目标的候选事实
+- **AND** 当前结构化输出缺口是 `prescription` 或 `schedule`
+- **THEN** 模型可见说明 MUST 表达重复调用该 tool 不会新增 `prescription` 或 `schedule` 事实
+- **AND** 模型可见说明 MUST 允许模型基于已有候选进入结构化收口、澄清或失败收口
+- **AND** 模型可见说明 MUST NOT 要求固定调用 `submitVisibleTrainingProposal` 或任何具体下一步 tool
+
+#### Scenario: 不新增服务端语义分流
+- **WHEN** 本 change 实现完成
+- **THEN** `searchExerciseResources` handler MUST NOT 根据用户原文、关键词、正则、同义词表或短句模板改写查询条件
+- **AND** LangChain runtime MUST NOT 根据 `searchExerciseResources` 的具体 toolName 写业务分支

@@ -727,3 +727,66 @@ LangChain Agent system message SHALL 在模型可见策略中表达：当用户�
 - **THEN** system message MUST NOT 根据用户原文、关键词、短句模板、业务 phrasing 或具体业务 `toolName` 规定模型必须拆分、合并或改写 tool calls
 - **AND** system message MUST NOT 描述未注册 tool、隐藏业务服务或绕过 LangChain tool catalog 的恢复流程
 
+### Requirement: 默认 prompt 必须表达历史训练事实派生计划的停止条件
+系统 SHALL 在默认 Agent LLM prompt 中表达：当当前 run 可见事实已经提供可消费的训练动作、section 和 prescription，且目标只需要周期日程时，模型可以停止动作查询并进入结构化训练收口。Prompt MUST 使用稳定事实覆盖条件表达该规则，MUST NOT 使用用户固定短语、关键词、正则、同义词表、具体业务 toolName 或字段组合替模型决定下一步。
+
+#### Scenario: 已有完整训练事实时停止动作查询
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达当前可见事实包括成功 tool result summary、已校验可见输出和通过只读导入工具导入的受控历史业务事实
+- **AND** system message MUST 表达是否继续查询动作应取决于最终结构是否缺少动作事实、section 事实或 prescription 事实
+- **AND** system message MUST 表达若已有可消费的 `exerciseItems`、`section` 和 `prescription`，且当前目标只缺周期内训练日 / 休息日安排，模型可以构造 `schedule` 并进入结构化训练收口
+- **AND** system message MUST NOT 要求模型仅因输出类型从 `routine` 派生成 `plan` 就重新查询动作
+
+#### Scenario: schedule 不被误认为动作库事实
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达 `schedule` 是 `plan` 的日程结构字段
+- **AND** system message MUST 表达 `schedule` 不要求来自动作库查询结果
+- **AND** system message MUST 表达缺少 `schedule` 不等价于缺少动作事实
+
+#### Scenario: 不新增固定业务流程
+- **WHEN** 实现本 prompt change
+- **THEN** `/api/chat`、LangChain runtime、tool handler、validator 和 response adapter MUST NOT 新增基于用户原文短语、关键词、正则、同义词表或业务 `toolName` 的语义分支
+- **AND** system message MUST NOT 包含原始失败用户短句或等价固定短语作为触发规则
+
+### Requirement: 默认 prompt 必须区分通用训练知识和产品动作资源库
+系统 SHALL 在默认 LangChain Agent system prompt 中表达：模型可以基于用户输入、当前上下文、成功 tool result 和通用训练知识回答普通文本训练建议；Exercise 动作库只提供产品可渲染动作资源和结构化训练输出所需的受控数据库动作事实。默认 prompt MUST NOT 将动作库查询空结果表达为现实训练动作或训练知识不存在。
+
+#### Scenario: 普通文本回答不以动作库为知识全集
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达不需要动作卡片、动作图片、结构化训练结果或训练执行项时，模型可以通过 `fitmate_final_response.content` 给出普通文本建议
+- **AND** system message MUST 表达普通文本建议不得声称未经数据库支撑的动作来自产品动作库
+- **AND** system message MUST 表达动作库没有匹配资源不等于现实训练知识不存在
+
+#### Scenario: 结构化训练输出仍依赖数据库动作事实
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达需要展示具体数据库动作条目、动作卡片、动作图片、`visibleTrainingProposal`、routine、plan 或训练执行项时，具体 `exerciseId` 必须来自当前模型可见数据库动作事实或受控业务事实
+- **AND** system message MUST 表达服务端会校验这些结构化输出中的数据库动作事实
+- **AND** system message MUST NOT 允许模型为结构化训练输出编造数据库动作条目
+
+#### Scenario: 不新增服务端语义分流
+- **WHEN** 实现本 prompt change
+- **THEN** `/api/chat`、LangChain runtime、tool handler、validator 和 response adapter MUST NOT 新增基于用户原文、关键词、正则、同义词表或短句模板的条件分支
+- **AND** 系统 MUST NOT 根据某个自然语言动作名自动改写 provider `tool_calls`、`toolName`、调用顺序或最终回答策略
+
+### Requirement: 默认 prompt 必须表达 plan 生成的动作查询停止条件
+系统 SHALL 在默认 Agent LLM prompt 中表达：当当前可见动作候选事实已经足以组成 `plan` 时，模型不得因为缺少 `prescription` 或 `schedule` 继续同类动作查询。Prompt MUST 表达 `prescription` 和 `schedule` 不是动作库查询结果；模型应基于本轮用户目标、训练频率、单次时长、候选动作事实和保守训练编排构造这些结构字段，并通过结构化收口 tool 与服务端 validator 校验。
+
+#### Scenario: 候选动作足够时停止同类查询
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达 `searchExerciseResources` 或等价动作查询结果只提供动作候选事实
+- **AND** system message MUST 表达已有候选动作足以组成 `plan` 时，应停止同类动作查询
+- **AND** system message MUST 表达缺少 `prescription` 或 `schedule` 不等价于缺少动作候选事实
+- **AND** system message MUST NOT 要求模型为了补 `prescription` 或 `schedule` 重复查询动作库
+
+#### Scenario: plan 结构字段由模型构造并交给 validator
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达 `prescription` 可由模型基于本轮用户目标、单次时长、候选动作事实和保守训练编排生成
+- **AND** system message MUST 表达 `schedule` 可由模型基于训练频率、周期安排、训练日 / 休息日或保守默认生成
+- **AND** system message MUST 表达这些字段必须通过结构化收口 tool 和服务端 validator 校验
+
+#### Scenario: 不新增固定业务流程
+- **WHEN** 实现本 prompt change
+- **THEN** `/api/chat`、LangChain runtime、tool handler、validator 和 response adapter MUST NOT 新增基于用户原文短语、关键词、正则、同义词表或业务 `toolName` 的语义分支
+- **AND** system message MUST NOT 包含原始失败用户短句或等价固定短语作为触发规则
+- **AND** system message MUST NOT 根据具体 tool result 字段组合替模型决定继续查询、结构化收口、普通回答或澄清
+
