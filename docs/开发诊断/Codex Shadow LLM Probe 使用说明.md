@@ -48,8 +48,9 @@ Codex Shadow LLM Probe 是一个本地开发诊断工具，用来检查生产 La
 4. 运行 `--continue <runId>` 推进 runner。
 5. 如果生成下一轮 input，继续按轮次写 decision 并推进。
 6. 到达 `final_answer`、`contract_gap`、预算耗尽、tool 执行失败或 decision 校验失败后，生成报告。
+7. 读取 `report.md`，用中文告诉你诊断结论、命中的合同类别、运行阻断和不可判断项。
 
-你不需要手动写“创建 JSON”“读取 JSON”“写出 JSON”。这些是 skill 的内部流程。
+你不需要手动写“创建 JSON”“读取 JSON”“写出 JSON”。这些是 skill 的内部流程。你只需要明确点名 skill，并给出要诊断的用户原话、已有 `runId` 或某个 `round-xxx-input.json` 路径。
 
 ## CLI 命令
 
@@ -130,6 +131,25 @@ codex_logs/shadow_llm_probe/<runId>/
 - `report.md`：面向开发者阅读的诊断报告。
 
 `codex_logs/` 默认被 Git 忽略，诊断 run 文件不会进入提交。
+
+## 报告应该告诉你什么
+
+`report.md` 会先给“诊断结论”，再给每轮 Shadow 决策证据。Codex 最终回复也应该基于这个报告说明结果，而不是只告诉你文件路径。
+
+报告固定检查这些类别：
+
+- `prompt_conflict`：system prompt 或 planner policy 是否存在过多或互相打架的规则。
+- `tool_selection_ambiguous`：tool description 是否讲清什么时候该调用。
+- `schema_source_unclear`：schema description 是否讲清字段来源、枚举和 ref 来源。
+- `tool_result_summary_insufficient`：tool result summary 是否把关键事实投影给模型。
+- `stop_condition_unclear`：预算、重复调用、停止条件是否放在模型可操作的位置。
+- `finalization_contract_unclear`：finalization tool 的完成条件是否清楚。
+- `debug_only_leakage`：Shadow input 是否泄漏 debug-only 或模型不可见事实。
+- `case_specific_rule_smell`：规则是否把具体 case 升格成生产通用规则。
+- `runtime_budget_mismatch`：模型可见预算是否与 runner / runtime 实际预算一致。
+- `contamination_risk`：Shadow 决策是否使用了 input 外部知识。
+
+如果 run 因数据库连接、`.env.local`、tool handler 或 schema 校验异常提前结束，报告会先标明“诊断未完成”，并列出哪些项目不可判断。例如 tool 没成功返回时，不能判断成功后的 tool result summary 是否足够，也不能判断 finalization 是否能正确收口。
 
 ## Decision 类型
 

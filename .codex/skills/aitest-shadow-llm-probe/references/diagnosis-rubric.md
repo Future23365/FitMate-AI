@@ -19,5 +19,6 @@
 
 Shadow 决策报告只引用 run 目录内的 input、decision 和 tool result summary。
 
-开发者诊断建议可以引用源码、测试或 OpenSpec，但必须标注“不是 Shadow 决策依据”。
+开发者诊断建议默认只基于 shadow run 文件生成，并逐项标注固定类别“命中 / 未命中 / 不可判断”。如果后续另行引用源码、测试或 OpenSpec，必须标注“不是 Shadow 决策依据”。
 
+当 runner 进入 `tool_execution_failed`、`decision_validation_failed` 或 `budget_exhausted` 时，诊断建议必须先说明运行阻断，再说明哪些类别无法继续判断。不要把数据库连接失败、schema 校验失败或预算耗尽误写成 prompt / tool description 的确定性问题。

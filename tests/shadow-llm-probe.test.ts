@@ -216,9 +216,49 @@ describe("Codex Shadow LLM Probe", () => {
 
     expect(final.status).toBe("final_answer");
     expect(executionCount).toBe(0);
-    expect(await readFile(report.reportMarkdownPath, "utf8")).toContain("## Shadow 决策报告");
+    const reportMarkdown = await readFile(report.reportMarkdownPath, "utf8");
+    expect(reportMarkdown).toContain("## 诊断结论");
+    expect(reportMarkdown).toContain("## Shadow 决策报告");
+    expect(reportMarkdown).toContain("prompt_conflict: 未命中");
     expect(cliStatus.exitCode).toBe(0);
     expect(cliStatus.stdout).toContain(started.runId);
+  });
+
+  it("marks tool execution failures as incomplete developer diagnosis", async () => {
+    const cwd = await createTempCwd();
+    const started = await startShadowLlmProbeRun({
+      cwd,
+      message: "找几个无器械训练动作",
+      toolWrappers: [createFailingSearchFixtureTool()],
+    });
+    const store = createShadowLlmProbeFileStore(cwd);
+
+    await writeDecision(store.decisionPath(started.runId, "round-001"), {
+      runId: started.runId,
+      roundId: "round-001",
+      decision: "call_tool",
+      toolName: "searchExerciseResources",
+      toolInput: { suitabilities: ["training"] },
+    });
+
+    const continued = await continueShadowLlmProbeRun({
+      cwd,
+      runId: started.runId,
+      toolWrappers: [createFailingSearchFixtureTool()],
+    });
+    const report = await generateShadowLlmProbeReport({ cwd, runId: started.runId });
+    const reportJson = JSON.parse(await readFile(report.reportJsonPath, "utf8"));
+    const reportMarkdown = await readFile(report.reportMarkdownPath, "utf8");
+
+    expect(continued.status).toBe("tool_execution_failed");
+    expect(reportJson.developerDiagnosis.included).toBe(true);
+    expect(reportJson.developerDiagnosis.runBlocker.kind).toBe("tool_execution_failed");
+    expect(reportJson.developerDiagnosis.unavailableChecks).toContain(
+      "tool result summary 是否投影关键事实：不可判断，因为 tool 未成功返回 summary。",
+    );
+    expect(reportMarkdown).toContain("诊断未完成");
+    expect(reportMarkdown).toContain("真实 dev-safe tool 执行失败");
+    expect(reportMarkdown).toContain("finalization tool 完成条件是否清楚：不可判断");
   });
 
   it("keeps production chat chain isolated from shadow runner imports", async () => {
@@ -294,6 +334,23 @@ function createSearchFixtureTool(onExecute?: () => void): LangChainToolWrapper {
       factLevel: "candidate",
       candidateGroups: output.candidateGroups,
     }),
+  });
+}
+
+function createFailingSearchFixtureTool(): LangChainToolWrapper {
+  return defineLangChainToolWrapper({
+    name: "searchExerciseResources",
+    description: "Purpose：只读查询动作候选事实。Use When：需要展示具体数据库动作条目时使用。",
+    inputSchema: z.object({
+      suitabilities: z.array(z.enum(["training"])).optional(),
+    }).strict(),
+    outputSchema: z.object({
+      status: z.literal("succeeded"),
+    }).strict(),
+    handler: async () => {
+      throw new Error("database connection failed");
+    },
+    toModelVisibleSummary: (output) => output,
   });
 }
 

@@ -164,6 +164,13 @@
 - **THEN** 报告 MUST 区分 Shadow 决策报告和开发者诊断建议
 - **AND** Shadow 决策报告 MUST 只引用 shadow input、decision 和模型可见 tool result summary
 - **AND** 开发者诊断建议 MAY 引用源码、测试和 OpenSpec，但 MUST 明确它不属于 Shadow 决策依据
+- **AND** 开发者诊断建议 MUST 面向人说明诊断结论、固定类别命中情况、运行阻断和不可判断项
+
+#### Scenario: Tool 执行失败时报告诊断未完成
+- **WHEN** Shadow Probe 因真实 dev-safe tool 执行失败进入 `tool_execution_failed`
+- **THEN** 报告 MUST 标明诊断未完成
+- **AND** 报告 MUST 说明失败阻断了哪些后续判断
+- **AND** 报告 MUST NOT 将数据库连接、环境变量或 tool handler 异常误归因为确定的 prompt / tool description 合同问题
 
 ### Requirement: Shadow Probe 必须与生产和默认测试隔离
 

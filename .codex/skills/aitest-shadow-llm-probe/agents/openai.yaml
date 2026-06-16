@@ -1,7 +1,7 @@
 interface:
   display_name: "AITest Shadow LLM Probe"
   short_description: "显式调用的 Shadow LLM 诊断流程"
-  default_prompt: "Use $aitest-shadow-llm-probe to write the next Shadow Probe decision from the current round input file."
+  default_prompt: "Use $aitest-shadow-llm-probe to run a Shadow LLM diagnosis for this user message and summarize the report."
 
 policy:
   allow_implicit_invocation: false

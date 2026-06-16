@@ -119,6 +119,47 @@ export const ShadowLlmProbeContractConcernSchema = z.object({
   evidencePath: jsonPathSchema.optional(),
 }).strict();
 
+/** ShadowLlmProbeDeveloperDiagnosisSeveritySchema 标记开发者诊断建议的风险等级，不参与 Shadow 决策。 */
+export const ShadowLlmProbeDeveloperDiagnosisSeveritySchema = z.enum(["info", "warning", "error"]);
+
+/** ShadowLlmProbeDeveloperDiagnosisBasisSchema 说明开发者诊断建议引用了哪些证据层，防止混入 Shadow 决策依据。 */
+export const ShadowLlmProbeDeveloperDiagnosisBasisSchema = z.enum([
+  "shadow_run_only",
+  "shadow_run_plus_external_review",
+]);
+
+/** ShadowLlmProbeRunBlockerSchema 描述 run 未能完整诊断时的阻断原因、影响和下一步修复方向。 */
+export const ShadowLlmProbeRunBlockerSchema = z.object({
+  kind: z.enum([
+    "decision_validation_failed",
+    "tool_execution_failed",
+    "budget_exhausted",
+  ]),
+  summary: z.string().min(1),
+  impact: z.string().min(1),
+  nextStep: z.string().min(1),
+}).strict();
+
+/** ShadowLlmProbeDeveloperFindingSchema 把 Shadow run 里的合同疑点投影成面向人的稳定类别建议。 */
+export const ShadowLlmProbeDeveloperFindingSchema = z.object({
+  category: ShadowLlmProbeConcernCategorySchema,
+  severity: ShadowLlmProbeDeveloperDiagnosisSeveritySchema,
+  title: z.string().min(1),
+  evidence: z.array(z.string().min(1)).min(1),
+  recommendation: z.string().min(1),
+}).strict();
+
+/** ShadowLlmProbeDeveloperDiagnosisSchema 是报告中的人类诊断层，不允许倒灌为 Shadow LLM 决策依据。 */
+export const ShadowLlmProbeDeveloperDiagnosisSchema = z.object({
+  included: z.boolean(),
+  basis: ShadowLlmProbeDeveloperDiagnosisBasisSchema,
+  summary: z.string().min(1),
+  runBlocker: ShadowLlmProbeRunBlockerSchema.optional(),
+  findings: z.array(ShadowLlmProbeDeveloperFindingSchema).default([]),
+  unavailableChecks: z.array(z.string().min(1)).default([]),
+  note: z.string().min(1),
+}).strict();
+
 export const ShadowLlmProbeContaminationAuditSchema = z.object({
   usedOnlyShadowInput: z.boolean(),
   suspectedExternalKnowledge: z.array(z.string()).default([]),
@@ -237,10 +278,7 @@ export const ShadowLlmProbeReportSchema = z.object({
     toolResultStatus: z.enum(["succeeded", "failed"]).optional(),
   }).strict()),
   categories: z.array(ShadowLlmProbeConcernCategorySchema),
-  developerDiagnosis: z.object({
-    included: z.boolean(),
-    note: z.string(),
-  }).strict(),
+  developerDiagnosis: ShadowLlmProbeDeveloperDiagnosisSchema,
 }).strict();
 
 export type ShadowLlmProbeInput = z.infer<typeof ShadowLlmProbeInputSchema>;

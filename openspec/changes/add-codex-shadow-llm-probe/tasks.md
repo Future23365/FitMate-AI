@@ -46,6 +46,7 @@
 - [x] 6.2 报告按固定类别归因合同问题，覆盖 prompt conflict、tool selection ambiguity、schema source ambiguity、tool result summary insufficiency、stop condition ambiguity、finalization contract ambiguity、debug-only leakage、case-specific rule smell、runtime budget mismatch 和 contamination risk。
 - [x] 6.3 报告区分 Shadow 决策报告和开发者诊断建议；开发者诊断建议引用源码或测试时，不得倒灌为 Shadow 决策依据。
 - [x] 6.4 确保报告生成不重新执行 tool、不调用真实模型、不读取 shadow run 目录以外的证据作为 Shadow 决策依据。
+- [x] 6.5 开发者诊断建议必须产出面向人的结论、固定类别命中情况、运行阻断和不可判断项；当 tool / 数据库执行失败时明确标记“诊断未完成”。
 
 ## 7. 测试与验证
 
@@ -58,3 +59,4 @@
 - [x] 7.7 运行 `openspec validate add-codex-shadow-llm-probe --strict`。
 - [x] 7.8 运行与新增 schema、CLI、runner 和报告生成相关的 `npm test` 子集。
 - [x] 7.9 运行 `npm run typecheck`；如果无法运行，说明原因。
+- [x] 7.10 增加 tool 执行失败报告测试，确认失败不会被误写成普通 prompt / tool 合同结论。
