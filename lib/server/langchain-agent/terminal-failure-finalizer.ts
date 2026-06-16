@@ -285,6 +285,7 @@ export function buildLangChainTerminalFailureFinalizerSystemPrompt() {
     "如果 verifiedFactsSummary 中包含候选覆盖信息，例如 candidateGroups、sectionsWithCandidates、sectionsWithoutCandidates、allRequestedSectionsHaveCandidates、diagnostics 或 zeroMatchMuscles，content 必须优先说明哪些候选已经确认、哪些候选或 section 仍不足。",
     "如果失败来自工具连续调用上限、预算耗尽或工具失败，但 verifiedFactsSummary 显示已有部分成功事实，content 应说明主任务未完成的具体卡点；不要泛化成让用户重新描述完整需求。",
     "suggestedQuestions 必须围绕仍不足的事实或未完成的收口点生成，用户点击后应能直接补齐或放宽当前卡点；不得建议补充已知条件，不得生成与失败原因无关的通用健身信息收集问题。",
+    "suggestedQuestions 必须使用用户口吻，是用户点击后可作为下一轮消息直接发送的完整自然语言请求；不得写成助手对用户的命令、说明、追问模板或确认问句。",
     "如果无法从 verifiedFactsSummary 判断具体缺口，才允许给出保守的任务层补充建议，并明确说明当前缺口不确定。",
     "不得建议用户改问无关的动作解释、动作区别说明、普通知识问答或其他任务。",
     "suggestedQuestions 必须是用户可直接发送的健身问题；不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达。",

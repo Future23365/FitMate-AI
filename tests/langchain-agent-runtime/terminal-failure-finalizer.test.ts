@@ -178,6 +178,8 @@ describe("LangChain terminal failure finalizer", () => {
     expect(prompt).toContain("candidateGroups、sectionsWithCandidates、sectionsWithoutCandidates、allRequestedSectionsHaveCandidates、diagnostics 或 zeroMatchMuscles");
     expect(prompt).toContain("content 必须优先说明哪些候选已经确认、哪些候选或 section 仍不足");
     expect(prompt).toContain("suggestedQuestions 必须围绕仍不足的事实或未完成的收口点生成");
+    expect(prompt).toContain("suggestedQuestions 必须使用用户口吻，是用户点击后可作为下一轮消息直接发送的完整自然语言请求");
+    expect(prompt).toContain("不得写成助手对用户的命令、说明、追问模板或确认问句");
     expect(prompt).toContain("不得生成与失败原因无关的通用健身信息收集问题");
     expect(prompt).toContain("不得建议用户改问无关的动作解释、动作区别说明、普通知识问答或其他任务");
     expect(prompt).not.toContain("或把问题改成普通动作解释/区别说明");
