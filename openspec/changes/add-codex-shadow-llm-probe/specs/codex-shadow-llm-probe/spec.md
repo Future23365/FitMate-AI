@@ -52,24 +52,10 @@
 #### Scenario: 导出首轮模型可见输入
 - **WHEN** 开发者为一条用户消息启动 Codex Shadow LLM Probe
 - **THEN** 系统 MUST 生成 `codex_logs/shadow_llm_probe/<runId>/round-001-input.json`
-- **AND** 该文件 MUST 包含 `modelVisibleInputAudit`，记录 system prompt、messages、tools、finalization tool、tool result summary 和预算说明的来源、长度、hash / fingerprint、完整性状态和缺失字段
 - **AND** 该文件 MUST 包含当前生产 LangChain 主链实际使用的 system prompt、用户消息、当前 request 暴露的 tool 名称、tool description、input schema 和 schema description
 - **AND** 该文件 MUST 包含当前模型可见的 finalization tool description / schema
 - **AND** 该文件 MUST 包含当前模型可见的运行预算摘要
 - **AND** 该文件 MUST 包含可被 decision 引用的输入包内部 `sourceRefs` 或等价路径标识
-
-#### Scenario: 模型可见输入审计必须覆盖完整合同字段
-- **WHEN** 系统生成任一轮 shadow input
-- **THEN** `modelVisibleInputAudit` MUST 记录 `sourceKind`
-- **AND** `modelVisibleInputAudit` MUST 记录 `completeness`
-- **AND** `modelVisibleInputAudit` MUST 记录 system prompt 的来源、长度和 hash / fingerprint
-- **AND** `modelVisibleInputAudit` MUST 记录每条 message 的 role、长度和 hash / fingerprint
-- **AND** `modelVisibleInputAudit` MUST 标记重复 message 风险
-- **AND** `modelVisibleInputAudit` MUST 记录当前 request 暴露 tool 的 name、description hash、schema hash 和 schema description hash
-- **AND** `modelVisibleInputAudit` MUST 记录 finalization tool 的 name、description hash 和 schema hash
-- **AND** `modelVisibleInputAudit` MUST 记录当前可见 tool availability / budget 的来源和剩余额度
-- **AND** 如果 system prompt、tool description、schema description、finalization tool、完整 messages 或预算说明任一缺失，`completeness` MUST 为 `incomplete`
-- **AND** 缺失字段 MUST 写入 `missingModelVisibleParts[]`
 
 #### Scenario: Shadow input 禁止包含 debug-only 内容
 - **WHEN** 系统生成任一轮 shadow input
@@ -81,15 +67,6 @@
 - **THEN** 系统 MUST 生成下一轮 `round-xxx-input.json`
 - **AND** 下一轮 input MUST 包含上一轮真实 tool handler 输出后产生的模型可见 tool result summary
 - **AND** 下一轮 input MUST NOT 把完整 tool raw output、debug-only diagnostics 或用户不可见投影补给 Codex
-
-#### Scenario: 从现有 AI trace 导入时必须 fail closed
-- **WHEN** 后续实现支持从 `/dev/ai-traces` 或 `codex_logs/ai_trace_log.js` 导入 shadow input
-- **AND** trace 只包含 `requestSummary.messagePreviews`、`toolNames` 或不完整 long text references
-- **THEN** 系统 MUST 将该来源标记为 `sourceKind=trace_import`
-- **AND** 系统 MUST 将 `completeness` 标记为 `incomplete`
-- **AND** 系统 MUST 在 `missingModelVisibleParts[]` 中列出缺失的 system prompt、tool description、schema description、finalization tool 或完整 messages
-- **AND** 系统 MUST NOT 声称该 trace 已证明 prompt / tool schema 已进入或未进入 provider request
-- **AND** 系统 MUST NOT 让 Codex Shadow 决策基于不完整 trace 继续判断生产模型本应如何收口
 
 ### Requirement: Codex Shadow 决策必须结构化并可校验
 

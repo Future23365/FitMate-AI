@@ -1,10 +1,8 @@
 ## 1. 合同与边界确认
 
-- [ ] 1.1 确认 Shadow Probe 是 dev-only 诊断能力，不修改生产 `/api/chat` 行为、LangChain runtime 模型调用行为、DeepSeek provider、production tool handler 或用户可见 NDJSON 输出。
+- [ ] 1.1 确认 Shadow Probe 是 dev-only 诊断能力，不修改生产 `/api/chat`、LangChain runtime、DeepSeek provider、production tool handler 或用户可见 NDJSON 输出。
 - [ ] 1.2 使用 Agent prompt / tool 合同治理规则检查 Shadow input 白名单，确认不把 debug-only trace、源码实现、历史经验或开发者解释暴露给 Shadow 决策阶段。
 - [ ] 1.3 固化首版完整 tool 范围：`inspectVisibleTrainingProposals`、`searchExerciseResources`、`submitVisibleTrainingProposal` 非持久化 validator path，以及 `fitmate_final_response` 或等价 finalization 终态。
-- [ ] 1.4 固化当前 AI trace 链路审计结论：区分 tool 执行 / token / tool result summary 的可信部分，以及 system prompt / tool description / schema description / finalization tool 快照缺失的不完整部分。
-- [ ] 1.5 明确 Shadow Probe 不得把现有 AI trace 的 `requestSummary.messagePreviews`、`toolNames` 或导出日志标题说明当作完整模型可见输入来源。
 
 ## 2. Skill 设计与落地
 
@@ -21,10 +19,7 @@
 - [ ] 3.3 实现 shadow input exporter，复用当前生产 prompt、tool catalog、tool description、schema description、finalization tool 和模型可见预算装配入口。
 - [ ] 3.4 为 shadow input 添加输入包内部 `sourceRefs` 或等价路径标识，供 Codex decision 引用证据。
 - [ ] 3.5 实现 shadow input 白名单和脱敏校验，阻止源码实现、debug-only trace、raw DB payload、密钥、cookie、环境变量和开发者解释进入输入包。
-- [ ] 3.6 为 shadow input 添加 `modelVisibleInputAudit`，记录 system prompt、messages、tools、finalization tool、tool result summary 和预算说明的来源、长度、hash / fingerprint、完整性和缺失字段。
-- [ ] 3.7 为 messages 审计添加重复 message 风险标记，帮助区分 input assembly / hydration 问题与模型决策问题。
-- [ ] 3.8 如果后续支持从 `/dev/ai-traces` 或 `codex_logs/ai_trace_log.js` 导入 shadow input，导入器必须在缺少 system prompt / tool schema 快照时标记 `incomplete_trace_source` 并拒绝声称等价。
-- [ ] 3.9 为 schema 和白名单补充 fixture 测试，覆盖合法输入、禁止字段、缺失 tool schema、sourceRefs、预算摘要、`modelVisibleInputAudit`、重复 message 风险和不完整 trace import。
+- [ ] 3.6 为 schema 和白名单补充 fixture 测试，覆盖合法输入、禁止字段、缺失 tool schema、sourceRefs 和预算摘要。
 
 ## 4. CLI 与文件型 Run 管理
 
@@ -51,7 +46,6 @@
 - [ ] 6.2 报告按固定类别归因合同问题，覆盖 prompt conflict、tool selection ambiguity、schema source ambiguity、tool result summary insufficiency、stop condition ambiguity、finalization contract ambiguity、debug-only leakage、case-specific rule smell、runtime budget mismatch 和 contamination risk。
 - [ ] 6.3 报告区分 Shadow 决策报告和开发者诊断建议；开发者诊断建议引用源码或测试时，不得倒灌为 Shadow 决策依据。
 - [ ] 6.4 确保报告生成不重新执行 tool、不调用真实模型、不读取 shadow run 目录以外的证据作为 Shadow 决策依据。
-- [ ] 6.5 报告必须输出 `modelVisibleInputAudit` 摘要；当来源不完整或存在重复 message 风险时，优先归因为输入包 / trace 可观性问题，而不是直接归因给 prompt 或 tool description。
 
 ## 7. 测试与验证
 
@@ -61,8 +55,6 @@
 - [ ] 7.4 增加 CLI 测试，覆盖 start、continue、report 和 run status。
 - [ ] 7.5 增加 architecture / boundary 测试，确认生产 `/api/chat` 不导入 Shadow Probe skill、decision 文件或 runner。
 - [ ] 7.6 增加完成度测试或文档测试，确认首版不是静态导出：至少能从用户消息生成 input、读取合法 decision、执行 dev-safe tool、生成下一轮 input 和报告。
-- [ ] 7.7 增加 trace 可观性测试，确认缺少 system prompt / tool schema 快照的 trace import 会被标记为 incomplete，并且不会被当作完整模型输入。
-- [ ] 7.8 增加 message 审计测试，确认重复用户 message 会进入 `modelVisibleInputAudit` 风险标记。
-- [ ] 7.9 运行 `openspec validate add-codex-shadow-llm-probe --strict`。
-- [ ] 7.10 运行与新增 schema、CLI、runner 和报告生成相关的 `npm test` 子集。
-- [ ] 7.11 运行 `npm run typecheck`；如果无法运行，说明原因。
+- [ ] 7.7 运行 `openspec validate add-codex-shadow-llm-probe --strict`。
+- [ ] 7.8 运行与新增 schema、CLI、runner 和报告生成相关的 `npm test` 子集。
+- [ ] 7.9 运行 `npm run typecheck`；如果无法运行，说明原因。
