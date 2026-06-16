@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   agentRuntimeConfig,
+  createLangChainJsonProjectionBudget,
   resolveLangChainDeepSeekProviderConfig,
   type LangChainDeepSeekProviderConfigResult,
 } from "@/lib/server/config";
@@ -165,7 +166,10 @@ export async function runLangChainTerminalFailureFinalizer(
         reason: "finalizer_output_invalid",
         finalizerInput,
         rawText,
-        issues: toLangChainJsonValue(parsedOutput.error.issues, config.inputSummaryMaxLength),
+        issues: toLangChainJsonValue(
+          parsedOutput.error.issues,
+          createLangChainJsonProjectionBudget(config.inputSummaryMaxLength),
+        ),
       });
     }
 
@@ -177,7 +181,10 @@ export async function runLangChainTerminalFailureFinalizer(
         failureCategory,
         errorCode,
         model: modelContext.modelName,
-        inputSummary: toLangChainJsonValue(finalizerInput, config.inputSummaryMaxLength),
+        inputSummary: toLangChainJsonValue(
+          finalizerInput,
+          createLangChainJsonProjectionBudget(config.inputSummaryMaxLength),
+        ),
         rawTextPreview: truncateTextForLangChainTrace(rawText, config.inputSummaryMaxLength),
         outputValidation: { ok: true },
       },
@@ -230,6 +237,7 @@ export function buildLangChainTerminalFailureFinalizerInput(input: {
   userRequestSummary: string;
 }): LangChainTerminalFailureFinalizerInput {
   const config = agentRuntimeConfig.langChain.terminalFailureFinalizer;
+  const schemaIssueLimit = agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems;
   const failedToolExecutions = input.result.toolExecutions
     .filter((execution) => execution.status === "failed" || execution.failureCode)
     .slice(-config.maxToolExecutionSummaries)
@@ -241,13 +249,13 @@ export function buildLangChainTerminalFailureFinalizerInput(input: {
         : {}),
       ...(execution.schemaIssues?.length
         ? {
-            schemaIssues: execution.schemaIssues.slice(0, 12).map((issue) => ({
+            schemaIssues: execution.schemaIssues.slice(0, schemaIssueLimit).map((issue) => ({
               path: issue.path,
               code: issue.code,
               message: issue.message,
               ...(issue.expected ? { expected: issue.expected } : {}),
               ...(issue.received ? { received: issue.received } : {}),
-              ...(issue.options?.length ? { options: issue.options.slice(0, 12) } : {}),
+              ...(issue.options?.length ? { options: issue.options.slice(0, schemaIssueLimit) } : {}),
             })),
           }
         : {}),
@@ -336,7 +344,12 @@ function createVerifiedFactsSummary(result: LangChainAgentRunFailure): LangChain
       toolName: execution.toolName,
       ...(execution.traceSummary === undefined
         ? {}
-        : { traceSummary: toLangChainJsonValue(execution.traceSummary, config.inputSummaryMaxLength) }),
+        : {
+            traceSummary: toLangChainJsonValue(
+              execution.traceSummary,
+              createLangChainJsonProjectionBudget(config.inputSummaryMaxLength),
+            ),
+          }),
     }));
 
   return {
@@ -402,7 +415,10 @@ function createFailedFinalizerResult(input: {
       errorCode: input.errorCode,
       failureCategory: input.failureCategory,
       reason: input.reason,
-      inputSummary: toLangChainJsonValue(input.finalizerInput, config.inputSummaryMaxLength),
+      inputSummary: toLangChainJsonValue(
+        input.finalizerInput,
+        createLangChainJsonProjectionBudget(config.inputSummaryMaxLength),
+      ),
       rawTextPreview: truncateTextForLangChainTrace(input.rawText, config.inputSummaryMaxLength),
       outputValidation: {
         ok: false,

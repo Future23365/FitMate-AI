@@ -56,8 +56,8 @@ import type {
   ExerciseSuitability,
 } from "@/lib/shared/exercises/types";
 
-/** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限，防止配置误调撑爆模型上下文。 */
-export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
+/** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限；准确度优先阶段与集中配置同步调大。 */
+export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 80;
 /** exerciseResourceMuscleMatchRoleValues 是 searchExerciseResources 肌群字段集合选择的稳定执行枚举。 */
 export const exerciseResourceMuscleMatchRoleValues = ["primary", "any"] as const;
 export type ExerciseResourceMuscleMatchRole = (typeof exerciseResourceMuscleMatchRoleValues)[number];

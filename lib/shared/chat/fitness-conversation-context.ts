@@ -6,15 +6,22 @@ import {
   type WorkoutPlanIntent,
 } from "@/lib/shared/workout-plans/draft-schema";
 import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
+import {
+  aiContextMessageContentMaxLength,
+  conversationContextSummaryMaxLength,
+  conversationSummaryMaxLength,
+  knownFactLatestUserMessagePreviewMaxLength,
+  knownFactListMaxCount,
+} from "@/lib/shared/chat/conversation-context-limits";
 
 export const aiContextChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
-  content: z.string().trim().min(1).max(4000),
+  content: z.string().trim().min(1).max(aiContextMessageContentMaxLength),
 });
 
 export const conversationSummaryContextSchema = z.object({
-  summary: z.string().trim().max(2000).default(""),
-  latestUserMessage: z.string().trim().min(1).max(4000),
+  summary: z.string().trim().max(conversationSummaryMaxLength).default(""),
+  latestUserMessage: z.string().trim().min(1).max(aiContextMessageContentMaxLength),
 });
 
 export const fitnessConversationKnownFactsSchema = z.object({
@@ -23,11 +30,11 @@ export const fitnessConversationKnownFactsSchema = z.object({
   sessionMinutes: z.number().int().min(1).max(240).optional(),
   weeklyFrequency: z.number().int().min(1).max(7).optional(),
   calendarHorizonDays: z.number().int().min(1).max(90).optional(),
-  equipment: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
-  injuryLimitations: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
-  preferences: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
-  avoidances: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
-  latestUserMessage: z.string().trim().min(1).max(400).optional(),
+  equipment: z.array(z.string().trim().min(1).max(40)).max(knownFactListMaxCount).default([]),
+  injuryLimitations: z.array(z.string().trim().min(1).max(120)).max(knownFactListMaxCount).default([]),
+  preferences: z.array(z.string().trim().min(1).max(80)).max(knownFactListMaxCount).default([]),
+  avoidances: z.array(z.string().trim().min(1).max(120)).max(knownFactListMaxCount).default([]),
+  latestUserMessage: z.string().trim().min(1).max(knownFactLatestUserMessagePreviewMaxLength).optional(),
 });
 
 // PendingReplacementSelection 保存动作替换候选的短期服务端状态，下一轮只能在该候选集合内确定替代动作。
@@ -46,7 +53,7 @@ export const pendingReplacementSelectionSchema = z.object({
 );
 
 export const fitnessConversationContextSchema = z.object({
-  summary: z.string().trim().max(2000).default(""),
+  summary: z.string().trim().max(conversationContextSummaryMaxLength).default(""),
   currentIntent: workoutPlanIntentSchema.optional(),
   knownFacts: fitnessConversationKnownFactsSchema.default({
     equipment: [],
@@ -100,7 +107,7 @@ export function buildFitnessConversationContext(
       continue;
     }
 
-    knownFacts.latestUserMessage = previewText(message.content, 400);
+    knownFacts.latestUserMessage = previewText(message.content, knownFactLatestUserMessagePreviewMaxLength);
     mergeUserMessageFacts(message.content, knownFacts, arrayFacts);
   }
 
@@ -290,7 +297,7 @@ function buildContextSummary(
     knownFacts.latestUserMessage ? `最近用户输入：${knownFacts.latestUserMessage}` : "",
   ].filter(Boolean);
 
-  return parts.join("；").slice(0, 2000);
+  return parts.join("；").slice(0, conversationContextSummaryMaxLength);
 }
 
 function extractSessionMinutes(content: string) {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { agentRuntimeConfig } from "@/lib/server/config";
+import { agentRuntimeConfig, createLangChainJsonProjectionBudget } from "@/lib/server/config";
 
 import { toLangChainJsonValue } from "./utils";
 import type {
@@ -154,10 +154,18 @@ function createSuccessEvents(input: CreateLangChainAgentResponseProjectionInput)
       type: "visible_output",
       outputType: output.outputType,
       schemaVersion: output.schemaVersion,
-      payload: toLangChainJsonValue(output.payload, agentRuntimeConfig.langChain.trace.ndjsonProjectionPreviewMaxLength),
+      payload: toLangChainJsonValue(
+        output.payload,
+        createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.trace.ndjsonProjectionPreviewMaxLength),
+      ),
       ...(output.content === undefined
         ? {}
-        : { content: toLangChainJsonValue(output.content, agentRuntimeConfig.langChain.trace.ndjsonProjectionPreviewMaxLength) }),
+        : {
+            content: toLangChainJsonValue(
+              output.content,
+              createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.trace.ndjsonProjectionPreviewMaxLength),
+            ),
+          }),
     });
   }
 

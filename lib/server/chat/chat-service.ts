@@ -12,6 +12,12 @@ import {
   type ConversationSummaryContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
+import {
+  aiContextMessageContentMaxLength,
+  aiContextMessageHistoryMaxCount,
+  conversationContextSummaryMaxLength,
+  conversationSummaryMaxLength,
+} from "@/lib/shared/chat/conversation-context-limits";
 import type { ChatConversation } from "@/features/chat/types";
 
 type ChatRole = "user" | "assistant";
@@ -24,9 +30,9 @@ export type ChatMessage = {
 export const chatRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(120).optional(),
   responseMessageId: z.string().trim().min(1).max(120).optional(),
-  latestUserMessage: z.string().trim().min(1).max(4000),
-  conversationSummary: z.string().trim().max(2000).default(""),
-  messages: z.array(aiContextChatMessageSchema).min(1).max(200).optional(),
+  latestUserMessage: z.string().trim().min(1).max(aiContextMessageContentMaxLength),
+  conversationSummary: z.string().trim().max(conversationSummaryMaxLength).default(""),
+  messages: z.array(aiContextChatMessageSchema).min(1).max(aiContextMessageHistoryMaxCount).optional(),
   conversationContext: fitnessConversationContextSchema.optional(),
   thinkingEnabled: z.boolean().optional(),
 });
@@ -212,7 +218,7 @@ function summarizeMergedConversationContext(context: FitnessConversationContext)
     facts.latestUserMessage ? `最近用户输入：${facts.latestUserMessage}` : "",
   ].filter(Boolean);
 
-  return parts.join("；").slice(0, 2000);
+  return parts.join("；").slice(0, conversationContextSummaryMaxLength);
 }
 
 function appendLatestUserMessageIfMissing(

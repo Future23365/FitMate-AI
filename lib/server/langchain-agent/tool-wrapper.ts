@@ -3,7 +3,7 @@ import "server-only";
 import { tool } from "langchain";
 import { z } from "zod";
 
-import { agentRuntimeConfig } from "@/lib/server/config";
+import { agentRuntimeConfig, createLangChainJsonProjectionBudget } from "@/lib/server/config";
 
 import {
   getErrorMessage,
@@ -231,7 +231,10 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   const config = agentRuntimeConfig.langChain;
   const runtimeMetadata = extractRuntimeMetadataEnvelope(wrapper, rawInput);
   const parsedInput = wrapper.inputSchema.safeParse(runtimeMetadata.businessInput);
-  const inputSummary = toLangChainJsonValue(runtimeMetadata.businessInput, config.trace.toolArgumentsPreviewMaxLength);
+  const inputSummary = toLangChainJsonValue(
+    runtimeMetadata.businessInput,
+    createLangChainJsonProjectionBudget(config.trace.toolArgumentsPreviewMaxLength),
+  );
 
   if (options.budgetExceeded) {
     return createFailedToolExecution({
@@ -307,14 +310,18 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
     const modelVisibleSummary = stringifyForModelSummary(
       wrapper.toModelVisibleSummary(output),
       config.toolWrapper.modelVisibleSummaryMaxLength,
+      createLangChainJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength),
     );
     const rawUserProjection = wrapper.toUserProjection?.(output);
     const userProjection = rawUserProjection === undefined
       ? undefined
-      : toLangChainJsonValue(rawUserProjection, config.toolWrapper.userProjectionMaxLength);
+      : toLangChainJsonValue(
+        rawUserProjection,
+        createLangChainJsonProjectionBudget(config.toolWrapper.userProjectionMaxLength),
+      );
     const traceSummary = toLangChainJsonValue(
       wrapper.toTraceSummary?.(output) ?? output,
-      config.toolWrapper.traceSummaryMaxLength,
+      createLangChainJsonProjectionBudget(config.toolWrapper.traceSummaryMaxLength),
     );
 
     return {
@@ -546,6 +553,7 @@ function createFailedToolExecution(input: {
     modelMessage: stringifyForModelSummary(
       input.modelMessage,
       agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength,
+      createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength),
     ),
     record: {
       toolCallId: input.toolCallId,
@@ -565,7 +573,9 @@ function createFailedToolExecution(input: {
 
 // summarizeZodIssues 只记录可定位 schema 问题的稳定字段，避免把完整 tool payload 写进 trace。
 function summarizeZodIssues(error: z.ZodError, rawValue: unknown): readonly LangChainAgentSchemaIssue[] {
-  return error.issues.slice(0, 20).map((issue) => {
+  const issueLimit = agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems;
+
+  return error.issues.slice(0, issueLimit).map((issue) => {
     const baseIssue: LangChainAgentSchemaIssue = {
       path: issue.path.length ? issue.path.map(String).join(".") : "$",
       code: issue.code,
@@ -599,7 +609,12 @@ function readExpectedIssueField(details: z.ZodIssue & { expected?: unknown; valu
   }
 
   if (Array.isArray(details.values) && details.values.length > 0) {
-    return { expected: details.values.slice(0, 20).map(summarizePrimitiveIssueValue).join(" | ") };
+    return {
+      expected: details.values
+        .slice(0, agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems)
+        .map(summarizePrimitiveIssueValue)
+        .join(" | "),
+    };
   }
 
   return {};
@@ -611,7 +626,7 @@ function readStringIssueField(value: unknown, key: "expected" | "received") {
 
 function readStringArrayIssueField(value: unknown, key: "keys" | "options") {
   return Array.isArray(value)
-    ? { [key]: value.slice(0, 20).map(String) }
+    ? { [key]: value.slice(0, agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems).map(String) }
     : {};
 }
 

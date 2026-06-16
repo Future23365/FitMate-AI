@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRuntimeConfig,
+  createLangChainJsonProjectionBudget,
   resolveLangChainDeepSeekProviderConfig,
 } from "@/lib/server/config";
+import { EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED } from "@/lib/server/exercises/exercise-repository";
 import { resolveLangChainGraphRecursionLimit } from "@/lib/server/langchain-agent";
+import { visibleTrainingProposalRecentFactHardLimit } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 
 describe("LangChain Agent runtime config", () => {
   it("centralizes DeepSeek native tool calling defaults", () => {
@@ -37,18 +40,40 @@ describe("LangChain Agent runtime config", () => {
 
   it("centralizes searchExerciseResources candidate count limits", () => {
     expect(agentRuntimeConfig.tools.searchExerciseResources).toMatchObject({
-      timeoutMs: 2_000,
-      defaultCandidateCountPerSection: 8,
-      maxCandidateCountPerSection: 24,
+      timeoutMs: 10_000,
+      defaultCandidateCountPerSection: 24,
+      maxCandidateCountPerSection: 80,
+    });
+    expect(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED).toBe(
+      agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection,
+    );
+    expect(visibleTrainingProposalRecentFactHardLimit).toBe(
+      agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
+    );
+  });
+
+  it("centralizes expanded model-visible projection budgets", () => {
+    expect(agentRuntimeConfig.langChain.toolWrapper).toMatchObject({
+      defaultTimeoutMs: 10_000,
+      modelVisibleSummaryMaxLength: 200_000,
+      userProjectionMaxLength: 100_000,
+      traceSummaryMaxLength: 50_000,
+      jsonProjectionMaxArrayItems: 500,
+      jsonProjectionMaxObjectEntries: 200,
+    });
+    expect(createLangChainJsonProjectionBudget(123)).toEqual({
+      maxLength: 123,
+      maxArrayItems: agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems,
+      maxObjectEntries: agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxObjectEntries,
     });
   });
 
   it("keeps LangChain run budgets synchronized with graph recursion semantics", () => {
     expect(agentRuntimeConfig.langChain.runBudget).toMatchObject({
-      maxModelCalls: 16,
-      maxToolCalls: 15,
-      maxToolCallsPerTool: 5,
-      overallTimeoutMs: 40_000,
+      maxModelCalls: 31,
+      maxToolCalls: 30,
+      maxToolCallsPerTool: 10,
+      overallTimeoutMs: 90_000,
     });
     expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(
       agentRuntimeConfig.langChain.runBudget.maxModelCalls * 3,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { prepareChatRequest } from "@/lib/server/chat/chat-service";
 import { createLangChainAgentTextChatMessages } from "@/lib/server/chat/langchain-agent-text-chat-service";
+import { aiContextMessageContentMaxLength } from "@/lib/shared/chat/conversation-context-limits";
 
 import { createChatConversation, createConversationContext } from "./fixtures/domain";
 
@@ -92,5 +93,16 @@ describe("chat service request preparation", () => {
     expect(serializedMessages).not.toContain("responseMessageId");
     expect(serializedMessages).not.toContain("thinkingEnabled");
     expect(serializedMessages).not.toContain("客户端传来的摘要不应直接进入模型消息");
+  });
+
+  it("keeps long latest user messages within the expanded model input budget", () => {
+    const latestUserMessage = `我需要完整说明训练限制：${"胸背腿肩核心都要覆盖。".repeat(500)}`;
+
+    expect(latestUserMessage.length).toBeLessThan(aiContextMessageContentMaxLength);
+
+    const prepared = prepareChatRequest({ latestUserMessage, conversationSummary: "" });
+    const messages = createLangChainAgentTextChatMessages(prepared);
+
+    expect(messages).toEqual([{ role: "user", content: latestUserMessage }]);
   });
 });

@@ -361,7 +361,7 @@ describe("production LangChain tool catalog", () => {
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
       muscleMatchRole: "any",
-      candidateCountPerSection: 24,
+      candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection,
       executionProfile: "no_equipment",
       impactLimit: "low",
       noiseLimit: "quiet",
@@ -380,7 +380,7 @@ describe("production LangChain tool catalog", () => {
     }).success).toBe(false);
     expect(searchTool?.inputSchema.safeParse({
       muscles: ["胸部"],
-      candidateCountPerSection: 25,
+      candidateCountPerSection: agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection + 1,
       sort: "name_asc",
     }).success).toBe(false);
   });
