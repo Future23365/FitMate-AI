@@ -22,8 +22,8 @@ import {
 } from "./visible-training-proposal-exercise-facts";
 
 const activeFactStatus = "active";
-/** visibleTrainingProposalRecentFactHardLimit 是事实桥最近索引读取硬上限；准确度优先阶段与集中配置同步调大。 */
-export const visibleTrainingProposalRecentFactHardLimit = 20;
+/** visibleTrainingProposalRecentFactHardLimit 是事实桥最近索引读取硬上限，避免历史事实无界进入模型上下文。 */
+export const visibleTrainingProposalRecentFactHardLimit = 5;
 
 const exerciseDetailSchema = visibleTrainingProposalCanonicalExerciseSchema;
 

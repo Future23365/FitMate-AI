@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { agentRuntimeConfig, createLangChainJsonProjectionBudget } from "@/lib/server/config";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   exerciseResourceMuscleMatchRoleValues,
   getExerciseResourceSummariesByIds,
@@ -618,7 +618,7 @@ export function createSearchExerciseResourcesLangChainTool(
         ...(diagnostic.returnedCount === undefined ? {} : { returnedCount: diagnostic.returnedCount }),
         ...(diagnostic.conflictFields ? { conflictFields: diagnostic.conflictFields } : {}),
       })),
-    }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength)),
+    }, agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength),
   });
 }
 

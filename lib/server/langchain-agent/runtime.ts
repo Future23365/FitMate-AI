@@ -5,7 +5,7 @@ import type { ModelRequest } from "langchain";
 
 import {
   agentRuntimeConfig,
-  createLangChainJsonProjectionBudget,
+  createLangChainModelVisibleJsonProjectionBudget,
   type AgentRuntimeConfig,
 } from "@/lib/server/config";
 
@@ -716,7 +716,7 @@ function createDuplicateInputExecution(input: {
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
     readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
-    createLangChainJsonProjectionBudget(config.trace.toolArgumentsPreviewMaxLength),
+    config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({
     status: "duplicate_tool_input",
@@ -725,7 +725,7 @@ function createDuplicateInputExecution(input: {
     toolVersion: input.duplicateKey.toolVersion,
     message: "同一 run 内该工具已使用相同归一化 input 产生过模型可见事实；重复调用不会产生新的事实。请基于本轮已可见事实继续推理，或在确实需要新事实时调整工具输入。",
     factBoundary: "这是重复输入反馈，不表示用户业务目标已经完成，也不要求调用任何下一步业务 tool。",
-  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
+  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainModelVisibleJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
 
   return {
     modelMessage: modelVisibleSummary,
@@ -743,7 +743,7 @@ function createDuplicateInputExecution(input: {
         toolName: input.completed.toolName,
         toolVersion: input.completed.toolVersion,
         normalizedInputHash: input.completed.normalizedInputHash,
-      }, createLangChainJsonProjectionBudget(config.toolWrapper.traceSummaryMaxLength)),
+      }, config.toolWrapper.traceSummaryMaxLength),
       feedbackCode: "duplicate_tool_input",
       enteredModelContext: true,
     },
@@ -798,7 +798,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
     readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
-    createLangChainJsonProjectionBudget(config.trace.toolArgumentsPreviewMaxLength),
+    config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({
     status: "failed",
@@ -808,7 +808,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
     consecutiveCount: input.consecutiveCount,
     message: "同一个业务工具已连续调用达到本轮上限；runtime 将终止当前主 Agent loop，并进入失败收口或由上层 adapter 处理。不要假装该工具已执行成功。",
     boundary: "runtimeMetadata 不产生独立工具调用，也不打断业务工具连续计数；触发连续超限后不会继续自由业务工具调用，整轮 maxToolCalls 和 maxModelCalls 仍是外层安全熔断。",
-  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
+  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainModelVisibleJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
 
   return {
     modelMessage: modelVisibleSummary,
@@ -826,7 +826,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
         toolName: input.wrapper.name,
         limit: input.limit,
         consecutiveCount: input.consecutiveCount,
-      }, createLangChainJsonProjectionBudget(config.toolWrapper.traceSummaryMaxLength)),
+      }, config.toolWrapper.traceSummaryMaxLength),
       failureCode: "tool_handler_failed",
       failureMessage: "同一个业务工具连续调用次数超过本轮上限，主 Agent loop 已终止。",
       enteredModelContext: true,
@@ -843,7 +843,7 @@ function createCurrentRequestToolUnavailableExecution(input: {
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
     readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
-    createLangChainJsonProjectionBudget(config.trace.toolArgumentsPreviewMaxLength),
+    config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({
     status: "failed",
@@ -851,7 +851,7 @@ function createCurrentRequestToolUnavailableExecution(input: {
     toolName: input.wrapper.name,
     message: "当前模型请求未暴露该工具，runtime 已拒绝执行；请基于当前可见事实收口或说明能力边界。",
     boundary: "该失败只表示 provider 返回了当前 request tools 列表之外的 tool_call；服务端不会执行对应业务 handler，也不会改写 provider tool_call。",
-  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
+  }, config.toolWrapper.modelVisibleSummaryMaxLength, createLangChainModelVisibleJsonProjectionBudget(config.toolWrapper.modelVisibleSummaryMaxLength));
 
   return {
     modelMessage: modelVisibleSummary,
@@ -868,7 +868,7 @@ function createCurrentRequestToolUnavailableExecution(input: {
         code: "unknown_tool",
         toolName: input.wrapper.name,
         reason: "current_request_tool_unavailable",
-      }, createLangChainJsonProjectionBudget(config.toolWrapper.traceSummaryMaxLength)),
+      }, config.toolWrapper.traceSummaryMaxLength),
       failureCode: "unknown_tool",
       failureMessage: "当前模型请求未暴露该工具，runtime 已拒绝执行 handler。",
       enteredModelContext: true,
@@ -1195,7 +1195,7 @@ function mergeToolExecutions(
         modelVisibleSummary: content,
         traceSummary: toLangChainJsonValue(
           content,
-          createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.trace.toolResultPreviewMaxLength),
+          agentRuntimeConfig.langChain.trace.toolResultPreviewMaxLength,
         ),
         failureCode,
         failureMessage: failureCode ? content : undefined,
@@ -1289,7 +1289,7 @@ function readAIMessageProviderToolCalls(
     name: toolCall.name,
     argsSummary: toLangChainJsonValue(
       toolCall.args,
-      createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.trace.toolArgumentsPreviewMaxLength),
+      agentRuntimeConfig.langChain.trace.toolArgumentsPreviewMaxLength,
     ),
     modelCallIndex,
     runtimeStep: modelCallIndex,

@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { agentRuntimeConfig, createLangChainJsonProjectionBudget } from "@/lib/server/config";
+import { agentRuntimeConfig, createLangChainModelVisibleJsonProjectionBudget } from "@/lib/server/config";
 import {
   visibleTrainingProposalFactKind,
   visibleTrainingProposalFactSchemaVersion,
@@ -145,7 +145,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         operation: output.operation,
         factLevel: "diagnostic",
         code: output.code,
-      }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength));
+      }, createLangChainModelVisibleJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength));
     }
 
     const coverage = summarizeBusinessFactsCoverage(output.facts);
@@ -169,7 +169,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
       hasSchedule: coverage.hasSchedule,
       outputBoundary: "该 tool 只读取和导入历史业务事实；不会生成新的训练卡片、routine、plan 或保存结果。",
       usageBoundary: "后续如何使用这些历史事实，由模型结合本轮用户目标和当前可见事实自行判断。",
-    }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength));
+    }, createLangChainModelVisibleJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength));
   },
   toUserProjection: (output) => {
     if (output.status === "failed") {
@@ -177,7 +177,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         status: output.status,
         operation: output.operation,
         code: output.code,
-      }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.userProjectionMaxLength));
+      }, agentRuntimeConfig.langChain.toolWrapper.userProjectionMaxLength);
     }
 
     return toLangChainJsonValue({
@@ -191,7 +191,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         sectionSummary: fact.sectionSummary,
           reusableTrainingExerciseCount: fact.reusableTrainingExerciseCount,
         })),
-    }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.userProjectionMaxLength));
+    }, agentRuntimeConfig.langChain.toolWrapper.userProjectionMaxLength);
   },
   toTraceSummary: (output) => {
     if (output.status === "failed") {
@@ -199,7 +199,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         status: output.status,
         operation: output.operation,
         code: output.code,
-      }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength));
+      }, agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength);
     }
 
     return toLangChainJsonValue({
@@ -211,7 +211,7 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         proposalKind: fact.proposalKind,
           sectionSummary: fact.sectionSummary,
         })),
-    }, createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength));
+    }, agentRuntimeConfig.langChain.toolWrapper.traceSummaryMaxLength);
   },
 });
 

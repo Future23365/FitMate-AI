@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRuntimeConfig,
-  createLangChainJsonProjectionBudget,
+  createLangChainModelVisibleJsonProjectionBudget,
 } from "@/lib/server/config";
 import {
   stringifyForModelSummary,
@@ -10,12 +10,12 @@ import {
 } from "@/lib/server/langchain-agent/utils";
 
 describe("LangChain JSON projection budgets", () => {
-  it("keeps arrays and object entries beyond the legacy fixed projection limits", () => {
+  it("keeps model-visible arrays and object entries beyond the legacy fixed projection limits", () => {
     const arrayValue = Array.from({ length: 40 }, (_, index) => ({ index }));
     const objectValue = Object.fromEntries(
       Array.from({ length: 40 }, (_, index) => [`field${index}`, index]),
     );
-    const budget = createLangChainJsonProjectionBudget(
+    const budget = createLangChainModelVisibleJsonProjectionBudget(
       agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength,
     );
 
@@ -42,7 +42,7 @@ describe("LangChain JSON projection budgets", () => {
     const serialized = stringifyForModelSummary(
       summary,
       agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength,
-      createLangChainJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength),
+      createLangChainModelVisibleJsonProjectionBudget(agentRuntimeConfig.langChain.toolWrapper.modelVisibleSummaryMaxLength),
     );
     const parsed = JSON.parse(serialized);
 

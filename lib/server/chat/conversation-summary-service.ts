@@ -1,7 +1,6 @@
 import "server-only";
 
 import { conversationSummaryContextSchema } from "@/lib/shared/chat/fitness-conversation-context";
-import { conversationSummaryMaxLength } from "@/lib/shared/chat/conversation-context-limits";
 
 type SummaryUpdateInput = {
   previousSummary: string;
@@ -33,7 +32,7 @@ export function buildFallbackConversationSummary(input: {
   ].filter(Boolean);
   const summary = lines.join("\n");
 
-  return conversationSummaryContextSchema.shape.summary.parse(truncateText(summary, conversationSummaryMaxLength));
+  return conversationSummaryContextSchema.shape.summary.parse(truncateText(summary, 2000));
 }
 
 function truncateText(value: string, maxLength: number) {

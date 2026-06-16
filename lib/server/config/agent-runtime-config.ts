@@ -46,8 +46,8 @@ export type AgentRuntimeConfig = {
       modelVisibleSummaryMaxLength: number;
       userProjectionMaxLength: number;
       traceSummaryMaxLength: number;
-      jsonProjectionMaxArrayItems: number;
-      jsonProjectionMaxObjectEntries: number;
+      modelVisibleJsonProjectionMaxArrayItems: number;
+      modelVisibleJsonProjectionMaxObjectEntries: number;
     };
     toolCatalog: {
       defaultEnabled: true;
@@ -115,10 +115,10 @@ export const agentRuntimeConfig = {
       defaultEndpoint: "https://api.deepseek.com",
       /** temperature 越高越容易改变 tool calling 决策；生产默认保持确定性。 */
       temperature: 0,
-      /** maxTokens 限制最终回答和结构化 tool call 输出体积；准确度优先阶段调大，避免长结构化收口被截断。 */
-      maxTokens: 32_000,
-      /** timeoutMs 限制单次 provider 请求等待时间；准确度优先阶段给长上下文留出更宽响应窗口。 */
-      timeoutMs: 60_000,
+      /** maxTokens 限制最终回答和 tool 调用上下文的输出体积；调大增加成本和延迟。 */
+      maxTokens: 20_000,
+      /** timeoutMs 限制单次 provider 请求等待时间；调小会增加慢响应失败，调大增加请求占用。 */
+      timeoutMs: 30_000,
       /** toolCalling 控制 provider native tools 暴露方式；schema 正确性仍由 wrapper Zod 校验。 */
       toolCalling: {
         /** enabled 固定 true，生产 LangChain agent 必须使用 DeepSeek native tools，而不是自定义 JSON action。 */
@@ -142,8 +142,8 @@ export const agentRuntimeConfig = {
       maxToolCalls: 15,
       /** maxToolCallsPerTool 限制同一业务 tool 的连续调用次数；保持原重复调用上限。 */
       maxToolCallsPerTool: 5,
-      /** overallTimeoutMs 是整次 LangChain run 墙钟预算；准确度优先阶段给长候选与 finalization 留出执行时间。 */
-      overallTimeoutMs: 90_000,
+      /** overallTimeoutMs 是整次 LangChain run 墙钟预算；调大增加请求占用，调小可能中断合法慢路径。 */
+      overallTimeoutMs: 40_000,
     },
     /** runtimeActivity 控制业务 tool call metadata 的安全投影边界，不产生独立 provider tool call。 */
     runtimeActivity: {
@@ -158,35 +158,35 @@ export const agentRuntimeConfig = {
     terminalFailureFinalizer: {
       /** defaultEnabled 控制生产失败后是否默认尝试模型兜底；关闭时直接走确定性 fallback。 */
       defaultEnabled: true,
-      /** timeoutMs 限制 finalizer 单次模型调用等待时间；准确度优先阶段放宽，避免失败收口因长摘要超时。 */
-      timeoutMs: 30_000,
-      /** maxTokens 限制 finalizer 回复体积；准确度优先阶段放宽，避免兜底解释被模型输出预算截断。 */
-      maxTokens: 4_000,
-      /** maxContentLength 限制用户可见兜底正文长度；调大用于完整解释已验证事实和缺口。 */
-      maxContentLength: 4_000,
+      /** timeoutMs 限制 finalizer 单次模型调用等待时间，避免失败收口拖住 stream。 */
+      timeoutMs: 12_000,
+      /** maxTokens 限制 finalizer 回复体积；finalizer 只输出普通解释和建议问题。 */
+      maxTokens: 900,
+      /** maxContentLength 限制用户可见兜底正文长度。 */
+      maxContentLength: 900,
       /** maxSuggestedQuestions 限制 finalizer 可输出的建议问题数量。 */
       maxSuggestedQuestions: 3,
-      /** maxSuggestedQuestionLength 限制单条建议问题长度；调大避免健身约束较多时问题被截断。 */
-      maxSuggestedQuestionLength: 160,
-      /** inputSummaryMaxLength 限制 finalizer 模型输入中每段诊断摘要长度；准确度优先阶段保留更多已验证事实。 */
-      inputSummaryMaxLength: 50_000,
-      /** maxToolExecutionSummaries 限制传给 finalizer 的 tool 执行摘要数量；调大避免只看到最后少数 tool。 */
-      maxToolExecutionSummaries: 20,
+      /** maxSuggestedQuestionLength 限制单条建议问题长度。 */
+      maxSuggestedQuestionLength: 80,
+      /** inputSummaryMaxLength 限制 finalizer 模型输入中每段诊断摘要长度。 */
+      inputSummaryMaxLength: 1_200,
+      /** maxToolExecutionSummaries 限制传给 finalizer 的 tool 执行摘要数量。 */
+      maxToolExecutionSummaries: 6,
     },
     /** toolWrapper 控制所有 LangChain tool wrapper 的默认超时和投影裁剪预算。 */
     toolWrapper: {
-      /** defaultTimeoutMs 是单个 wrapper 默认执行预算；准确度优先阶段放宽，避免慢查询被过早打断。 */
-      defaultTimeoutMs: 10_000,
+      /** defaultTimeoutMs 是单个 wrapper 默认执行预算；具体 tool 仍可用更低 hard cap。 */
+      defaultTimeoutMs: 2_000,
       /** modelVisibleSummaryMaxLength 限制返回给模型的 tool result 摘要长度；调大以优先保留完整候选事实。 */
       modelVisibleSummaryMaxLength: 200_000,
-      /** userProjectionMaxLength 限制用户投影摘要长度；调大以避免用户可见投影和事实持久化链路过早裁剪。 */
-      userProjectionMaxLength: 100_000,
-      /** traceSummaryMaxLength 限制 trace 中 tool input/output 摘要长度；finalizer 会消费部分 traceSummary，因此准确度优先阶段调大。 */
-      traceSummaryMaxLength: 50_000,
-      /** jsonProjectionMaxArrayItems 限制 JSON 投影保留的数组项数；调大避免候选事实在序列化前被固定 20 项裁剪。 */
-      jsonProjectionMaxArrayItems: 500,
-      /** jsonProjectionMaxObjectEntries 限制 JSON 投影保留的对象字段数；调大避免结构化事实字段在序列化前被固定 30 项裁剪。 */
-      jsonProjectionMaxObjectEntries: 200,
+      /** userProjectionMaxLength 限制用户投影摘要长度，避免大 payload 直接进入 NDJSON。 */
+      userProjectionMaxLength: 4_000,
+      /** traceSummaryMaxLength 限制 trace 中 tool input/output 摘要长度，降低泄漏面。 */
+      traceSummaryMaxLength: 1_200,
+      /** modelVisibleJsonProjectionMaxArrayItems 只放宽返回给模型的 tool result JSON 数组裁剪，不改变业务 tool 返回数量。 */
+      modelVisibleJsonProjectionMaxArrayItems: 500,
+      /** modelVisibleJsonProjectionMaxObjectEntries 只放宽返回给模型的 tool result JSON 字段裁剪，不改变 user projection 或 trace 投影。 */
+      modelVisibleJsonProjectionMaxObjectEntries: 200,
     },
     /** toolCatalog 声明生产 LangChain tools 白名单，route 不根据用户原文动态增减工具。 */
     toolCatalog: {
@@ -201,52 +201,52 @@ export const agentRuntimeConfig = {
     },
     /** trace 控制 LangChain runtime、provider payload、tool wrapper 和 NDJSON projection 的诊断裁剪。 */
     trace: {
-      /** modelMessagePreviewMaxLength 限制 trace 中消息预览长度；调大便于排查长上下文下模型实际可见输入。 */
-      modelMessagePreviewMaxLength: 4_000,
-      /** providerPayloadPreviewMaxLength 限制 DeepSeek raw payload 摘要长度；调大便于排查 provider 请求是否完整。 */
-      providerPayloadPreviewMaxLength: 20_000,
-      /** toolArgumentsPreviewMaxLength 限制 tool arguments 预览；调大便于排查复杂结构化查询。 */
-      toolArgumentsPreviewMaxLength: 10_000,
-      /** toolResultPreviewMaxLength 限制 tool result 预览；调大便于确认候选事实是否被裁剪。 */
-      toolResultPreviewMaxLength: 50_000,
-      /** ndjsonProjectionPreviewMaxLength 限制最终用户事件投影摘要长度；调大避免 visible output payload 过早裁剪。 */
-      ndjsonProjectionPreviewMaxLength: 100_000,
+      /** modelMessagePreviewMaxLength 限制 trace 中消息预览长度，避免保存完整历史。 */
+      modelMessagePreviewMaxLength: 800,
+      /** providerPayloadPreviewMaxLength 限制 DeepSeek raw payload 摘要长度，避免泄漏完整请求。 */
+      providerPayloadPreviewMaxLength: 1_200,
+      /** toolArgumentsPreviewMaxLength 限制 tool arguments 预览，避免模型参数原样进 trace。 */
+      toolArgumentsPreviewMaxLength: 800,
+      /** toolResultPreviewMaxLength 限制 tool result 预览，避免完整 handler output 进 trace。 */
+      toolResultPreviewMaxLength: 1_200,
+      /** ndjsonProjectionPreviewMaxLength 限制最终用户事件投影摘要长度。 */
+      ndjsonProjectionPreviewMaxLength: 800,
     },
   },
   /** tools 控制生产 tool 暴露给模型的默认事实数量和超时；业务层仍保留 hard cap。 */
   tools: {
     /** searchExerciseResources 控制动作候选查询的受控返回规模，避免 tool 局部硬编码候选数量。 */
     searchExerciseResources: {
-      /** timeoutMs 限制动作事实查询 tool 的单次执行时间；准确度优先阶段放宽，避免大候选查询超时。 */
-      timeoutMs: 10_000,
-      /** defaultCandidateCountPerSection 是未显式指定时每个请求 section 的候选数量默认值；调大让宽泛查询先给足候选池。 */
-      defaultCandidateCountPerSection: 24,
-      /** maxCandidateCountPerSection 是模型可控候选数量上限；repository hard cap 必须与它同步或显式更低。 */
-      maxCandidateCountPerSection: 80,
+      /** timeoutMs 限制动作事实查询 tool 的单次执行时间；调大可能放大慢查询影响。 */
+      timeoutMs: 2_000,
+      /** defaultCandidateCountPerSection 是未显式指定时每个请求 section 的候选数量默认值。 */
+      defaultCandidateCountPerSection: 8,
+      /** maxCandidateCountPerSection 是模型可控候选数量上限；repository 仍保留同等 hard cap。 */
+      maxCandidateCountPerSection: 24,
     },
     /** inspectVisibleTrainingProposals 控制最近可见训练方案事实索引的读取规模。 */
     inspectVisibleTrainingProposals: {
-      /** timeoutMs 限制可见训练方案事实 tool 的单次执行时间；准确度优先阶段放宽，避免事实库慢读过早失败。 */
-      timeoutMs: 5_000,
-      /** recentFactListLimit 控制 list_recent 返回的最近事实索引数量；调大以保留更多可复用历史训练事实。 */
-      recentFactListLimit: 20,
+      /** timeoutMs 限制可见训练方案事实 tool 的单次执行时间；调大可能放大事实库慢读影响。 */
+      timeoutMs: 2_000,
+      /** recentFactListLimit 控制 list_recent 返回的最近事实索引数量；调大增加模型上下文和引用歧义。 */
+      recentFactListLimit: 3,
     },
     /** submitVisibleTrainingProposal 控制结构化训练方案终态 validator 的执行预算。 */
     submitVisibleTrainingProposal: {
-      /** timeoutMs 限制结构化训练方案校验和用户可见投影生成时间；准确度优先阶段放宽长计划校验窗口。 */
-      timeoutMs: 5_000,
+      /** timeoutMs 限制结构化训练方案校验和用户可见投影生成时间，失败时不输出卡片。 */
+      timeoutMs: 3_000,
     },
   },
 } as const satisfies AgentRuntimeConfig;
 
-/** createLangChainJsonProjectionBudget 把不同链路的长度预算与统一结构预算组合，避免调用点继续写固定数组/对象裁剪值。 */
-export function createLangChainJsonProjectionBudget(maxLength: number) {
+/** createLangChainModelVisibleJsonProjectionBudget 只服务 ToolMessage 摘要，避免把模型可见结构预算误用于业务投影数量。 */
+export function createLangChainModelVisibleJsonProjectionBudget(maxLength: number) {
   const toolWrapperConfig = agentRuntimeConfig.langChain.toolWrapper;
 
   return {
     maxLength,
-    maxArrayItems: toolWrapperConfig.jsonProjectionMaxArrayItems,
-    maxObjectEntries: toolWrapperConfig.jsonProjectionMaxObjectEntries,
+    maxArrayItems: toolWrapperConfig.modelVisibleJsonProjectionMaxArrayItems,
+    maxObjectEntries: toolWrapperConfig.modelVisibleJsonProjectionMaxObjectEntries,
   };
 }
 

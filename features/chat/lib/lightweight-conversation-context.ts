@@ -3,12 +3,6 @@ import type {
   FitnessConversationContext,
   FitnessConversationKnownFacts,
 } from "@/lib/shared/chat/fitness-conversation-context";
-import {
-  aiContextMessageContentMaxLength,
-  conversationContextSummaryMaxLength,
-  conversationSummaryMaxLength,
-  knownFactLatestUserMessagePreviewMaxLength,
-} from "@/lib/shared/chat/conversation-context-limits";
 import type { WorkoutPlanIntent } from "@/lib/shared/workout-plans/draft-schema";
 
 type AiContextChatMessage = {
@@ -37,7 +31,7 @@ export function buildClientFitnessConversationContext(
       continue;
     }
 
-    knownFacts.latestUserMessage = previewText(message.content, knownFactLatestUserMessagePreviewMaxLength);
+    knownFacts.latestUserMessage = previewText(message.content, 400);
     mergeUserMessageFacts(message.content, knownFacts, arrayFacts);
   }
 
@@ -62,8 +56,8 @@ export function buildClientConversationSummaryContext(input: {
   latestUserMessage: string;
 }): ConversationSummaryContext {
   return {
-    summary: previewText(input.summary ?? "", conversationSummaryMaxLength),
-    latestUserMessage: previewText(input.latestUserMessage, aiContextMessageContentMaxLength),
+    summary: previewText(input.summary ?? "", 2000),
+    latestUserMessage: previewText(input.latestUserMessage, 4000),
   };
 }
 
@@ -92,7 +86,7 @@ function normalizeAiContextMessages(messages: unknown[]): AiContextChatMessage[]
     }
     if ((message.role === "user" || message.role === "assistant") && typeof message.content === "string") {
       const content = message.content.trim();
-      if (content && content.length <= aiContextMessageContentMaxLength) {
+      if (content && content.length <= 4000) {
         normalizedMessages.push({ role: message.role, content });
       }
     }
@@ -155,7 +149,7 @@ function buildContextSummary(
     knownFacts.latestUserMessage ? `最近用户输入：${knownFacts.latestUserMessage}` : "",
   ].filter(Boolean);
 
-  return parts.join("；").slice(0, conversationContextSummaryMaxLength);
+  return parts.join("；").slice(0, 2000);
 }
 
 function extractSessionMinutes(content: string) {

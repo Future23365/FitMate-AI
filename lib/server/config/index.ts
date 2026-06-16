@@ -1,6 +1,6 @@
 export {
   agentRuntimeConfig,
-  createLangChainJsonProjectionBudget,
+  createLangChainModelVisibleJsonProjectionBudget,
   resolveLangChainDeepSeekProviderConfig,
   type AgentRuntimeConfig,
   type LangChainDeepSeekProviderConfig,

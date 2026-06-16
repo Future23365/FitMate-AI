@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRuntimeConfig,
-  createLangChainJsonProjectionBudget,
+  createLangChainModelVisibleJsonProjectionBudget,
   resolveLangChainDeepSeekProviderConfig,
 } from "@/lib/server/config";
 import { EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED } from "@/lib/server/exercises/exercise-repository";
@@ -40,31 +40,30 @@ describe("LangChain Agent runtime config", () => {
 
   it("centralizes searchExerciseResources candidate count limits", () => {
     expect(agentRuntimeConfig.tools.searchExerciseResources).toMatchObject({
-      timeoutMs: 10_000,
-      defaultCandidateCountPerSection: 24,
-      maxCandidateCountPerSection: 80,
+      timeoutMs: 2_000,
+      defaultCandidateCountPerSection: 8,
+      maxCandidateCountPerSection: 24,
     });
     expect(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED).toBe(
       agentRuntimeConfig.tools.searchExerciseResources.maxCandidateCountPerSection,
     );
-    expect(visibleTrainingProposalRecentFactHardLimit).toBe(
-      agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
-    );
+    expect(agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit).toBe(3);
+    expect(visibleTrainingProposalRecentFactHardLimit).toBe(5);
   });
 
-  it("centralizes expanded model-visible projection budgets", () => {
+  it("only expands model-visible tool result summary budgets", () => {
     expect(agentRuntimeConfig.langChain.toolWrapper).toMatchObject({
-      defaultTimeoutMs: 10_000,
+      defaultTimeoutMs: 2_000,
       modelVisibleSummaryMaxLength: 200_000,
-      userProjectionMaxLength: 100_000,
-      traceSummaryMaxLength: 50_000,
-      jsonProjectionMaxArrayItems: 500,
-      jsonProjectionMaxObjectEntries: 200,
+      userProjectionMaxLength: 4_000,
+      traceSummaryMaxLength: 1_200,
+      modelVisibleJsonProjectionMaxArrayItems: 500,
+      modelVisibleJsonProjectionMaxObjectEntries: 200,
     });
-    expect(createLangChainJsonProjectionBudget(123)).toEqual({
+    expect(createLangChainModelVisibleJsonProjectionBudget(123)).toEqual({
       maxLength: 123,
-      maxArrayItems: agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxArrayItems,
-      maxObjectEntries: agentRuntimeConfig.langChain.toolWrapper.jsonProjectionMaxObjectEntries,
+      maxArrayItems: agentRuntimeConfig.langChain.toolWrapper.modelVisibleJsonProjectionMaxArrayItems,
+      maxObjectEntries: agentRuntimeConfig.langChain.toolWrapper.modelVisibleJsonProjectionMaxObjectEntries,
     });
   });
 
@@ -73,7 +72,7 @@ describe("LangChain Agent runtime config", () => {
       maxModelCalls: 16,
       maxToolCalls: 15,
       maxToolCallsPerTool: 5,
-      overallTimeoutMs: 90_000,
+      overallTimeoutMs: 40_000,
     });
     expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(
       agentRuntimeConfig.langChain.runBudget.maxModelCalls * 3,

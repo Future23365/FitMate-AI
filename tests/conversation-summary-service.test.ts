@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { buildFallbackConversationSummary } from "@/lib/server/chat/conversation-summary-service";
-import { conversationSummaryMaxLength } from "@/lib/shared/chat/conversation-context-limits";
 
 describe("conversation summary service", () => {
   it("builds a bounded deterministic fallback summary when model summarization is unavailable", () => {
@@ -18,6 +17,6 @@ describe("conversation summary service", () => {
     expect(summary).toContain("用户想在家自重练胸");
     expect(summary).toContain("换一批，不要俯卧撑");
     expect(summary).toContain("服务端内部动作");
-    expect(summary.length).toBeLessThanOrEqual(conversationSummaryMaxLength);
+    expect(summary.length).toBeLessThanOrEqual(2000);
   });
 });
