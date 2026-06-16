@@ -84,8 +84,10 @@ describe("Agent model-visible contract gate", () => {
       expect(summaryJson).toContain("candidateGroups");
       expect(summaryJson).toContain("coverage");
       expect(summaryJson).toContain("resourceBoundary");
+      expect(summaryJson).toContain("resourceReadiness");
       expect(summaryJson).toContain("catalogRole");
       expect(summaryJson).toContain("emptyResultMeaning");
+      expect(summaryJson).toContain("hasDisplayableExerciseResources");
       expect(summaryJson).toContain("sectionsWithCandidates");
       expect(summaryJson).toContain("sectionsWithoutCandidates");
       expect(summaryJson).not.toContain("\"groups\"");
@@ -197,6 +199,11 @@ describe("Agent model-visible contract gate", () => {
           plainTextKnowledgeBoundary: "不展示产品动作卡片、图片、结构化训练结果或训练执行项时，可以基于用户输入、上下文和通用训练知识给普通文本建议，并说明这些内容不是数据库动作条目。",
           structuredOutputBoundary: "需要展示具体数据库动作条目、动作卡片、图片、visibleTrainingProposal、routine、plan 或训练执行项时，具体 exerciseId 必须来自模型可见数据库动作事实或受控业务事实。",
           missingExerciseNames: ["跪姿俯卧撑"],
+        },
+        resourceReadiness: {
+          hasDisplayableExerciseResources: true,
+          consumptionBoundary: "candidateGroups[].exercises 已提供可展示、可校验的产品动作资源；当前任务若要生成训练卡片、routine 或 plan，应从中选择足够子集并提交结构化输出，不需要继续扩充候选池。",
+          productScope: "FitMate 动作库是产品可渲染资源库，不是现实世界动作全集或专业最优动作筛选器。",
         },
         candidateGroups: [{
           suitability: "training",

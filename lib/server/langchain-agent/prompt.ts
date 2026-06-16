@@ -83,6 +83,7 @@ function buildDecisionExamplePromptRules() {
     "- 场景：用户请求未来多天、每周安排、周期训练计划、训练日/休息日分配，或希望把训练安排进持续周期。",
     "- 关键 tool input：如果缺少动作候选，可先查询能构成 routine template 的候选；如果已有可消费 routine 事实，可直接复用其 exerciseItems、section 和 prescription。",
     "- 收口边界：用 submitVisibleTrainingProposal 提交 payload.kind=plan；schedule 写在 payload 中。",
+    "- 收口边界：一旦 searchExerciseResources 返回可展示动作资源，应选择子集生成 prescription / schedule 并提交；不要把 plan 生成前置为完整动作库研究或每个肌群候选池建设。",
     "- payload.kind=plan；每个 exerciseItems[] 必须填写 prescription；必须填写 schedule；schedule 不内嵌每天不同的完整 exerciseItems，也不复制多套不同 routine。",
     "- prescription / schedule 不要求来自动作库查询结果，但必须写入 payload 并通过 schema / validator 校验。",
     "- content 说明计划结构、默认口径、执行注意事项和可调整项；不要用 routine 承载多天或周期安排。",

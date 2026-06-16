@@ -109,6 +109,11 @@ describe("searchExerciseResources LangChain tool", () => {
         plainTextKnowledgeBoundary: expect.stringContaining("普通文本建议"),
         structuredOutputBoundary: expect.stringContaining("exerciseId 必须来自"),
       },
+      resourceReadiness: {
+        hasDisplayableExerciseResources: true,
+        consumptionBoundary: expect.stringContaining("可展示、可校验的产品动作资源"),
+        productScope: expect.stringContaining("不是现实世界动作全集"),
+      },
       candidateGroups: [
         {
           suitability: "training",
@@ -992,10 +997,13 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("需要多个阶段候选时优先一次性传入多个值");
     expect(modelVisibleText).toContain("当前缺口是从已有候选中选择子集、排序、安排 section、生成 prescription、生成 schedule");
     expect(modelVisibleText).toContain("这些属于模型编排或结构化收口，不属于动作库查询");
-    expect(modelVisibleText).toContain("已有候选事实能支撑当前输出");
-    expect(modelVisibleText).toContain("不要为了完整 inventory、所有肌群或更纯净候选池继续拆分查询");
+    expect(modelVisibleText).toContain("从 FitMate 产品动作库中只读获取一批可展示、可校验、可用于训练卡片 / routine / plan 的动作资源候选");
+    expect(modelVisibleText).toContain("不是现实世界动作全集检索、完整动作库存构建或专业最优动作筛选工具");
+    expect(modelVisibleText).toContain("已有 candidateGroups[].exercises 能支撑当前结构化输出展示");
+    expect(modelVisibleText).toContain("不要为了更专业、更完整、每个肌群更多备选或更纯净候选池继续查询");
     expect(modelVisibleText).toContain("candidateCountPerSection");
-    expect(modelVisibleText).toContain("不是分页、offset、cursor 或最终展示数量承诺");
+    expect(modelVisibleText).toContain("不是专业度、完整度、分页或继续深挖开关");
+    expect(modelVisibleText).toContain("不要仅为了扩大候选池而提高 candidateCountPerSection");
     expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
     expect(modelVisibleText).toContain("candidateGroups[].exercises 是可消费动作候选事实");
@@ -1003,15 +1011,16 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("training 候选用于支撑主训练动作选择");
     expect(modelVisibleText).toContain("warmup / stretch 候选用于支撑辅助阶段选择");
     expect(modelVisibleText).toContain("辅助阶段不要求每个目标肌群都有 primary 候选");
-    expect(modelVisibleText).toContain("本 tool 只返回动作候选事实");
+    expect(modelVisibleText).toContain("本 tool 只返回产品动作资源候选事实");
     expect(modelVisibleText).toContain("不返回 prescription、schedule、routine 或 plan");
-    expect(modelVisibleText).toContain("缺口是 prescription 或 schedule 时");
+    expect(modelVisibleText).toContain("缺口是动作取舍、处方或日程时");
     expect(modelVisibleText).toContain("重复查询动作库不会新增该类事实");
-    expect(modelVisibleText).toContain("truncated=true 或 totalMatches 大");
-    expect(modelVisibleText).toContain("只表示本次返回的是候选池切片");
-    expect(modelVisibleText).toContain("不表示当前候选不足");
-    expect(modelVisibleText).toContain("不要求继续分页、扩大数量或拆分查询");
+    expect(modelVisibleText).toContain("返回的 candidateGroups[].exercises 是可展示资源候选切片");
+    expect(modelVisibleText).toContain("不是完整动作库存");
+    expect(modelVisibleText).toContain("可用候选存在时，优先选择子集用于结构化输出");
     expect(modelVisibleText).toContain("coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选");
+    expect(modelVisibleText).toContain("当 candidateGroups[].exercises 已提供可展示、可校验的动作资源");
+    expect(modelVisibleText).toContain("不需要先构建完整候选池");
     expect(modelVisibleText).toContain("同一 run 内等价 input 不会补充新事实");
     expect(modelVisibleText).toContain("新的查询应来自用户新增约束、替换要求、更多候选要求或当前候选没有可用子集");
     expect(modelVisibleText).toContain("不要求最终输出使用全部候选");
