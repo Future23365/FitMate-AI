@@ -379,12 +379,23 @@ function extractRuntimeMetadataEnvelope(
     };
   }
 
-  const { runtimeMetadata, ...businessInput } = rawInput as Record<string, unknown>;
+  const { runtimeMetadata } = rawInput as Record<string, unknown>;
 
   return {
-    businessInput,
+    businessInput: readLangChainToolBusinessInput(rawInput),
     runtimeActivity: createRuntimeActivityMetadata(wrapper, runtimeMetadata),
   };
+}
+
+/** readLangChainToolBusinessInput 只剥离 provider-visible runtimeMetadata envelope，不补齐、不归一化、不改写任何业务字段。 */
+export function readLangChainToolBusinessInput(rawInput: unknown) {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  const { runtimeMetadata: _runtimeMetadata, ...businessInput } = rawInput as Record<string, unknown>;
+
+  return businessInput;
 }
 
 function createRuntimeActivityMetadata(

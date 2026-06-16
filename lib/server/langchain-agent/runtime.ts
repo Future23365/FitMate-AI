@@ -20,6 +20,7 @@ import {
 import {
   createExecutableLangChainTool,
   getLangChainToolProviderInputSchema,
+  readLangChainToolBusinessInput,
   type LangChainToolExecutionCoordinator,
   type LangChainToolExecutionResult,
   type LangChainToolWrapper,
@@ -674,7 +675,7 @@ function createBusinessToolCallBatchResolver(input: {
 }
 
 function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknown): DuplicateInputKey | undefined {
-  const parsedInput = wrapper.inputSchema.safeParse(readBusinessToolInputForRuntimeBoundary(wrapper, rawInput));
+  const parsedInput = wrapper.inputSchema.safeParse(readLangChainToolBusinessInput(rawInput));
 
   if (!parsedInput.success) {
     return undefined;
@@ -688,18 +689,6 @@ function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknow
     toolVersion,
     normalizedInputHash,
   };
-}
-
-function readBusinessToolInputForRuntimeBoundary(wrapper: LangChainToolWrapper, rawInput: unknown) {
-  void wrapper;
-
-  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
-    return rawInput;
-  }
-
-  const { runtimeMetadata: _runtimeMetadata, ...businessInput } = rawInput as Record<string, unknown>;
-
-  return businessInput;
 }
 
 function createDuplicateInputEntry(
@@ -723,7 +712,7 @@ function createDuplicateInputExecution(input: {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
-    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    readLangChainToolBusinessInput(input.rawInput),
     config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({
@@ -805,7 +794,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
-    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    readLangChainToolBusinessInput(input.rawInput),
     config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({
@@ -850,7 +839,7 @@ function createCurrentRequestToolUnavailableExecution(input: {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
   const inputSummary = toLangChainJsonValue(
-    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    readLangChainToolBusinessInput(input.rawInput),
     config.trace.toolArgumentsPreviewMaxLength,
   );
   const modelVisibleSummary = stringifyForModelSummary({

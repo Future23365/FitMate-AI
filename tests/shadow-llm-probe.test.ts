@@ -90,6 +90,32 @@ describe("Codex Shadow LLM Probe", () => {
 
     expect(invalidInput.status).toBe("decision_validation_failed");
     expect(invalidInput.message).toContain("tool_schema_invalid");
+
+    const third = await startShadowLlmProbeRun({
+      cwd,
+      message: "找几个训练动作",
+      toolWrappers: [createSearchFixtureTool()],
+    });
+    await writeDecision(store.decisionPath(third.runId, "round-001"), {
+      runId: third.runId,
+      roundId: "round-001",
+      decision: "call_tool",
+      toolName: "searchExerciseResources",
+      toolInput: {
+        suitabilities: ["training"],
+        runtimeMetadata: { activitySummary: "正在查询训练动作" },
+        unexpectedBusinessField: true,
+      },
+    });
+
+    const unknownBusinessField = await continueShadowLlmProbeRun({
+      cwd,
+      runId: third.runId,
+      toolWrappers: [createSearchFixtureTool()],
+    });
+
+    expect(unknownBusinessField.status).toBe("decision_validation_failed");
+    expect(unknownBusinessField.message).toContain("tool_schema_invalid");
   });
 
   it("executes a legal searchExerciseResources decision and generates the next round input", async () => {
@@ -131,6 +157,47 @@ describe("Codex Shadow LLM Probe", () => {
     expect(nextInput.messages.at(-1)).toMatchObject({
       role: "tool",
       name: "searchExerciseResources",
+    });
+  });
+
+  it("accepts runtimeMetadata in shadow decisions while keeping handlers business-only", async () => {
+    const cwd = await createTempCwd();
+    const handlerInputs: unknown[] = [];
+    const tool = createSearchFixtureTool((input) => {
+      handlerInputs.push(input);
+    });
+    const started = await startShadowLlmProbeRun({
+      cwd,
+      message: "找几个无器械训练动作",
+      toolWrappers: [tool],
+    });
+    const store = createShadowLlmProbeFileStore(cwd);
+
+    await writeDecision(store.decisionPath(started.runId, "round-001"), {
+      runId: started.runId,
+      roundId: "round-001",
+      decision: "call_tool",
+      toolName: "searchExerciseResources",
+      toolInput: {
+        suitabilities: ["training"],
+        runtimeMetadata: { activitySummary: "正在查询训练动作" },
+      },
+    });
+
+    const continued = await continueShadowLlmProbeRun({
+      cwd,
+      runId: started.runId,
+      toolWrappers: [tool],
+    });
+
+    expect(continued).toMatchObject({ status: "active", runId: started.runId });
+    expect(handlerInputs).toEqual([{ suitabilities: ["training"] }]);
+    expect(JSON.stringify(handlerInputs[0])).not.toContain("runtimeMetadata");
+
+    const toolResult = JSON.parse(await readFile(store.toolResultPath(started.runId, "round-001"), "utf8"));
+    expect(toolResult.executionRecord.runtimeActivity).toMatchObject({
+      activitySummary: "正在查询训练动作",
+      source: "model",
     });
   });
 
@@ -300,7 +367,7 @@ async function writeDecision(filePath: string, partial: Record<string, unknown>)
   await writeFile(filePath, `${JSON.stringify(decision, null, 2)}\n`, "utf8");
 }
 
-function createSearchFixtureTool(onExecute?: () => void): LangChainToolWrapper {
+function createSearchFixtureTool(onExecute?: (input: { suitabilities?: Array<"training"> }) => void): LangChainToolWrapper {
   return defineLangChainToolWrapper({
     name: "searchExerciseResources",
     description: "Purpose：只读查询动作候选事实。Use When：需要展示具体数据库动作条目时使用。",
@@ -317,8 +384,8 @@ function createSearchFixtureTool(onExecute?: () => void): LangChainToolWrapper {
         })),
       })),
     }).strict(),
-    handler: async () => {
-      onExecute?.();
+    handler: async (input) => {
+      onExecute?.(input);
       return {
         status: "succeeded",
         candidateGroups: [

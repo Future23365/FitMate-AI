@@ -46,6 +46,7 @@ export {
   defineLangChainToolWrapper,
   executeLangChainToolWrapper,
   getLangChainToolProviderInputSchema,
+  readLangChainToolBusinessInput,
   toolCallRuntimeMetadataSchema,
   type LangChainToolExecutionRecorder,
   type LangChainToolRuntimeActivityRecorder,

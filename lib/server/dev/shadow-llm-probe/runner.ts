@@ -7,6 +7,7 @@ import {
   createProductionLangChainToolCatalog,
   executeLangChainToolWrapper,
   langChainFinalResponseToolName,
+  readLangChainToolBusinessInput,
   type LangChainToolWrapper,
 } from "@/lib/server/langchain-agent";
 import {
@@ -264,7 +265,7 @@ async function readAndValidateDecision(input: {
     return { ok: false, reason: `tool_not_registered: ${decision.toolName}` };
   }
 
-  const parsedInput = tool.inputSchema.safeParse(decision.toolInput);
+  const parsedInput = tool.inputSchema.safeParse(readLangChainToolBusinessInput(decision.toolInput));
   if (!parsedInput.success) {
     return { ok: false, reason: `tool_schema_invalid: ${parsedInput.error.issues.map((issue) => issue.path.join(".") || "$").join(", ")}` };
   }
@@ -273,7 +274,7 @@ async function readAndValidateDecision(input: {
     ok: true,
     decision: ShadowLlmProbeDecisionSchema.parse({
       ...decision,
-      toolInput: parsedInput.data,
+      toolInput: decision.toolInput,
     }),
   };
 }
