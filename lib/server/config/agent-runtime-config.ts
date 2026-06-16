@@ -79,6 +79,12 @@ export type AgentRuntimeConfig = {
       timeoutMs: number;
     };
   };
+  shadowLlmProbe: {
+    outputDir: string;
+    maxRounds: number;
+    defaultUserId: string;
+    defaultConversationId: string;
+  };
 };
 
 export type LangChainDeepSeekProviderConfig = {
@@ -236,6 +242,17 @@ export const agentRuntimeConfig = {
       /** timeoutMs 限制结构化训练方案校验和用户可见投影生成时间，失败时不输出卡片。 */
       timeoutMs: 3_000,
     },
+  },
+  /** shadowLlmProbe 集中管理 dev-only Codex Shadow LLM Probe 的文件闭环预算和默认 actor。 */
+  shadowLlmProbe: {
+    /** outputDir 是 Shadow Probe 诊断 run 的根目录；不参与生产聊天或用户数据流。 */
+    outputDir: "codex_logs/shadow_llm_probe",
+    /** maxRounds 限制 Shadow 文件 loop 的最大轮次，防止手写 decision 无限推进。 */
+    maxRounds: 12,
+    /** defaultUserId 只服务本地诊断 CLI；真实生产 actor 仍由 /api/chat 鉴权链路提供。 */
+    defaultUserId: "shadow-probe-dev-user",
+    /** defaultConversationId 只服务本地诊断 CLI 的当前会话范围，不写入真实会话状态。 */
+    defaultConversationId: "shadow-probe-dev-conversation",
   },
 } as const satisfies AgentRuntimeConfig;
 

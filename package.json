@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "perf:frontend": "node scripts/analyze-frontend-performance.mjs",
+    "shadow:llm-probe": "node scripts/shadow-llm-probe.mjs",
     "test": "node scripts/run-tests.mjs",
     "test:llm:basic": "node scripts/run-basic-llm-blackbox.mjs",
     "typecheck": "tsc --noEmit",
