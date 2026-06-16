@@ -237,7 +237,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`一个或多个请求肌群 facet 值；单个肌群也写成一项数组。该字段与 muscleMatchRole 共同决定匹配主练肌群还是主/辅任意参与肌群。多值查询用于获得覆盖多个请求肌群的候选。${catalogFacetDescription}`),
+    .describe(`一个或多个请求肌群 facet 值；单个肌群也写成一项数组。该字段与 muscleMatchRole 共同决定匹配主练肌群还是主/辅任意参与肌群。字段来源只能是用户明确指定的目标肌群、已验证上下文中的目标肌群，或模型为当前可执行训练课收敛出的少量必要目标；不要把未指定肌群、宽泛训练目标或常规训练知识展开成全身肌群清单。多值查询用于获得覆盖多个请求肌群的候选。${catalogFacetDescription}`),
   muscleMatchRole: muscleMatchRoleInputSchema,
   goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${structuredFacetDescription}`),
   riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${structuredFacetDescription}`),
@@ -352,11 +352,13 @@ export function createSearchExerciseResourcesLangChainTool(
       "Do Not Use When：不要用本 tool 生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程、保存结果、读取单个动作完整详情、分页或自然语言语义搜索。",
       "Do Not Use When：当前缺口是从已有候选中选择子集、排序、安排 section、生成 prescription、生成 schedule、决定 routine / plan 结构或解释推荐理由；这些属于模型编排任务，不属于动作库查询任务。",
       "Do Not Use When：已有 broad query 返回了可用于目标 section 的候选，且用户没有新增硬约束、替换要求或更多候选要求时，不要再把同一目标拆成更窄 muscles / suitabilities 查询。",
+      "Do Not Use When：用户没有指定具体肌群，且 broad query 已返回可用于当前 routine 的 training 候选时，不要为了完整覆盖继续拆成胸、背、腿、肩、手臂、核心或等价全身肌群查询。",
       `Input Source：executionProfile 用于选择动作执行场景，合法值为 ${exerciseExecutionProfileValues.join(", ")}；宽泛动作推荐、动作筛选或结构化训练结果候选缺少明确器械、场地或可用设施偏好时，默认使用 no_equipment 作为低门槛无器械口径；no_equipment 表示${exerciseExecutionProfileDescriptionsZh.no_equipment}`,
       `Input Source：home_support 表示${exerciseExecutionProfileDescriptionsZh.home_support}仅在用户明确可用椅子、墙面、台阶等常见居家支撑时使用；small_equipment、gym_equipment、partner_required、outdoor_required 分别表示小型器械、健身房设施/器械、搭档辅助和户外空间。`,
       "Input Source：equipmentScope.mode=compatible_with_available 用于用户明确说自己可用器械集合，表示动作不得要求集合外器械；equipmentScope.mode=must_use_any 用于用户明确想找会使用某些器械的动作。equipmentScope.tags 来自动作库 canonical equipment values。",
       "Input Source：impactLimit 和 noiseLimit 是上限筛选；适合用户明确低冲击、膝关节压力、跳跃、公寓、夜间或低噪音限制时使用。",
       "Input Source：suitabilities 可声明 warmup、training、stretch；它是候选用途查询口径，不是最终训练编排命令。",
+      "Input Source：muscles 只能来自用户明确指定的目标肌群、已验证上下文中的目标肌群，或模型已经收敛出的少量必要训练目标；不要把宽泛目标、常规训练知识或未指定肌群扩展成全身肌群清单。",
       'Input Source：muscles 用于目标肌群动作推荐、训练动作筛选或结构化训练结果候选时，默认使用 muscleMatchRole = "primary"，表示请求肌群是动作主练目标。',
       'Input Source：需要查询肌群是否参与、动作会带到哪些肌群、辅助刺激、稳定参与或宽泛相关动作时，使用 muscleMatchRole = "any"；any 不代表候选动作都同等适合作为目标肌群主练推荐。',
       "Input Source：candidateCountPerSection 只控制每个请求 section 的受控候选数量；它不是分页、offset、cursor 或最终展示数量承诺。",

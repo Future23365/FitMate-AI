@@ -60,6 +60,10 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("逐个目标肌群补齐辅助候选");
     expect(tool.description).toContain("提交 payload 不要求候选池完整");
     expect(tool.description).toContain("不要求每个细分肌群都有独立动作");
+    expect(tool.description).toContain("未指定具体肌群的 routine 不要求覆盖所有主要肌群");
+    expect(tool.description).toContain("当前候选能组成受时长约束的可执行训练主体时");
+    expect(tool.description).toContain("应提交结构化 routine");
+    expect(tool.description).toContain("不是继续按未指定肌群补查动作库");
     expect(tool.description).toContain("服务端 validator 对确定性事实做校验");
     expect(tool.description).toContain("不要把这些动作塞进 exercise_selection");
     expect(tool.description).toContain("不替模型生成 prescription");

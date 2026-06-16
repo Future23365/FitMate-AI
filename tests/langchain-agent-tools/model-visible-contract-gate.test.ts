@@ -230,6 +230,12 @@ describe("Agent model-visible contract gate", () => {
         text: "当用户说换一批时就调用 searchExerciseResources，并把 toolName = searchExerciseResources 作为固定路由。",
       },
       {
+        id: "bad.generic_routine_case_specific",
+        kind: "system_prompt",
+        source: "negative fixture",
+        text: "当用户说增肌计划时服务端固定改写为 routine，并阻止模型调用 searchExerciseResources。",
+      },
+      {
         id: "bad.field_combo",
         kind: "tool_description",
         source: "negative fixture",

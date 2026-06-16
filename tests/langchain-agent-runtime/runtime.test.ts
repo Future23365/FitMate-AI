@@ -1839,6 +1839,12 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("追问一个最影响结果质量的关键问题");
     expect(prompt).toContain("只补齐完成当前任务所需的最小边界");
     expect(prompt).toContain("在正文中说明默认口径");
+    expect(prompt).toContain("训练请求范围判定");
+    expect(prompt).toContain("没有表达周期、多天、每周、训练日、休息日、分化训练、全身覆盖、身体部位或具体目标肌群时，默认交付单次 routine");
+    expect(prompt).toContain("未指定具体肌群时，只表示没有该硬约束");
+    expect(prompt).toContain("不要把所有主要肌群、所有细分肌群或完整全身覆盖当成隐含待补齐条件");
+    expect(prompt).toContain("受时长约束的代表性训练课");
+    expect(prompt).toContain("才把肌群拆分成动作库查询条件");
     expect(prompt).toContain("代表性覆盖理解");
     expect(prompt).toContain("每个细分肌群");
     expect(prompt).toContain("目标肌群动作推荐、训练动作筛选或结构化训练结果候选");
@@ -1898,6 +1904,9 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("exerciseItems[].section 全部是 training");
     expect(prompt).toContain("不填写 prescription，不填写 schedule");
     expect(prompt).toContain("示例 2：交付一次可执行训练");
+    expect(prompt).toContain("第一次动作候选查询应围绕当前 routine 的目标、场地 / 器械、时长和 suitabilities 获取代表性候选");
+    expect(prompt).toContain("不要先把目标拆成所有主要肌群查询");
+    expect(prompt).toContain("不要因为未指定肌群尚未逐个查询而继续补查");
     expect(prompt).toContain("payload.kind=routine");
     expect(prompt).toContain("每个 exerciseItems[] 必须填写 prescription");
     expect(prompt).toContain("示例 3：交付多天或周期训练计划");

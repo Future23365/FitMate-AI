@@ -989,6 +989,8 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("这些属于模型编排任务，不属于动作库查询任务");
     expect(modelVisibleText).toContain("已有 broad query 返回了可用于目标 section 的候选");
     expect(modelVisibleText).toContain("不要再把同一目标拆成更窄 muscles / suitabilities 查询");
+    expect(modelVisibleText).toContain("用户没有指定具体肌群，且 broad query 已返回可用于当前 routine 的 training 候选");
+    expect(modelVisibleText).toContain("不要为了完整覆盖继续拆成胸、背、腿、肩、手臂、核心或等价全身肌群查询");
     expect(modelVisibleText).toContain("candidateCountPerSection");
     expect(modelVisibleText).toContain("不是分页、offset、cursor 或最终展示数量承诺");
     expect(modelVisibleText).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
@@ -1018,6 +1020,11 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("动作候选用途查询口径数组，只允许 warmup、training 或 stretch");
     expect(modelVisibleText).toContain("模型需要主训练、热身或拉伸候选时自行选择对应值");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得覆盖多个请求肌群的候选");
+    expect(modelVisibleText).toContain("字段来源只能是用户明确指定的目标肌群、已验证上下文中的目标肌群");
+    expect(modelVisibleText).toContain("模型为当前可执行训练课收敛出的少量必要目标");
+    expect(modelVisibleText).toContain("不要把未指定肌群、宽泛训练目标或常规训练知识展开成全身肌群清单");
+    expect(modelVisibleText).toContain("Input Source：muscles 只能来自用户明确指定的目标肌群");
+    expect(modelVisibleText).toContain("不要把宽泛目标、常规训练知识或未指定肌群扩展成全身肌群清单");
     expect(modelVisibleText).toContain("不保证每个候选都同等适合作为最终推荐");
     expect(modelVisibleText).toContain("executionProfile 用于选择动作执行场景");
     expect(modelVisibleText).toContain("no_equipment");
@@ -1043,7 +1050,6 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).not.toContain("support_section");
     expect(modelVisibleText).not.toContain("where 条件");
     expect(modelVisibleText).not.toContain("全库读取能力");
-    expect(modelVisibleText).not.toContain("全身");
     expect(modelVisibleText).not.toContain("当用户说");
     expect(modelVisibleText).not.toContain("关键词");
     expect(modelVisibleText).not.toContain("短句模板");
