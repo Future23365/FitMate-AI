@@ -167,7 +167,14 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("不先做无执行场景的宽泛查询");
     expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
     expect(systemPrompt).toContain("不要因为输出类型从 routine 派生成 plan，就默认重新查询动作");
-    expect(systemPrompt).toContain("训练编排交付判据");
+    expect(systemPrompt).toContain("训练结构化交付前，必须先做模型自检");
+    expect(systemPrompt).toContain("A. 缺数据库动作事实");
+    expect(systemPrompt).toContain("B. 缺训练编排字段");
+    expect(systemPrompt).toContain("只有 A 类缺口才继续调用动作库查询工具");
+    expect(systemPrompt).toContain("B 类缺口不能通过动作库查询补齐");
+    expect(systemPrompt).toContain("新的查询会返回当前可见事实中不存在、且交付结构必需的数据库动作事实");
+    expect(systemPrompt).toContain("候选数量被截断、totalMatches 很大、仍可能存在更多动作、候选池不够理想");
+    expect(systemPrompt).toContain("训练编排候选消费边界");
     expect(systemPrompt).toContain("training 候选已经能覆盖本轮主要训练目标");
     expect(systemPrompt).toContain("辅助阶段不要求每个目标肌群都有对应 primary 候选");
     expect(systemPrompt).toContain("局部窄查询没有覆盖某些辅助肌群时");

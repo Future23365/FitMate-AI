@@ -1,8 +1,15 @@
 ## ADDED Requirements
 
-### Requirement: 模型可见合同必须表达训练编排交付判据
+### Requirement: 模型可见合同必须表达训练编排前的缺口自检
 
-模型可见合同 SHALL 为 `routine` 和 `plan` 生成表达 ready-to-submit 判据。该判据 MUST 引导模型在动作候选事实足以组成主训练和可用辅助阶段时，选择候选子集并通过 `submitVisibleTrainingProposal` 提交结构化训练方案，而不是继续为了扩大候选池、逐个肌群补齐辅助阶段或排除未选候选而重复查询动作库。系统 MUST NOT 通过服务端关键词、正则、同义词表、固定用户短句或具体 tool result 字段组合替模型决定是否提交。
+模型可见合同 SHALL 为 `routine` 和 `plan` 生成表达结构化交付前的缺口自检。该自检 MUST 引导模型区分数据库动作事实缺口、训练编排字段缺口和用户必须确认的约束缺口。只有数据库动作事实缺口 MAY 继续调用动作查询 tool；训练编排字段缺口 MUST 由模型基于当前可见候选事实、用户目标和保守默认构造后通过 `submitVisibleTrainingProposal` 提交结构化训练方案。系统 MUST NOT 通过服务端关键词、正则、同义词表、固定用户短句或具体 tool result 字段组合替模型决定是否提交。
+
+#### Scenario: 再次查询动作库前先自检缺口类型
+
+- **WHEN** 模型准备再次调用动作查询 tool
+- **THEN** 模型可见合同 MUST 要求模型先判断当前缺口属于数据库动作事实、训练编排字段或用户必须确认的约束
+- **AND** 模型可见合同 MUST 表达只有新的查询会返回当前可见事实中不存在且交付结构必需的数据库动作事实时，才继续查询动作库
+- **AND** 模型可见合同 MUST 表达动作取舍、动作顺序、组数次数、休息、section 编排、`prescription` 和 `schedule` 不属于动作库查询缺口
 
 #### Scenario: routine 候选足够时提交结构化编排
 

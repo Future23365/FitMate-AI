@@ -2,7 +2,7 @@
 
 ### Requirement: `searchExerciseResources` 模型可见说明必须区分候选事实与训练交付判据
 
-`searchExerciseResources` 模型可见说明 SHALL 表达该 tool 只返回动作候选事实和查询口径边界，不生成、保存或判定最终训练方案。说明 MUST 帮助模型理解候选池可以被选择、跳过或用于后续结构化输出；辅助阶段局部窄查询缺口不得被解释为整体 `routine` 或 `plan` 不可交付。该说明 MUST NOT 新增业务目标满足度字段、固定下一步指令或结构化训练交付 workflow。
+`searchExerciseResources` 模型可见说明 SHALL 表达该 tool 只返回动作候选事实和查询口径边界，不生成、保存或判定最终训练方案。说明 MUST 帮助模型理解候选池可以被选择、跳过或用于后续结构化输出；`truncated`、`totalMatches` 或辅助阶段局部窄查询缺口不得被解释为整体 `routine` 或 `plan` 不可交付。该说明 MUST NOT 新增业务目标满足度字段、固定下一步指令或结构化训练交付 workflow。
 
 #### Scenario: 候选池可被选择子集消费
 
@@ -10,6 +10,13 @@
 - **THEN** 模型可见说明 MUST 表达这些动作是候选池，不是最终推荐清单
 - **AND** 模型可见说明 MUST 表达最终 `visibleTrainingProposal` 可以从候选池选择子集
 - **AND** 模型可见说明 MUST 表达未选择候选不需要通过再次查询移除
+
+#### Scenario: 候选池切片不要求继续查询
+
+- **WHEN** `searchExerciseResources` 的 trace 或用户投影包含 `truncated` 或 `totalMatches`
+- **THEN** 模型可见说明 MUST 表达这些字段只描述本次查询返回的是候选池切片
+- **AND** 模型可见说明 MUST 表达候选数量被截断、仍可能存在更多动作或候选池不够理想，不是继续分页、扩大数量或拆分查询的理由
+- **AND** Planner-visible summary MUST NOT 暴露 `truncated` 或 `totalMatches` 作为下一步工具调用依据
 
 #### Scenario: 内部缺口诊断不进入 Planner-visible 交付指令
 

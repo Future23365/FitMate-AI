@@ -1,6 +1,6 @@
 ## Context
 
-当前 LangChain Agent Runtime 已经通过 `searchExerciseResources` 向模型暴露动作候选，并通过 `submitVisibleTrainingProposal` 校验和投影训练方案。现有 prompt / tool description 已说明“候选足够时停止同类查询”，但没有定义训练编排语义下什么叫“足够”，模型容易继续补查候选而不进入结构化提交。
+当前 LangChain Agent Runtime 已经通过 `searchExerciseResources` 向模型暴露动作候选，并通过 `submitVisibleTrainingProposal` 校验和投影训练方案。现有 prompt / tool description 已说明“候选足够时停止同类查询”，但没有要求模型在再次查询前显式区分缺口类型。模型容易把“还需要编排、排序、处方或日程”误判成“还需要更多动作库事实”，于是继续补查候选而不进入结构化提交。
 
 本次问题属于模型可见合同缺口，不属于 runtime 主循环、handler、response adapter 或数据库查询问题。修复应增强模型自主规划能力，而不是由服务端根据用户自然语言或具体 tool result 字段组合改写 tool call。
 
@@ -8,7 +8,7 @@
 
 **Goals:**
 
-- 在 Planner Policy 中表达训练编排交付判据，让模型能判断何时停止动作查询并提交 `routine` 或 `plan`。
+- 在 Planner Policy 中表达训练结构化交付前的模型自检，让模型能判断何时继续动作查询、何时提交 `routine` 或 `plan`。
 - 在 `searchExerciseResources` tool description 中表达查询结果事实边界，避免模型把候选池或辅助阶段局部缺口误读成继续查询指令。
 - 在 `submitVisibleTrainingProposal` tool description 中表达结构化提交准入，让模型在候选事实足够时选择子集、生成处方和日程。
 - 用测试覆盖模型可见合同，确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判或 runtime 业务 toolName 分支。
@@ -22,14 +22,14 @@
 
 ## Decisions
 
-### 1. 交付判据放在 Planner Policy，字段细节留给 tool description / schema
+### 1. 再次查询前自检放在 Planner Policy，字段细节留给 tool description / schema
 
-Planner Policy 负责“什么时候继续 tool、什么时候停止、什么时候提交结构化结果”。本次会在 `buildLangChainAgentSystemPrompt()` 的训练相关决策示例附近补充稳定的训练编排交付判据，说明：
+Planner Policy 负责“什么时候继续 tool、什么时候停止、什么时候提交结构化结果”。本次会在 `buildLangChainAgentSystemPrompt()` 的训练相关决策示例附近补充稳定的再次查询前自检合同，说明：
 
-- `training` 候选已能覆盖主要训练目标时，可以选择子集构造主训练。
-- `warmup` / `stretch` 是辅助阶段，除非用户明确要求特定覆盖，否则有可用候选即可纳入或按当前事实范围交付。
-- `prescription` 和 `schedule` 不来自动作库查询，动作候选足够后应由模型基于目标、时长、频率或保守默认构造。
-- 缺少周期或频率时，默认交付 `routine`；只有目标明确要求多天、每周或周期安排时才交付 `plan`。
+- 每次准备继续查询动作库前，模型必须先判断当前缺口属于数据库动作事实、训练编排字段，还是用户必须确认的约束。
+- 只有缺少新的、交付结构必需的数据库动作事实时，才继续调用动作库查询 tool。
+- `prescription`、`schedule`、动作取舍、动作顺序、组数次数、休息和 section 编排是模型编排字段，不通过动作库查询补齐。
+- `truncated`、`totalMatches` 很大、候选仍可能更多或候选池不够理想，不是继续查询动作库的理由。
 
 替代方案是只修改 `searchExerciseResources` tool description。该方案不足，因为 tool description 讲能力和输出事实，不能承担完整业务编排策略。
 
@@ -38,6 +38,7 @@ Planner Policy 负责“什么时候继续 tool、什么时候停止、什么时
 动作查询结果仍然只暴露候选事实和安全覆盖边界，不新增 `supportsOutputKinds`、`visibleDeliveryBoundary`、`fulfillment` 或等价业务目标满足度字段。tool description 只澄清：
 
 - `candidateGroups[].exercises` 是可选择候选池，不是最终清单。
+- `truncated` 和 `totalMatches` 只描述本次查询的候选池切片，不要求模型继续分页、扩大数量或拆分查询。
 - 辅助阶段候选不要求逐个目标肌群都有 primary 命中。
 - 局部窄查询缺口不等于整体 `routine` / `plan` 不可交付；内部诊断字段不进入 Planner-visible 说明。
 - `coverage` 不是下一步 tool 调用指令。
@@ -46,14 +47,16 @@ Planner Policy 负责“什么时候继续 tool、什么时候停止、什么时
 
 ### 3. `submitVisibleTrainingProposal` 表达提交准入，不替模型生成计划
 
-结构化收口 tool 的 description 将补充“当前可见候选已经能组成主训练，并有可用辅助阶段候选或可合理省略辅助阶段时，应选择子集提交”的准入条件。它仍不生成动作、不补处方、不保存计划，只让模型知道何时可以把自身构造的 payload 交给 validator。
+结构化收口 tool 的 description 将补充“当前缺口只剩动作取舍、顺序、section 编排、prescription 或 schedule 时，应选择子集提交”的准入条件。它仍不生成动作、不补处方、不保存计划，只让模型知道何时可以把自身构造的 payload 交给 validator。
+
+如果 payload 被 rejected，模型应优先根据 rejection path 修正结构、移除不可用动作、澄清或失败收口；除非 rejection 明确说明缺少必需数据库动作事实，否则不要默认回到动作库查询。
 
 ### 4. 抽象层级门禁结论
 
 结论：可继续。
 
-1. 抽象问题类型：训练编排 ready-to-submit 判据缺失，导致模型无法稳定判断候选事实是否足以进入结构化收口。
-2. 通用合同修复：补 Planner Policy 的停止条件和正向交付准入，不使用具体用户短句作为触发规则。
+1. 抽象问题类型：再次查询前缺口分类缺失，导致模型无法稳定区分动作事实缺口和训练编排字段缺口。
+2. 通用合同修复：补 Planner Policy 的停止条件、缺口分类和继续查询正向准入，不使用具体用户短句作为触发规则。
 3. 业务 tool 局部说明：`searchExerciseResources` 只说明候选事实能/不能支撑什么；`submitVisibleTrainingProposal` 只说明结构化训练方案提交准入。
 4. 回归测试样例：使用原始失败语义和至少一个等价表达覆盖“候选足够后应收口”的模型可见合同，不把样例反向写成生产触发规则。
 5. 服务端语义分流检查：不新增关键词规则、自然语言模板路由、phrasing 特判或具体 toolName 语义分支。

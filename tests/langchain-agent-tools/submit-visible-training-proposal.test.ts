@@ -22,6 +22,10 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("服务端 validator");
     expect(tool.description).toContain("最终回答会向用户呈现一个或多个具体训练动作");
     expect(tool.description).toContain("受控动作事实");
+    expect(tool.description).toContain("模型已经能从当前可见候选事实中选择一个可用子集");
+    expect(tool.description).toContain("基于用户目标、单次时长、训练常识和保守默认生成 prescription / schedule");
+    expect(tool.description).toContain("当前缺口只剩动作取舍、顺序、组数次数休息、section 编排、prescription 或 schedule");
+    expect(tool.description).toContain("而不是继续查询动作库");
     expect(tool.description).toContain("Content Boundary");
     expect(tool.description).toContain("content 不能替代 payload 中的动作、prescription 或 schedule 事实");
     expect(tool.description).toContain("Kind Selection");
@@ -39,6 +43,9 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("多天或周期训练计划");
     expect(tool.description).toContain("必须包含 schedule");
     expect(tool.description).toContain("schedule 只表达同一套编排在周期内的训练日和休息日");
+    expect(tool.description).toContain("请求只限定单次训练属性");
+    expect(tool.description).toContain("没有周期、多天、每周或训练日安排约束时，选择 payload.kind=routine");
+    expect(tool.description).toContain("请求包含周期、多天、每周、训练日 / 休息日安排或持续计划约束时，选择 payload.kind=plan");
     expect(tool.description).toContain("Plan Composition");
     expect(tool.description).toContain("payload.kind=plan 表示一套可重复 routine template 加周期 schedule");
     expect(tool.description).toContain("exerciseItems[] 承载同一套 warmup / training / stretch 编排和 prescription");
@@ -51,6 +58,9 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("应从候选池选择子集提交 routine 或 plan");
     expect(tool.description).toContain("不需要继续扩大候选池");
     expect(tool.description).toContain("逐个目标肌群补齐辅助候选");
+    expect(tool.description).toContain("提交 payload 不要求候选池完整");
+    expect(tool.description).toContain("不要求每个细分肌群都有独立动作");
+    expect(tool.description).toContain("服务端 validator 对确定性事实做校验");
     expect(tool.description).toContain("不要把这些动作塞进 exercise_selection");
     expect(tool.description).toContain("不替模型生成 prescription");
     expect(tool.description).toContain("可以从当前模型可见候选事实中选择子集构造");
@@ -61,6 +71,11 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("prescription 不要求来自动作库查询结果");
     expect(tool.description).toContain("必须绑定在对应 exerciseItems[] 动作项上");
     expect(tool.description).toContain("schema 与服务端 validator 校验");
+    expect(tool.description).toContain("Repair Boundary");
+    expect(tool.description).toContain("如果 payload 被 rejected");
+    expect(tool.description).toContain("根据 rejection path 修正结构");
+    expect(tool.description).toContain("不要默认回到动作库查询");
+    expect(tool.description).toContain("除非 rejection 明确说明缺少必需数据库动作事实");
     expect(tool.description).toContain("sectionSummary");
     expect(tool.description).toContain("availableSections");
     expect(tool.description).toContain("missingSections");

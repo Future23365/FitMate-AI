@@ -5,13 +5,13 @@
 
 ## 2. 模型可见合同实现
 
-- [x] 2.1 在 `buildLangChainAgentSystemPrompt()` 中补充训练编排交付判据，明确 `routine` / `plan` 何时停止查询并提交结构化结果。
-- [x] 2.2 更新 `searchExerciseResources` tool description，澄清候选池、辅助阶段局部窄查询缺口和 `coverage` 的事实边界。
-- [x] 2.3 更新 `submitVisibleTrainingProposal` tool description，补充候选足够时的 `routine` / `plan` 结构化提交准入。
+- [x] 2.1 在 `buildLangChainAgentSystemPrompt()` 中补充训练结构化交付前模型自检，明确动作库再次查询的正向准入条件。
+- [x] 2.2 更新 `searchExerciseResources` tool description，澄清候选池、`truncated`、`totalMatches`、辅助阶段局部窄查询缺口和 `coverage` 的事实边界。
+- [x] 2.3 更新 `submitVisibleTrainingProposal` tool description，补充缺口只剩编排字段时的 `routine` / `plan` 结构化提交准入和 rejected 后修正边界。
 
 ## 3. 测试与验证
 
-- [x] 3.1 增加或更新 prompt / tool description 相关测试，覆盖训练编排 ready-to-submit 判据。
+- [x] 3.1 增加或更新 prompt / tool description 相关测试，覆盖训练编排自检、再次查询准入和候选消费边界。
 - [x] 3.2 增加或更新 model-visible contract gate 测试，确认没有新增服务端语义分流、固定用户短句触发、固定 workflow 或业务目标满足度字段。
 - [x] 3.3 运行 `openspec validate add-training-delivery-readiness-contract --strict`。
 - [x] 3.4 运行与 LangChain prompt / tool description / model-visible contract 相关的自动化测试。
