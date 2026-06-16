@@ -150,8 +150,8 @@
       "goal": "每周训练计划补齐热身拉伸",
       "turns": [
         {
-          "userInput": "我想在家减脂，没有器械，每周 3 练，每次 25 分钟，动作简单一点",
-          "expectedOutput": "识别长期 plan；最终可见训练结构必须是 kind=plan 且包含 schedule.assignments；不得只生成无 schedule 的单次 routine，也不得只在正文或 suggestedQuestions 里表达每周安排。"
+          "userInput": "给我一周的徒手全身计划，每天 20 分钟，包含热身和拉伸",
+          "expectedOutput": "识别长期 plan；最终可见训练结构必须是 kind=plan 且包含同一套可重复 routine template 与 schedule.assignments；不得只生成无 schedule 的单次 routine，也不得只在正文或 suggestedQuestions 里表达一周安排。"
         },
         {
           "userInput": "热身和拉伸你自己选，适合新手就行",

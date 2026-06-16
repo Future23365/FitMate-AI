@@ -34,7 +34,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造；exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，每个动作项必须包含 prescription，并必须包含 schedule。routine / plan 的 prescription 可由模型基于本轮用户目标、训练频率、单次时长、候选动作事实和保守训练编排生成；schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造；exerciseItems[] 可以来自 searchExerciseResources 返回的候选事实，也可以来自 inspectVisibleTrainingProposals 导入的历史 visibleTrainingProposal 事实。Kind Selection：kind=exercise_selection 只用于纯主训练动作推荐集合，exerciseItems[].section 必须全部是 training，且不包含 prescription 或 schedule；kind=routine 用于单次可执行训练，可以包含 warmup、training、stretch，至少包含 training，每个动作项必须包含 prescription，且不包含 schedule；kind=plan 用于多天或周期训练计划，exerciseItems[] 表示同一套可重复 routine template，每个动作项必须包含 prescription，并必须包含 schedule；schedule 是该 template 的周期安排，schedule.assignments 只表达周期内 training / rest 日，不为每天内嵌不同完整 exerciseItems。routine / plan 的 prescription 可由模型基于本轮用户目标、训练频率、单次时长、候选动作事实和保守训练编排生成；schedule 可由模型基于本轮用户目标、明确周期、训练日/休息日安排或保守默认生成；字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -84,6 +84,9 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Kind Selection：payload.kind=exercise_selection 只用于纯主训练动作推荐集合；exerciseItems[].section 必须全部是 training；不得包含 prescription 或 schedule。",
       "Kind Selection：payload.kind=routine 用于单次可执行训练；可以包含 warmup、training、stretch；至少包含 training；每个 exerciseItems[] 动作项都必须包含 prescription；不得包含 schedule。",
       "Kind Selection：payload.kind=plan 用于多天或周期训练计划；每个 exerciseItems[] 动作项都必须包含 prescription；必须包含 schedule；schedule 只表达同一套编排在周期内的训练日和休息日。",
+      "Plan Composition：payload.kind=plan 表示一套可重复 routine template 加周期 schedule；exerciseItems[] 承载同一套 warmup / training / stretch 编排和 prescription。",
+      "Plan Composition：schedule.assignments 只表达该 routine template 在周期内的 training / rest 日；不为每天内嵌不同完整 exerciseItems，也不复制多套不同 routine。",
+      "Plan Composition：当目标要交付一周、多天或周期 plan，且当前可见动作候选事实足以构造 routine template 时，应先提交 payload.kind=plan；fitmate_final_response.content 只解释已校验 plan。",
       "Kind Selection：当结构需要 warmup / stretch，或要交付单次可执行训练时，不要把这些动作塞进 exercise_selection；应选择能承载可执行编排的 routine 或 plan。",
       "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",

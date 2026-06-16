@@ -1850,6 +1850,14 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("不要为了移除未选候选、让候选池完全纯净或追求更理想列表而重复调用同类查询工具");
     expect(prompt).toContain("prescription 和 schedule 不来自动作库查询结果");
     expect(prompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
+    expect(prompt).toContain("多天或周期 plan 的结构是可重复 routine template + schedule");
+    expect(prompt).toContain("先在同一个 payload.exerciseItems[] 中构造一套可执行编排和 prescription");
+    expect(prompt).toContain("schedule.assignments 表达该编排在周期内的 training / rest 日");
+    expect(prompt).toContain("当前可见动作事实足以构造 routine template 时");
+    expect(prompt).toContain("应先提交 payload.kind=plan 的结构化训练结果");
+    expect(prompt).toContain("fitmate_final_response.content 只解释已校验 plan");
+    expect(prompt).toContain("schedule.assignments 只安排同一套 routine template 的训练日和休息日");
+    expect(prompt).toContain("不内嵌每天不同的完整 exerciseItems");
     expect(prompt).toContain("保守训练编排构造 prescription / schedule");
     expect(prompt).toContain("可见候选事实已经足够");
     expect(prompt).toContain("下一步应进入结构化训练收口");
@@ -1873,6 +1881,9 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("每个 exerciseItems[] 必须填写 prescription");
     expect(prompt).toContain("示例 3：交付多天或周期训练计划");
     expect(prompt).toContain("payload.kind=plan");
+    expect(prompt).toContain("可重复 routine template");
+    expect(prompt).toContain("再补 schedule.assignments 表达周期内 training / rest 日");
+    expect(prompt).toContain("schedule 不内嵌每天不同的完整 exerciseItems");
     expect(prompt).toContain("缺少 prescription 或 schedule 不通过动作库查询补齐");
     expect(prompt).toContain("必须填写 schedule");
     expect(prompt).toContain("示例 4：只回答训练知识或动作要点");

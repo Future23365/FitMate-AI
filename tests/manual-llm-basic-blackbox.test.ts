@@ -69,6 +69,20 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(firstTurn?.expectation).toContain("不生成单次 routine");
   });
 
+  it("keeps the weekly no-equipment full-body plan regression case", async () => {
+    const fixture = await readBasicChatFixture();
+    const flow = fixture.flows.find((item) => item.id === "F09");
+    const firstTurn = flow?.turns[0];
+
+    expect(flow?.goal).toBe("每周训练计划补齐热身拉伸");
+    expect(firstTurn?.userInput).toBe("给我一周的徒手全身计划，每天 20 分钟，包含热身和拉伸");
+    expect(firstTurn?.expectation).toContain("识别长期 plan");
+    expect(firstTurn?.expectation).toContain("kind=plan");
+    expect(firstTurn?.expectation).toContain("可重复 routine template");
+    expect(firstTurn?.expectation).toContain("schedule.assignments");
+    expect(firstTurn?.expectation).toContain("不得只在正文");
+  });
+
   it("supports variable turn counts in JSON fixtures", () => {
     const fixture = parseBasicChatFixtureFromJson({
       version: 1,

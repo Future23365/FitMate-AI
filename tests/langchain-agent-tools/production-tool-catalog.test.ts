@@ -115,6 +115,12 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不需要扩大候选数量");
     expect(descriptions).toContain("不需要把未选候选排除");
     expect(descriptions).toContain("历史 routine fact 中的 exerciseId、section 和 prescription 可以作为新的 routine 或 plan 的事实来源");
+    expect(descriptions).toContain("Plan Composition");
+    expect(descriptions).toContain("payload.kind=plan 表示一套可重复 routine template 加周期 schedule");
+    expect(descriptions).toContain("exerciseItems[] 承载同一套 warmup / training / stretch 编排和 prescription");
+    expect(descriptions).toContain("schedule.assignments 只表达该 routine template 在周期内的 training / rest 日");
+    expect(descriptions).toContain("不为每天内嵌不同完整 exerciseItems");
+    expect(descriptions).toContain("fitmate_final_response.content 只解释已校验 plan");
     expect(descriptions).toContain("prescription 可由模型基于本轮用户目标");
     expect(descriptions).toContain("保守训练编排常识生成");
     expect(descriptions).toContain("prescription 不要求来自动作库查询结果");
@@ -128,6 +134,10 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("exercise_selection 只用于纯主训练动作推荐集合");
     expect(schemaDescriptions).toContain("routine 用于单次可执行训练");
     expect(schemaDescriptions).toContain("plan 用于多天或周期训练计划");
+    expect(schemaDescriptions).toContain("exerciseItems[] 表示同一套可重复 routine template");
+    expect(schemaDescriptions).toContain("schedule 是该 template 的周期安排");
+    expect(schemaDescriptions).toContain("schedule.assignments 只表达周期内 training / rest 日");
+    expect(schemaDescriptions).toContain("不为每天内嵌不同完整 exerciseItems");
     expect(schemaDescriptions).toContain("kind=exercise_selection 时不得填写");
     expect(schemaDescriptions).toContain("kind=routine 或 kind=plan 时每个动作项都必须填写");
     expect(schemaDescriptions).toContain("kind=plan 时必须填写");
@@ -151,6 +161,14 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("schedule 是 plan 的日程结构字段，不是动作库查询结果");
     expect(systemPrompt).toContain("prescription 和 schedule 不来自动作库查询结果");
     expect(systemPrompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
+    expect(systemPrompt).toContain("多天或周期 plan 的结构是可重复 routine template + schedule");
+    expect(systemPrompt).toContain("先在同一个 payload.exerciseItems[] 中构造一套可执行编排和 prescription");
+    expect(systemPrompt).toContain("schedule.assignments 表达该编排在周期内的 training / rest 日");
+    expect(systemPrompt).toContain("当前可见动作事实足以构造 routine template 时");
+    expect(systemPrompt).toContain("应先提交 payload.kind=plan 的结构化训练结果");
+    expect(systemPrompt).toContain("fitmate_final_response.content 只解释已校验 plan");
+    expect(systemPrompt).toContain("schedule.assignments 只安排同一套 routine template 的训练日和休息日");
+    expect(systemPrompt).toContain("不内嵌每天不同的完整 exerciseItems");
     expect(systemPrompt).toContain("保守训练编排构造 prescription / schedule");
     expect(systemPrompt).toContain("产品可渲染动作资源库");
     expect(systemPrompt).toContain("不是现实训练知识全集");

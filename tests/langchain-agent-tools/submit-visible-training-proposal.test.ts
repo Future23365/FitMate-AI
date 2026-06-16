@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collectZodSchemaDescriptionTexts,
   createSubmitVisibleTrainingProposalLangChainTool,
   executeLangChainToolWrapper,
+  getLangChainToolProviderInputSchema,
 } from "@/lib/server/langchain-agent";
 import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/visible-training-proposals/visible-training-proposal-exercise-facts";
 
@@ -14,6 +16,7 @@ type ExerciseFactRecord = Awaited<ReturnType<VisibleTrainingProposalExerciseFact
 describe("submitVisibleTrainingProposal LangChain tool", () => {
   it("exposes finalization and validator boundaries without support-section workflow instructions", () => {
     const tool = createSubmitVisibleTrainingProposalLangChainTool();
+    const schemaDescriptions = collectZodSchemaDescriptionTexts(getLangChainToolProviderInputSchema(tool)).join("\n");
 
     expect(tool.description).toContain("visibleTrainingProposal");
     expect(tool.description).toContain("服务端 validator");
@@ -36,6 +39,12 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("多天或周期训练计划");
     expect(tool.description).toContain("必须包含 schedule");
     expect(tool.description).toContain("schedule 只表达同一套编排在周期内的训练日和休息日");
+    expect(tool.description).toContain("Plan Composition");
+    expect(tool.description).toContain("payload.kind=plan 表示一套可重复 routine template 加周期 schedule");
+    expect(tool.description).toContain("exerciseItems[] 承载同一套 warmup / training / stretch 编排和 prescription");
+    expect(tool.description).toContain("schedule.assignments 只表达该 routine template 在周期内的 training / rest 日");
+    expect(tool.description).toContain("不为每天内嵌不同完整 exerciseItems");
+    expect(tool.description).toContain("fitmate_final_response.content 只解释已校验 plan");
     expect(tool.description).toContain("不要把这些动作塞进 exercise_selection");
     expect(tool.description).toContain("不替模型生成 prescription");
     expect(tool.description).toContain("可以从当前模型可见候选事实中选择子集构造");
@@ -68,6 +77,11 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).not.toContain("messageId");
     expect(tool.description).not.toContain("resourceId");
     expect(tool.description).not.toContain("toolResultId");
+    expect(schemaDescriptions).toContain("kind=plan 用于多天或周期训练计划");
+    expect(schemaDescriptions).toContain("exerciseItems[] 表示同一套可重复 routine template");
+    expect(schemaDescriptions).toContain("schedule 是该 template 的周期安排");
+    expect(schemaDescriptions).toContain("schedule.assignments 只表达周期内 training / rest 日");
+    expect(schemaDescriptions).toContain("不为每天内嵌不同完整 exerciseItems");
   });
 
   it("validates visibleTrainingProposal payloads before exposing visible_output projection", async () => {
@@ -186,6 +200,81 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
       sectionSummary: { warmup: 1, training: 1, stretch: 1 },
       availableSections: ["warmup", "training", "stretch"],
       missingSections: [],
+    });
+    expect(JSON.stringify(modelMessage)).not.toContain("nextActionHints");
+    expect(JSON.stringify(modelMessage)).not.toContain("recommendedNextStep");
+    expect(JSON.stringify(modelMessage)).not.toContain("satisfied");
+  });
+
+  it("accepts plan payloads as one reusable routine template plus 7-day schedule", async () => {
+    const tool = createSubmitVisibleTrainingProposalLangChainTool({
+      loadExerciseRecordsByIds: createExerciseFactLoader(),
+    });
+    const schedule = {
+      cycleLengthDays: 7,
+      assignments: [
+        { cycleDayIndex: 1, type: "training" },
+        { cycleDayIndex: 2, type: "rest" },
+        { cycleDayIndex: 3, type: "training" },
+        { cycleDayIndex: 4, type: "rest" },
+        { cycleDayIndex: 5, type: "training" },
+        { cycleDayIndex: 6, type: "rest" },
+        { cycleDayIndex: 7, type: "rest" },
+      ],
+    };
+
+    const execution = await executeLangChainToolWrapper(tool, {
+      outputType: "visibleTrainingProposal",
+      schemaVersion: "1",
+      payload: {
+        kind: "plan",
+        exerciseItems: [
+          {
+            exerciseId: "jumping-jack",
+            section: "warmup",
+            order: 1,
+            prescription: createPrescription({ mode: "reps", target: 20 }),
+          },
+          {
+            exerciseId: "push-up",
+            section: "training",
+            order: 1,
+            prescription: createPrescription({ mode: "reps", target: 10 }),
+          },
+          {
+            exerciseId: "standing-quad-stretch",
+            section: "stretch",
+            order: 1,
+            prescription: createPrescription({ mode: "duration", target: 30 }),
+          },
+        ],
+        schedule,
+      },
+    }, baseContext);
+    const modelMessage = JSON.parse(execution.modelMessage);
+
+    expect(modelMessage).toMatchObject({
+      status: "accepted",
+      payloadKind: "plan",
+      exerciseItemCount: 3,
+      sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+      availableSections: ["warmup", "training", "stretch"],
+      missingSections: [],
+    });
+    expect(execution.record.userProjection).toMatchObject({
+      validatedVisibleOutputs: [
+        {
+          payload: {
+            kind: "plan",
+            exerciseItems: [
+              expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
+              expect.objectContaining({ exerciseId: "push-up", section: "training" }),
+              expect.objectContaining({ exerciseId: "standing-quad-stretch", section: "stretch" }),
+            ],
+            schedule,
+          },
+        },
+      ],
     });
     expect(JSON.stringify(modelMessage)).not.toContain("nextActionHints");
     expect(JSON.stringify(modelMessage)).not.toContain("recommendedNextStep");
