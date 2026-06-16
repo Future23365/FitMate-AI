@@ -525,6 +525,127 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });
 
+  it("saves optimized trace bundles into separate report, event, model input, and text files", async () => {
+    const repeatedSchema = `工具 schema ${"字段说明需要外置。".repeat(120)}`;
+    const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
+      logType: "trace",
+      payload: {
+        report: {
+          traceSummary: {
+            id: "trace-v2",
+            route: "/api/chat",
+            status: "failed",
+            title: "v2 导出",
+          },
+          loopTimeline: [
+            {
+              loopNumber: 1,
+              runtimeStep: 1,
+              eventRefs: ["event_0001"],
+              modelInputRefs: ["model_input_0001"],
+            },
+          ],
+          failureIndex: {
+            status: "failed_or_recoverable",
+            eventRef: "event_0001",
+            modelInputRef: "model_input_0001",
+            errorCode: "tool_failed",
+          },
+          tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+          lookupGuide: {
+            byEventRef: "rg '\"eventRef\":\"event_0001\"' codex_logs/ai_trace_events.jsonl",
+          },
+          fileManifest: {
+            schemaVersion: "ai-trace-log-export.v2",
+          },
+        },
+        events: [
+          {
+            recordType: "event",
+            eventRef: "event_0001",
+            kind: "tool_execution",
+            loopNumber: 1,
+            runtimeStep: 1,
+            plannerCallIndex: 1,
+            stepId: "tool-1",
+            toolName: "searchExerciseResources",
+            status: "failed",
+            code: "tool_failed",
+            modelInputRef: "model_input_0001",
+          },
+        ],
+        modelInputs: [
+          {
+            recordType: "model_input",
+            modelInputRef: "model_input_0001",
+            plannerCallIndex: 1,
+            runtimeStep: 1,
+            messageCount: 2,
+            toolCount: 1,
+            toolNames: ["searchExerciseResources"],
+            toolCatalogRef: "tool_catalog_0001",
+            schemaRefs: ["schema_0001"],
+            audit: { completeness: "complete" },
+          },
+        ],
+        texts: [
+          {
+            recordType: "deduped_text",
+            ref: "tool_catalog_0001",
+            refKind: "tool_catalog",
+            path: "$.modelInputs[0].tools",
+            hash: "fnv1a:catalog",
+            originalLength: repeatedSchema.length,
+            preview: "工具 schema",
+            content: repeatedSchema,
+          },
+          {
+            recordType: "deduped_text",
+            ref: "schema_0001",
+            refKind: "tool_schema",
+            path: "$.modelInputs[0].tools[0].inputSchema",
+            hash: "fnv1a:schema",
+            originalLength: repeatedSchema.length,
+            preview: "工具 schema",
+            content: repeatedSchema,
+          },
+        ],
+        longTexts: [],
+        details: [],
+      },
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      path: expect.stringContaining("ai_trace_log.js"),
+      eventPath: expect.stringContaining("ai_trace_events.jsonl"),
+      modelInputPath: expect.stringContaining("ai_trace_model_inputs.jsonl"),
+      textPath: expect.stringContaining("ai_trace_texts.jsonl"),
+    });
+
+    const reportCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_log.js"));
+    const eventCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_events.jsonl"));
+    const modelInputCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_model_inputs.jsonl"));
+    const textCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_texts.jsonl"));
+    const savedReport = String(reportCall?.[1] ?? "");
+    const savedEvents = String(eventCall?.[1] ?? "");
+    const savedModelInputs = String(modelInputCall?.[1] ?? "");
+    const savedTexts = String(textCall?.[1] ?? "");
+
+    expect(fsMocks.writeFile).toHaveBeenCalledTimes(4);
+    expect(savedReport).toContain("ai_trace_events.jsonl");
+    expect(savedReport).toContain("ai_trace_model_inputs.jsonl");
+    expect(savedReport).toContain("\"eventRef\": \"event_0001\"");
+    expect(savedReport).not.toContain(repeatedSchema);
+    expect(savedEvents).toContain("\"eventRef\":\"event_0001\"");
+    expect(savedEvents).toContain("\"toolName\":\"searchExerciseResources\"");
+    expect(savedModelInputs).toContain("\"modelInputRef\":\"model_input_0001\"");
+    expect(savedModelInputs).toContain("\"toolCatalogRef\":\"tool_catalog_0001\"");
+    expect(savedTexts).toContain("\"ref\":\"tool_catalog_0001\"");
+    expect(savedTexts).toContain("\"ref\":\"schema_0001\"");
+    expect(savedTexts).toContain("\"recordType\":\"deduped_text_chunk\"");
+  });
+
   it("normalizes prompt records to narrow user question and answer fields", async () => {
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "prompt",

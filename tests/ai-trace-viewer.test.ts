@@ -173,7 +173,7 @@ describe("AI trace viewer step grouping", () => {
     const runtimeGroup = groups.find((group) => group.id === "runtime_validation");
     const responseGroup = groups.find((group) => group.id === "response_rendering");
     const loops = buildAgentLoopTimeline(trace.steps);
-    const payload = createTraceLogPayload(trace, groups) as Record<string, unknown>;
+    const payload = createTraceLogPayload(trace, groups);
 
     expect(requestGroup).toMatchObject({
       title: "入口与上下文",
@@ -204,30 +204,42 @@ describe("AI trace viewer step grouping", () => {
       runtimeStep: 1,
       toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
     });
-    expect(payload).toMatchObject({
-      langChainRuntimeSummaries: [
-        expect.objectContaining({
-          runtimeVersion: "langchain-agent-runtime-v1",
-          model: "deepseek-v4-flash",
-          toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
-          providerToolCallCount: 2,
-          toolExecutionCount: 2,
-          structuredOutputValidation: { validatedVisibleOutputCount: 1 },
-          detailRef: expect.objectContaining({
+    expect(payload.report).toMatchObject({
+      traceSummary: expect.objectContaining({
+        runtimeSummaryRefs: [
+          expect.objectContaining({
             kind: "langchain_runtime_detail",
             path: "$.langChainRuntimeSummaries[0]",
           }),
+        ],
+        providerToolCalls: [
+          expect.objectContaining({ id: "call_search_1", name: "searchExerciseResources" }),
+          expect.objectContaining({ id: "call_submit_1", name: "submitVisibleTrainingProposal" }),
+        ],
+        toolExecutionRefs: [
+          expect.objectContaining({ kind: "tool_execution_detail" }),
+          expect.objectContaining({ kind: "tool_execution_detail" }),
+        ],
+      }),
+      loopTimeline: [
+        expect.objectContaining({
+          runtimeStep: 1,
+          eventRefs: expect.arrayContaining(["event_0002"]),
         }),
       ],
-      providerToolCalls: [
-        expect.objectContaining({ id: "call_search_1", name: "searchExerciseResources" }),
-        expect.objectContaining({ id: "call_submit_1", name: "submitVisibleTrainingProposal" }),
-      ],
-      langChainToolExecutions: [
-        expect.objectContaining({ toolName: "searchExerciseResources", status: "succeeded" }),
-        expect.objectContaining({ toolName: "submitVisibleTrainingProposal", status: "succeeded" }),
-      ],
     });
+    expect(payload.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "langchain_runtime_detail",
+        path: "$.langChainRuntimeSummaries[0]",
+      }),
+      expect.objectContaining({
+        kind: "tool_execution_detail",
+        path: "$.langChainToolExecutions[0]",
+      }),
+    ]));
+    expect(payload.report).not.toHaveProperty("langChainRuntimeSummaries");
+    expect(payload.report).not.toHaveProperty("langChainToolExecutions");
     expect(JSON.stringify(payload)).not.toContain("planner_action");
     expect(JSON.stringify(payload)).not.toContain("duplicate_tool_call");
   });
@@ -458,7 +470,7 @@ describe("AI trace viewer step grouping", () => {
       ],
     };
     const loops = buildAgentLoopTimeline(trace.steps);
-    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
 
     expect(loops).toHaveLength(2);
     expect(loops[0]).toMatchObject({
@@ -473,36 +485,56 @@ describe("AI trace viewer step grouping", () => {
       plannerCallIndexes: [2],
       tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
     });
-    expect(payload).toMatchObject({
+    expect(payload.report).toMatchObject({
       tokenUsageSummary: { prompt_tokens: 34, completion_tokens: 8, total_tokens: 42 },
-      langChainRuntimeSummaries: [
-        expect.objectContaining({
-          modelCallCount: 2,
-          providerToolCallCount: 1,
-          toolExecutionCount: 1,
-          detailRef: expect.objectContaining({
+      traceSummary: expect.objectContaining({
+        providerToolCalls: [
+          expect.objectContaining({
+            id: "call_search_1",
+            name: "searchExerciseResources",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          }),
+        ],
+        runtimeSummaryRefs: [
+          expect.objectContaining({
             kind: "langchain_runtime_detail",
             path: "$.langChainRuntimeSummaries[0]",
           }),
-        }),
-      ],
-      providerToolCalls: [
+        ],
+        toolExecutionRefs: [
+          expect.objectContaining({
+            kind: "tool_execution_detail",
+            summary: expect.objectContaining({
+              toolCallId: "call_search_1",
+              toolName: "searchExerciseResources",
+              modelCallIndex: 1,
+              runtimeStep: 1,
+            }),
+          }),
+        ],
+      }),
+      loopTimeline: [
         expect.objectContaining({
-          id: "call_search_1",
-          name: "searchExerciseResources",
-          modelCallIndex: 1,
           runtimeStep: 1,
+          modelInputRefs: ["model_input_0001"],
+          eventRefs: expect.arrayContaining(["event_0001", "event_0002", "event_0003"]),
         }),
-      ],
-      langChainToolExecutions: [
         expect.objectContaining({
-          toolCallId: "call_search_1",
-          toolName: "searchExerciseResources",
-          modelCallIndex: 1,
-          runtimeStep: 1,
+          runtimeStep: 2,
+          modelInputRefs: ["model_input_0002"],
+          eventRefs: expect.arrayContaining(["event_0004", "event_0005"]),
         }),
       ],
     });
+    expect(payload.modelInputs).toHaveLength(2);
+    expect(payload.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventRef: "event_0003",
+        kind: "tool_execution",
+        toolName: "searchExerciseResources",
+      }),
+    ]));
   });
 
   it("keeps module view, planner calls, token usage, and detail refs in full trace log exports", () => {
@@ -587,135 +619,79 @@ describe("AI trace viewer step grouping", () => {
 
     const payload = createTraceLogPayload(trace, groups);
 
-    expect(payload).toMatchObject({
-      title: "文本聊天",
-      agentLoops: [
-        expect.objectContaining({
-          id: "loop-1",
-          runtimeStep: 1,
-          toolNames: ["readFixture"],
-          tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          modules: expect.arrayContaining([
-            expect.objectContaining({
-              id: "planner_model",
-              modelCalls: [
-                expect.objectContaining({
-                  plannerCallIndex: 1,
-                  requestStepId: "step-model_request",
-                  responseStepId: "step-model_response",
-                  tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-                }),
-              ],
-            }),
-            expect.objectContaining({
-              id: "runtime_validation",
-              stepIds: ["step-validation", "step-tool_call"],
-            }),
-          ]),
-        }),
-      ],
-      moduleGroups: expect.arrayContaining([
-        expect.objectContaining({
-          id: "registry_manifest",
-          summary: expect.arrayContaining([
-            { label: "tool names", value: "未记录 Tool" },
-          ]),
-        }),
-        expect.objectContaining({
-          id: "planner_model",
-          summary: expect.arrayContaining([
-            { label: "LLM 调用", value: "1 轮" },
-            { label: "thinking", value: "enabled / reasoning_effort=high" },
-            { label: "reasoning", value: "received / length=12" },
-            { label: "真实 usage", value: "输入 10 / 输出 5 / 总 15" },
-          ]),
-        }),
-      ]),
-      plannerModelCalls: [
-        expect.objectContaining({
-          plannerCallIndex: 1,
-          request: expect.objectContaining({ id: "step-model_request" }),
-          response: expect.objectContaining({
-            id: "step-model_response",
-            reasoning: expect.objectContaining({
-              received: true,
-              contentLength: 12,
-            }),
-          }),
-          detailRef: expect.objectContaining({
-            kind: "model_call_detail",
-            path: "$.plannerModelCalls[0]",
-          }),
-        }),
-      ],
-      tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      runtimeTraceEvents: expect.arrayContaining([
-        expect.objectContaining({
-          name: "Tool 执行",
-          type: "tool_call",
-          detailRef: expect.objectContaining({
-            detailRef: expect.stringMatching(/^detail_/),
-            kind: "runtime_event_detail",
-          }),
-          eventType: "tool_execution",
-          output: expect.objectContaining({
-            type: "tool_execution",
-            toolName: "readFixture",
-            toolResultId: "tr_1",
-          }),
-        }),
-      ]),
+    expect(payload.report).toMatchObject({
       traceSummary: {
         id: "trace-1",
         route: "/api/chat",
+        title: "文本聊天",
         stepCount: 5,
         detailRef: expect.objectContaining({
           detailRef: "detail_0001",
           kind: "full_trace",
         }),
-      },
-      groupedSteps: expect.arrayContaining([
-        expect.objectContaining({
-          id: "registry_manifest",
-          title: "LangChain Tool Catalog",
-          stepIds: ["step-runtime_event"],
-        }),
-      ]),
-      longTextStats: {
-        count: 0,
-        threshold: 600,
-        textFile: "codex_logs/ai_trace_texts.jsonl",
-      },
-      detailRefs: expect.arrayContaining([
-        expect.objectContaining({
-          detailRef: "detail_0001",
-          kind: "full_trace",
-          path: "$.trace",
-        }),
-        expect.objectContaining({
-          kind: "model_call_detail",
-          path: "$.plannerModelCalls[0]",
-        }),
-        expect.objectContaining({
-          kind: "runtime_event_detail",
-          path: "$.runtimeTraceEvents[0]",
-        }),
-      ]),
-      details: expect.arrayContaining([
-        expect.objectContaining({
-          detailRef: "detail_0001",
-          kind: "full_trace",
-          content: expect.objectContaining({
-            id: "trace-1",
-            steps: expect.arrayContaining([
-              expect.objectContaining({ id: "step-tool_call" }),
+        moduleGroups: expect.arrayContaining([
+          expect.objectContaining({
+            id: "registry_manifest",
+            title: "LangChain Tool Catalog",
+            stepIds: ["step-runtime_event"],
+          }),
+          expect.objectContaining({
+            id: "planner_model",
+            summary: expect.arrayContaining([
+              { label: "LLM 调用", value: "1 轮" },
+              { label: "thinking", value: "enabled / reasoning_effort=high" },
+              { label: "reasoning", value: "received / length=12" },
+              { label: "真实 usage", value: "输入 10 / 输出 5 / 总 15" },
             ]),
           }),
+        ]),
+      },
+      loopTimeline: [
+        expect.objectContaining({
+          runtimeStep: 1,
+          toolNames: ["readFixture"],
+          tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          modelInputRefs: ["model_input_0001"],
+          eventRefs: expect.arrayContaining(["event_0001", "event_0002", "event_0005"]),
         }),
-      ]),
+      ],
+      tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
     });
-    expect(payload).not.toHaveProperty("rawTrace");
-    expect(payload).not.toHaveProperty("trace");
+    expect(payload.modelInputs[0]).toMatchObject({
+      modelInputRef: "model_input_0001",
+      requestStepId: "step-model_request",
+      plannerCallIndex: 1,
+      audit: expect.objectContaining({
+        completeness: "incomplete",
+      }),
+    });
+    expect(payload.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventRef: "event_0005",
+        kind: "tool_execution",
+        toolName: "readFixture",
+        detailRef: expect.objectContaining({
+          detailRef: expect.stringMatching(/^detail_/),
+          kind: "runtime_event_detail",
+        }),
+      }),
+    ]));
+    expect(payload.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        detailRef: "detail_0001",
+        kind: "full_trace",
+        content: expect.objectContaining({
+          id: "trace-1",
+          steps: expect.arrayContaining([
+            expect.objectContaining({ id: "step-tool_call" }),
+          ]),
+        }),
+      }),
+    ]));
+    expect(payload.report).not.toHaveProperty("plannerModelCalls");
+    expect(payload.report).not.toHaveProperty("runtimeTraceEvents");
+    expect(payload.report).not.toHaveProperty("details");
+    expect(payload.report).not.toHaveProperty("longTextRefs");
   });
 
   it("moves omitted runtime event details to detail mappings while long strings stay addressable", () => {
@@ -746,12 +722,12 @@ describe("AI trace viewer step grouping", () => {
       ],
     };
 
-    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
-    const runtimeTraceEvents = payload.runtimeTraceEvents as Array<Record<string, unknown>>;
-    const outputSummary = runtimeTraceEvents[0].output as Record<string, unknown>;
-    const detailRef = runtimeTraceEvents[0].detailRef as Record<string, unknown>;
-    const details = payload.details as Array<Record<string, unknown>>;
-    const runtimeDetail = details.find((detail) => detail.detailRef === detailRef.detailRef) as Record<string, unknown>;
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
+    const event = payload.events[0] as Record<string, unknown>;
+    const eventSummary = event.summary as Record<string, unknown>;
+    const outputSummary = eventSummary.output as Record<string, unknown>;
+    const detailRef = event.detailRef as Record<string, unknown>;
+    const runtimeDetail = payload.details.find((detail) => detail.detailRef === detailRef.detailRef) as Record<string, unknown>;
     const detailContent = runtimeDetail.content as Record<string, unknown>;
     const detailOutput = detailContent.output as Record<string, unknown>;
     const longTexts = payload.longTexts as Array<Record<string, unknown>>;
@@ -759,7 +735,7 @@ describe("AI trace viewer step grouping", () => {
     expect(outputSummary).not.toHaveProperty("diagnostic");
     expect(detailRef).toMatchObject({
       kind: "runtime_event_detail",
-      path: "$.runtimeTraceEvents[0]",
+      path: "$.events[0]",
     });
     expect(detailOutput.diagnostic).toMatchObject({
       contentRef: "text_0001",
@@ -1009,10 +985,9 @@ describe("AI trace viewer step grouping", () => {
       ],
     };
     const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
-    const plannerModelCalls = payload.plannerModelCalls as Array<Record<string, unknown>>;
-    const request = plannerModelCalls[0].request as Record<string, unknown>;
+    const request = payload.modelInputs[0];
 
-    expect(request.modelVisibleInputAudit).toMatchObject({
+    expect(request.audit).toMatchObject({
       sourceKind: "trace_export",
       completeness: "incomplete",
       missingModelVisibleParts: expect.arrayContaining([
@@ -1021,7 +996,166 @@ describe("AI trace viewer step grouping", () => {
         "$.request.finalizationTool",
       ]),
     });
-    expect(JSON.stringify(request.modelVisibleInputAudit)).toContain("请重新采集包含 modelVisibleInputSnapshot 的 trace");
+    expect(JSON.stringify(request.audit)).toContain("请重新采集包含 modelVisibleInputSnapshot 的 trace");
+  });
+
+  it("keeps the default trace report compact while refs resolve to mapping records", () => {
+    const systemPrompt = `系统提示 ${"保持稳定合同。".repeat(80)}`;
+    const toolDescription = `工具说明 ${"只查询数据库动作事实。".repeat(80)}`;
+    const schemaDescription = `字段说明 ${"用户明确表达的训练目标。".repeat(80)}`;
+    const toolSchema = JSON.stringify({
+      type: "object",
+      properties: {
+        query: { type: "string", description: schemaDescription },
+      },
+    });
+    const modelVisibleInputSnapshot = {
+      messageCount: 2,
+      toolCount: 1,
+      toolNames: ["searchExerciseResources"],
+      systemPrompt: { content: createTraceLongTextEnvelope("model_request_system_prompt", systemPrompt) },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: "推荐练胸动作" },
+      ],
+      tools: [
+        {
+          name: "searchExerciseResources",
+          description: { content: createTraceLongTextEnvelope("model_request_tool_description", toolDescription) },
+          inputSchema: { content: createTraceLongTextEnvelope("model_request_tool_schema", toolSchema) },
+          schemaDescriptions: [
+            {
+              path: "$.properties.query.description",
+              text: { content: createTraceLongTextEnvelope("model_request_tool_schema_description", schemaDescription) },
+            },
+          ],
+        },
+      ],
+      finalizationTool: {
+        name: "fitmate_final_response",
+        inputSchema: { type: "object", properties: { content: { type: "string" } } },
+      },
+      modelVisibleInputAudit: {
+        sourceKind: "runtime_model_request",
+        completeness: "complete",
+        missingModelVisibleParts: [],
+      },
+    };
+    const trace: AiTrace = {
+      id: "trace-compact-export",
+      runId: "run-compact-export",
+      route: "/api/chat",
+      title: "紧凑导出",
+      status: "failed",
+      createdAt: "2026-06-16T05:00:00.000Z",
+      finalDecision: {
+        status: "recoverable_failure",
+        code: "tool_execution_failed",
+      },
+      steps: [
+        createStep({
+          id: "request-1",
+          type: "model_request",
+          name: "LangChain 模型请求 #1",
+          input: {
+            messages: [{ role: "user", content: "推荐练胸动作" }],
+            modelVisibleInputSnapshot,
+            toolNames: ["searchExerciseResources"],
+          },
+          output: {
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            toolCount: 1,
+            toolNames: ["searchExerciseResources"],
+          },
+          metadata: { plannerCallIndex: 1, runtimeStep: 1 },
+        }),
+        createStep({
+          id: "request-2",
+          type: "model_request",
+          name: "LangChain 模型请求 #2",
+          input: {
+            messages: [{ role: "user", content: "再来一次" }],
+            modelVisibleInputSnapshot,
+            toolNames: ["searchExerciseResources"],
+          },
+          output: {
+            modelCallIndex: 2,
+            runtimeStep: 2,
+            toolCount: 1,
+            toolNames: ["searchExerciseResources"],
+          },
+          metadata: { plannerCallIndex: 2, runtimeStep: 2 },
+        }),
+        createStep({
+          id: "tool-failed",
+          type: "tool_call",
+          name: "Tool 执行失败",
+          output: {
+            type: "tool_execution",
+            step: 2,
+            toolName: "searchExerciseResources",
+            toolResultId: "tr_failed",
+            failureCode: "repository_unavailable",
+          },
+          metadata: {
+            runtimeStep: 2,
+            plannerCallIndex: 2,
+            toolName: "searchExerciseResources",
+            toolResultId: "tr_failed",
+          },
+          status: "failed",
+        }),
+      ],
+    };
+
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
+    const reportText = JSON.stringify(payload.report);
+
+    expect(Object.keys(payload.report).sort()).toEqual([
+      "failureIndex",
+      "fileManifest",
+      "lookupGuide",
+      "loopTimeline",
+      "tokenUsageSummary",
+      "traceSummary",
+    ]);
+    expect(reportText).not.toContain("modelVisibleInputSnapshot");
+    expect(reportText).not.toContain(toolDescription);
+    expect(reportText).not.toContain(schemaDescription);
+    expect(reportText).not.toContain("fitmate_final_response");
+    expect(payload.modelInputs).toHaveLength(2);
+    expect(payload.modelInputs[0].toolCatalogRef).toBe(payload.modelInputs[1].toolCatalogRef);
+    expect(payload.modelInputs[0].schemaRefs).toEqual(payload.modelInputs[1].schemaRefs);
+    expect(payload.texts.filter((item) => item.refKind === "tool_catalog")).toHaveLength(1);
+    expect(payload.texts.filter((item) => item.refKind === "tool_description")).toHaveLength(1);
+    expect(payload.texts.filter((item) => item.refKind === "tool_schema")).toHaveLength(1);
+    expect(payload.texts.filter((item) => item.refKind === "schema_description")).toHaveLength(1);
+    expect(payload.texts.filter((item) => item.refKind === "finalization_schema")).toHaveLength(1);
+    expect(payload.report.fileManifest).toMatchObject({
+      files: {
+        report: "codex_logs/ai_trace_log.js",
+        events: "codex_logs/ai_trace_events.jsonl",
+        modelInputs: "codex_logs/ai_trace_model_inputs.jsonl",
+        texts: "codex_logs/ai_trace_texts.jsonl",
+      },
+      counts: {
+        events: payload.events.length,
+        modelInputs: 2,
+        dedupedTexts: payload.texts.length,
+      },
+    });
+    expect(resolveBundleRefs(payload)).toEqual([]);
+    expect(payload.report.failureIndex).toMatchObject({
+      loopNumber: 2,
+      runtimeStep: 2,
+      plannerCallIndex: 2,
+      toolName: "searchExerciseResources",
+      errorCode: "repository_unavailable",
+      eventRef: "event_0003",
+      modelInputRef: "model_input_0002",
+      toolResultRef: "tr_failed",
+    });
   });
 
   it("derives explicit visibility sections for LangChain tool execution outputs", () => {
@@ -1119,14 +1253,13 @@ describe("AI trace viewer step grouping", () => {
       ],
     };
 
-    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
-    const toolExecutions = payload.langChainToolExecutions as Array<Record<string, unknown>>;
-    const toolExecution = toolExecutions[0];
-    const detailRef = toolExecution.detailRef as Record<string, unknown>;
-    const detailRefs = payload.detailRefs as Array<Record<string, unknown>>;
-    const details = payload.details as Array<Record<string, unknown>>;
-    const detailHeader = detailRefs.find((item) => item.detailRef === detailRef.detailRef) as Record<string, unknown>;
-    const detail = details.find((item) => item.detailRef === detailRef.detailRef) as Record<string, unknown>;
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
+    const report = payload.report as Record<string, unknown>;
+    const traceSummary = report.traceSummary as Record<string, unknown>;
+    const toolExecutionRefs = traceSummary.toolExecutionRefs as Array<Record<string, unknown>>;
+    const detailRef = toolExecutionRefs[0];
+    const detail = payload.details.find((item) => item.detailRef === detailRef.detailRef) as Record<string, unknown>;
+    const toolExecution = detail.content as Record<string, unknown>;
 
     expect(toolExecution).toMatchObject({
       toolName: "searchExerciseResources",
@@ -1159,7 +1292,7 @@ describe("AI trace viewer step grouping", () => {
         }),
       }),
     });
-    expect(detailHeader).toMatchObject({
+    expect(detailRef).toMatchObject({
       visibility: expect.objectContaining({
         traceSummary: "debug_only",
       }),
@@ -1355,6 +1488,69 @@ describe("AI trace viewer step grouping", () => {
     });
   });
 });
+
+function resolveBundleRefs(payload: ReturnType<typeof createTraceLogPayload>) {
+  const eventRefs = new Set(payload.events.map((item) => item.eventRef));
+  const modelInputRefs = new Set(payload.modelInputs.map((item) => item.modelInputRef));
+  const detailRefs = new Set(payload.details.map((item) => item.detailRef));
+  const contentRefs = new Set(payload.longTexts.map((item) => item.contentRef));
+  const textRefs = new Set(payload.texts.map((item) => item.ref));
+  const missing: string[] = [];
+
+  visitRefs(payload.report, (key, value) => {
+    if (key === "eventRef" && !eventRefs.has(value)) {
+      missing.push(value);
+    }
+    if (key === "modelInputRef" && !modelInputRefs.has(value)) {
+      missing.push(value);
+    }
+    if (key === "detailRef" && !detailRefs.has(value)) {
+      missing.push(value);
+    }
+    if (key === "contentRef" && !contentRefs.has(value)) {
+      missing.push(value);
+    }
+    if (key === "ref" && /^(schema|tool_catalog|system_prompt|finalization_schema)_/.test(value) && !textRefs.has(value)) {
+      missing.push(value);
+    }
+  });
+
+  for (const modelInput of payload.modelInputs) {
+    for (const value of [
+      modelInput.toolCatalogRef,
+      modelInput.systemPromptRef,
+      modelInput.finalizationToolRef,
+      ...modelInput.schemaRefs,
+    ]) {
+      if (value && !textRefs.has(value)) {
+        missing.push(value);
+      }
+    }
+  }
+
+  return missing;
+}
+
+function visitRefs(value: unknown, onRef: (key: string, value: string) => void) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitRefs(item, onRef);
+    }
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === "string") {
+      onRef(key, child);
+    } else {
+      visitRefs(child, onRef);
+    }
+  }
+}
 
 function createTraceLongTextEnvelope(contentType: string, content: string) {
   return {

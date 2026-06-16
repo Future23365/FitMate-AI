@@ -165,8 +165,85 @@ type TraceLogDetailState = {
   details: TraceLogDetailEntry[];
 };
 
+type TraceLogDedupeTextKind =
+  | "system_prompt"
+  | "tool_catalog"
+  | "tool_description"
+  | "tool_schema"
+  | "schema_description"
+  | "finalization_schema";
+
+export type TraceLogDedupeTextEntry = {
+  recordType: "deduped_text";
+  ref: string;
+  refKind: TraceLogDedupeTextKind;
+  path: string;
+  hash: string;
+  originalLength: number;
+  preview: string;
+  content: string;
+  textFile: "codex_logs/ai_trace_texts.jsonl";
+};
+
+type TraceLogDedupeState = {
+  entries: TraceLogDedupeTextEntry[];
+  byHash: Map<string, TraceLogDedupeTextEntry>;
+  counters: Record<TraceLogDedupeTextKind, number>;
+};
+
+export type TraceLogEventRecord = {
+  recordType: "event";
+  eventRef: string;
+  kind: string;
+  loopNumber?: number;
+  stepId?: string;
+  plannerCallIndex?: number;
+  runtimeStep?: number;
+  toolName?: string;
+  status?: string;
+  code?: string;
+  tokenUsage?: TokenUsage | null;
+  modelInputRef?: string;
+  inputRef?: string;
+  outputRef?: string;
+  detailRef?: TraceLogDetailRef;
+  summary: Record<string, unknown>;
+};
+
+export type TraceLogModelInputRecord = {
+  recordType: "model_input";
+  modelInputRef: string;
+  plannerCallIndex?: number;
+  modelCallIndex?: number;
+  runtimeStep?: number;
+  requestStepId?: string;
+  messageCount?: number;
+  toolCount?: number;
+  toolNames: string[];
+  toolCatalogRef?: string;
+  systemPromptRef?: string;
+  finalizationToolRef?: string;
+  schemaRefs: string[];
+  budget?: unknown;
+  toolAvailability?: unknown;
+  audit: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+};
+
+export type TraceLogExportBundle = {
+  report: Record<string, unknown>;
+  events: TraceLogEventRecord[];
+  modelInputs: TraceLogModelInputRecord[];
+  texts: TraceLogDedupeTextEntry[];
+  longTexts: TraceLogLongTextEntry[];
+  details: TraceLogDetailEntry[];
+  manifest: Record<string, unknown>;
+};
+
 const traceLogLongTextThreshold = 600;
 const traceLogLongTextPreviewEdgeLength = 120;
+const traceLogReportSchemaVersion = "ai-trace-log-export.v2";
+const traceLogReportLoopBudget = 80;
 
 // toolExecutionVisibilityDefinitions 是 trace 页面和导出共享的消费方边界合同。
 const toolExecutionVisibilityDefinitions: Record<ToolExecutionVisibilityField, ToolExecutionVisibilityMetadata> = {
@@ -2370,13 +2447,16 @@ function createPlannerModelCallReports(
   });
 }
 
-// createTraceLogPayload 生成 Codex 优先阅读的轻量索引报告，完整证据通过 detailRef/contentRef 保留在映射文件。
-export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
+// createTraceLogPayload 生成 Codex 优先阅读的轻量索引 bundle，主报告只保留因果索引和可追溯 ref。
+export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]): TraceLogExportBundle {
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
   const langChainRuntimeSummaries = readLangChainRuntimeSummaries(trace);
   const plannerModelCalls = readPlannerModelCalls(trace);
   const detailState: TraceLogDetailState = { details: [] };
+  const dedupeState = createTraceLogDedupeState();
+  const modelInputs = createTraceLogModelInputRecords(plannerModelCalls, dedupeState);
+  const modelInputRefsByPlannerCall = createModelInputRefLookup(modelInputs);
   const traceDetailRef = createTraceLogDetailEntry(detailState, {
     path: "$.trace",
     kind: "full_trace",
@@ -2389,89 +2469,566 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     },
     content: trace,
   });
-
-  const payload = {
-    title: trace.title,
-    savedFrom: "/dev/ai-traces",
-    exportFiles: {
-      report: "codex_logs/ai_trace_log.js",
-      longTexts: "codex_logs/ai_trace_texts.jsonl",
+  const runtimeReports = createLangChainRuntimeReports(langChainRuntimeSummaries, detailState);
+  const toolExecutionReports = createLangChainToolExecutionReports(langChainRuntimeSummaries, detailState);
+  const events = createTraceLogEventRecords(trace, agentLoops, detailState, modelInputRefsByPlannerCall);
+  const loopTimeline = createTraceLogLoopTimeline(agentLoops, events, modelInputs);
+  const preliminaryReport = {
+    traceSummary: {
+      ...createTraceReportSummary(trace),
+      errorCode: readLatestErrorCode(trace.steps),
+      detailRef: traceDetailRef,
+      responseSummary: summarizeTraceResponseForIndex(readTraceResponseSummary(trace)),
+      moduleGroups: groups.map((group) => ({
+        id: group.id,
+        title: group.title,
+        stepIds: group.steps.map((step) => step.id),
+        status: group.status,
+        durationMs: group.durationMs,
+        summary: group.summary,
+        skipReason: group.skipReason,
+      })),
+      runtimeSummaryRefs: runtimeReports.map((item) => item.detailRef),
+      toolExecutionRefs: toolExecutionReports.map((item) => item.detailRef),
+      providerToolCalls: createProviderToolCallReports(langChainRuntimeSummaries),
     },
-    lookupGuide: [
-      "默认先读 codex_logs/ai_trace_log.js 的结构化报告。",
-      "遇到 contentRef/detailRef 时，用 rg 查 header 定位类型、路径、hash 和 chunkCount。",
-      "需要完整内容时，再用 rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl 查 chunks，并按 chunkIndex 拼接。",
-      "contentRef 只表示当前 payload 已记录的长文本被外置，不代表未记录的 prompt、tool description 或 schema 已保存。",
-    ],
-    agentLoops: agentLoops.map((loop) => ({
-      id: loop.id,
+    loopTimeline: compactTraceLogLoopTimeline(loopTimeline),
+    failureIndex: createTraceLogFailureIndex(trace, events, modelInputRefsByPlannerCall),
+    tokenUsageSummary,
+    lookupGuide: createTraceLogLookupGuide(),
+    fileManifest: {},
+  };
+  const externalized = finalizeTraceLogDetailHashes(extractTraceLogLongTexts({
+    report: preliminaryReport,
+    events,
+    modelInputs,
+    details: detailState.details,
+  }));
+  const report = isRecord(externalized.report) ? externalized.report : preliminaryReport;
+  const externalizedEvents = Array.isArray(externalized.events)
+    ? externalized.events.filter((item): item is TraceLogEventRecord => isRecord(item))
+    : events;
+  const externalizedModelInputs = Array.isArray(externalized.modelInputs)
+    ? externalized.modelInputs.filter((item): item is TraceLogModelInputRecord => isRecord(item))
+    : modelInputs;
+  const longTexts = Array.isArray(externalized.longTexts)
+    ? externalized.longTexts.filter((item): item is TraceLogLongTextEntry => isRecord(item))
+    : [];
+  const details = Array.isArray(externalized.details)
+    ? externalized.details.filter((item): item is TraceLogDetailEntry => isRecord(item))
+    : [];
+  const manifest = createTraceLogFileManifest({
+    report,
+    events: externalizedEvents,
+    modelInputs: externalizedModelInputs,
+    texts: dedupeState.entries,
+    longTexts,
+    details,
+  });
+  const finalReport = {
+    ...report,
+    fileManifest: manifest,
+  };
+
+  return {
+    report: finalReport,
+    events: externalizedEvents,
+    modelInputs: externalizedModelInputs,
+    texts: dedupeState.entries,
+    longTexts,
+    details,
+    manifest,
+  };
+}
+
+function createTraceLogDedupeState(): TraceLogDedupeState {
+  return {
+    entries: [],
+    byHash: new Map(),
+    counters: {
+      system_prompt: 0,
+      tool_catalog: 0,
+      tool_description: 0,
+      tool_schema: 0,
+      schema_description: 0,
+      finalization_schema: 0,
+    },
+  };
+}
+
+// createTraceLogModelInputRecords 将每轮 provider request 的审计证据移出主报告，并用 hash/ref 指向重复 prompt 和 schema。
+function createTraceLogModelInputRecords(
+  calls: Record<string, unknown>[],
+  dedupeState: TraceLogDedupeState,
+): TraceLogModelInputRecord[] {
+  return calls.map((call, index) => {
+    const request = isRecord(call.request) ? call.request : {};
+    const requestInput = isRecord(request.input) ? request.input : {};
+    const requestOutput = isRecord(request.output) ? request.output : {};
+    const snapshot = isRecord(requestInput.modelVisibleInputSnapshot)
+      ? requestInput.modelVisibleInputSnapshot
+      : undefined;
+    const audit = createPlannerModelVisibleInputAuditReport(snapshot);
+    const toolNames = readStringArray(requestInput.toolNames);
+    const registeredRefs = snapshot
+      ? registerModelVisibleSnapshotDedupeRefs(snapshot, index, dedupeState)
+      : { schemaRefs: [] };
+
+    return {
+      recordType: "model_input",
+      modelInputRef: createModelInputRef(index + 1),
+      plannerCallIndex: readNumber(call.plannerCallIndex),
+      modelCallIndex: readNumber(call.modelCallIndex)
+        ?? readNumber(requestOutput.modelCallIndex)
+        ?? readNumber(request.metadata && isRecord(request.metadata) ? request.metadata.modelCallIndex : undefined),
+      runtimeStep: readNumber(requestOutput.runtimeStep)
+        ?? readNumber(request.metadata && isRecord(request.metadata) ? request.metadata.runtimeStep : undefined),
+      requestStepId: readString(request.id),
+      messageCount: Array.isArray(requestInput.messages)
+        ? requestInput.messages.length
+        : readNumber(requestOutput.messageCount) ?? readNumber(snapshot?.messageCount),
+      toolCount: readNumber(requestOutput.toolCount) ?? toolNames.length ?? readNumber(snapshot?.toolCount),
+      toolNames,
+      ...registeredRefs,
+      budget: requestOutput.budget ?? snapshot?.budget,
+      toolAvailability: requestOutput.toolAvailability ?? snapshot?.toolAvailability,
+      audit,
+      evidence: {
+        source: snapshot ? "modelVisibleInputSnapshot" : "legacy_model_request_summary",
+        messages: requestInput.messages,
+        modelVisibleInputSnapshot: snapshot
+          ? createModelInputSnapshotEvidence(snapshot)
+          : undefined,
+      },
+    };
+  });
+}
+
+function registerModelVisibleSnapshotDedupeRefs(
+  snapshot: Record<string, unknown>,
+  callIndex: number,
+  state: TraceLogDedupeState,
+) {
+  const schemaRefs: string[] = [];
+  const systemPrompt = readSnapshotText(snapshot.systemPrompt);
+  const finalizationTool = isRecord(snapshot.finalizationTool) ? snapshot.finalizationTool : undefined;
+  const tools = Array.isArray(snapshot.tools) ? snapshot.tools.filter((item): item is Record<string, unknown> => isRecord(item)) : [];
+  const systemPromptRef = systemPrompt
+    ? registerDedupeText(state, {
+      kind: "system_prompt",
+      path: `$.modelInputs[${callIndex}].systemPrompt`,
+      content: systemPrompt,
+    }).ref
+    : undefined;
+  const toolCatalogRef = tools.length > 0
+    ? registerDedupeText(state, {
+      kind: "tool_catalog",
+      path: `$.modelInputs[${callIndex}].tools`,
+      content: safeStringifyTraceDetail(tools),
+    }).ref
+    : undefined;
+  const finalizationToolRef = finalizationTool
+    ? registerDedupeText(state, {
+      kind: "finalization_schema",
+      path: `$.modelInputs[${callIndex}].finalizationTool`,
+      content: safeStringifyTraceDetail(finalizationTool),
+    }).ref
+    : undefined;
+
+  for (const [toolIndex, tool] of tools.entries()) {
+    const description = readSnapshotText(tool.description);
+    const inputSchema = readSnapshotText(tool.inputSchema) ?? safeStringifyTraceDetail(tool.inputSchema);
+
+    if (description) {
+      schemaRefs.push(registerDedupeText(state, {
+        kind: "tool_description",
+        path: `$.modelInputs[${callIndex}].tools[${toolIndex}].description`,
+        content: description,
+      }).ref);
+    }
+    if (inputSchema && inputSchema !== "undefined") {
+      schemaRefs.push(registerDedupeText(state, {
+        kind: "tool_schema",
+        path: `$.modelInputs[${callIndex}].tools[${toolIndex}].inputSchema`,
+        content: inputSchema,
+      }).ref);
+    }
+
+    const descriptions = Array.isArray(tool.schemaDescriptions)
+      ? tool.schemaDescriptions.filter((item): item is Record<string, unknown> => isRecord(item))
+      : [];
+
+    for (const [descriptionIndex, schemaDescription] of descriptions.entries()) {
+      const text = readSnapshotText(schemaDescription.text) ?? readString(schemaDescription.text);
+
+      if (!text) {
+        continue;
+      }
+      schemaRefs.push(registerDedupeText(state, {
+        kind: "schema_description",
+        path: `$.modelInputs[${callIndex}].tools[${toolIndex}].schemaDescriptions[${descriptionIndex}]`,
+        content: text,
+      }).ref);
+    }
+  }
+
+  return {
+    systemPromptRef,
+    toolCatalogRef,
+    finalizationToolRef,
+    schemaRefs: Array.from(new Set(schemaRefs)),
+  };
+}
+
+function registerDedupeText(
+  state: TraceLogDedupeState,
+  input: {
+    kind: TraceLogDedupeTextKind;
+    path: string;
+    content: string;
+  },
+) {
+  const hash = hashLongText(`${input.kind}:${input.content}`);
+  const existing = state.byHash.get(hash);
+
+  if (existing) {
+    return existing;
+  }
+
+  state.counters[input.kind] += 1;
+
+  const entry: TraceLogDedupeTextEntry = {
+    recordType: "deduped_text",
+    ref: createDedupeRef(input.kind, state.counters[input.kind]),
+    refKind: input.kind,
+    path: input.path,
+    hash,
+    originalLength: input.content.length,
+    preview: createLongTextPreview(input.content),
+    content: input.content,
+    textFile: "codex_logs/ai_trace_texts.jsonl",
+  };
+
+  state.entries.push(entry);
+  state.byHash.set(hash, entry);
+
+  return entry;
+}
+
+function createDedupeRef(kind: TraceLogDedupeTextKind, index: number) {
+  const suffix = String(index).padStart(4, "0");
+
+  switch (kind) {
+    case "tool_catalog":
+      return `tool_catalog_${suffix}`;
+    case "system_prompt":
+      return `system_prompt_${suffix}`;
+    case "finalization_schema":
+      return `finalization_schema_${suffix}`;
+    default:
+      return `schema_${suffix}`;
+  }
+}
+
+function readSnapshotText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const content = value.content;
+  const longText = readTraceLongTextEnvelope(content);
+
+  if (longText) {
+    return longText.content;
+  }
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return undefined;
+}
+
+function createModelInputSnapshotEvidence(snapshot: Record<string, unknown>) {
+  return {
+    sourceKind: readString(snapshot.sourceKind),
+    messageCount: readNumber(snapshot.messageCount),
+    toolCount: readNumber(snapshot.toolCount),
+    toolNames: readStringArray(snapshot.toolNames),
+    messages: snapshot.messages,
+    systemMessage: snapshot.systemMessage,
+    budget: snapshot.budget,
+    toolAvailability: snapshot.toolAvailability,
+    modelVisibleInputAudit: snapshot.modelVisibleInputAudit,
+  };
+}
+
+function createModelInputRef(index: number) {
+  return `model_input_${String(index).padStart(4, "0")}`;
+}
+
+function createModelInputRefLookup(records: TraceLogModelInputRecord[]) {
+  const refs = new Map<number, string>();
+
+  for (const record of records) {
+    if (record.plannerCallIndex !== undefined) {
+      refs.set(record.plannerCallIndex, record.modelInputRef);
+    }
+  }
+
+  return refs;
+}
+
+// createTraceLogEventRecords 将可诊断事件移入 JSONL 映射，主报告只保留 loop/failure 指针。
+function createTraceLogEventRecords(
+  trace: AiTrace,
+  loops: TraceLoopTurn[],
+  detailState: TraceLogDetailState,
+  modelInputRefsByPlannerCall: Map<number, string>,
+): TraceLogEventRecord[] {
+  const loopNumberByRuntimeStep = new Map(
+    loops.map((loop) => [loop.runtimeStep, loop.loopNumber]),
+  );
+
+  return trace.steps
+    .filter(shouldExportTraceEvent)
+    .map((step, index) => {
+      const summary = createTraceStepReportSummary(step);
+      const plannerCallIndex = readStepPlannerCallIndex(step);
+      const runtimeStep = readStepRuntimeStep(step);
+      const detailRef = createTraceLogDetailEntry(detailState, {
+        path: `$.events[${index}]`,
+        kind: "runtime_event_detail",
+        summary,
+        content: createTraceStepDetail(step),
+      });
+
+      return {
+        recordType: "event",
+        eventRef: createEventRef(index + 1),
+        kind: classifyTraceEventKind(step),
+        loopNumber: runtimeStep === undefined ? undefined : loopNumberByRuntimeStep.get(runtimeStep),
+        stepId: step.id,
+        plannerCallIndex,
+        runtimeStep,
+        toolName: readString(summary.toolName),
+        status: step.status,
+        code: readString(summary.code) ?? readString(summary.failureCode),
+        tokenUsage: readStepTokenUsage(step),
+        modelInputRef: plannerCallIndex === undefined ? undefined : modelInputRefsByPlannerCall.get(plannerCallIndex),
+        inputRef: step.type === "model_request" && plannerCallIndex !== undefined
+          ? modelInputRefsByPlannerCall.get(plannerCallIndex)
+          : undefined,
+        outputRef: readString(summary.toolResultId),
+        detailRef,
+        summary: createRuntimeTraceEventReport(step),
+      };
+    });
+}
+
+function shouldExportTraceEvent(step: AiTraceStep) {
+  return [
+    "model_request",
+    "model_response",
+    "runtime_event",
+    "validation",
+    "token_budget",
+    "tool_call",
+    "final_response",
+    "response_write",
+    "error",
+  ].includes(step.type);
+}
+
+function classifyTraceEventKind(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const output = isRecord(step.output) ? step.output : {};
+
+  if (step.type === "model_request") {
+    return "model_call";
+  }
+  if (step.type === "model_response") {
+    return metadata.boundary === "terminal_failure_finalizer" ? "terminal_failure" : "model_response";
+  }
+  if (step.type === "tool_call") {
+    return "tool_execution";
+  }
+  if (step.type === "validation" || step.type === "token_budget") {
+    return "runtime_validation";
+  }
+  if (step.type === "final_response" || step.type === "response_write") {
+    return "final_response_projection";
+  }
+  if (step.type === "error" || step.status === "failed" || readString(output.failureCode)) {
+    return "terminal_failure";
+  }
+
+  return "runtime_event";
+}
+
+function createEventRef(index: number) {
+  return `event_${String(index).padStart(4, "0")}`;
+}
+
+function createTraceLogLoopTimeline(
+  loops: TraceLoopTurn[],
+  events: TraceLogEventRecord[],
+  modelInputs: TraceLogModelInputRecord[],
+) {
+  return loops.map((loop) => {
+    const loopEvents = events.filter((event) => event.loopNumber === loop.loopNumber);
+    const loopModelInputRefs = new Set(
+      modelInputs
+        .filter((record) => record.runtimeStep === loop.runtimeStep || (
+          record.plannerCallIndex !== undefined && loop.plannerCallIndexes.includes(record.plannerCallIndex)
+        ))
+        .map((record) => record.modelInputRef),
+    );
+
+    return {
       loopNumber: loop.loopNumber,
       runtimeStep: loop.runtimeStep,
+      status: loop.status,
       toolNames: loop.toolNames,
       plannerCallIndexes: loop.plannerCallIndexes,
       stepIds: loop.steps.map((step) => step.id),
-      status: loop.status,
-      durationMs: loop.durationMs,
+      eventRefs: loopEvents.map((event) => event.eventRef),
+      modelInputRefs: Array.from(loopModelInputRefs),
       tokenUsage: loop.tokenUsage,
-      modules: loop.modules.map((module) => ({
-        id: module.id,
-        title: module.title,
-        stepIds: module.steps.map((step) => step.id),
-        tokenUsage: module.tokenUsage,
-        modelCalls: module.modelCalls.map((call) => ({
-          id: call.id,
-          plannerCallIndex: call.plannerCallIndex,
-          runtimeStep: call.runtimeStep,
-          requestStepId: call.request?.id,
-          responseStepId: call.response?.id,
-          tokenUsage: call.tokenUsage,
-          status: call.status,
-        })),
-      })),
-    })),
-    moduleGroups: groups.map((group) => ({
-      id: group.id,
-      title: group.title,
-      description: group.description,
-      stepIds: group.steps.map((step) => step.id),
-      status: group.status,
-      durationMs: group.durationMs,
-      summary: group.summary,
-      skipReason: group.skipReason,
-    })),
-    plannerModelCalls: createPlannerModelCallReports(plannerModelCalls, detailState),
-    langChainRuntimeSummaries: createLangChainRuntimeReports(langChainRuntimeSummaries, detailState),
-    providerToolCalls: createProviderToolCallReports(langChainRuntimeSummaries),
-    langChainToolExecutions: createLangChainToolExecutionReports(langChainRuntimeSummaries, detailState),
-    tokenUsageSummary,
-    runtimeTraceEvents: trace.steps
-      .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))
-      .map((step, index) => ({
-        ...createRuntimeTraceEventReport(step),
-        detailRef: createTraceLogDetailEntry(detailState, {
-          path: `$.runtimeTraceEvents[${index}]`,
-          kind: "runtime_event_detail",
-          summary: createTraceStepReportSummary(step),
-          content: createTraceStepDetail(step),
-        }),
-      })),
-    responseSummary: readTraceResponseSummary(trace),
-    traceSummary: {
-      ...createTraceReportSummary(trace),
-      detailRef: traceDetailRef,
-    },
-    groupedSteps: groups.map((group) => ({
-      id: group.id,
-      title: group.title,
-      stepIds: group.steps.map((step) => step.id),
-      status: group.status,
-      durationMs: group.durationMs,
-    })),
-    detailRefs: detailState.details.map(({ content: _content, ...ref }) => ref),
-    details: detailState.details,
-  };
+      durationMs: loop.durationMs,
+    };
+  });
+}
 
-  return finalizeTraceLogDetailHashes(extractTraceLogLongTexts(payload));
+function compactTraceLogLoopTimeline(timeline: Array<Record<string, unknown>>) {
+  if (timeline.length <= traceLogReportLoopBudget) {
+    return timeline;
+  }
+
+  const edgeSize = Math.floor(traceLogReportLoopBudget / 2);
+
+  return {
+    totalCount: timeline.length,
+    budget: traceLogReportLoopBudget,
+    omittedCount: timeline.length - traceLogReportLoopBudget,
+    head: timeline.slice(0, edgeSize),
+    tail: timeline.slice(-edgeSize),
+  };
+}
+
+function createTraceLogFailureIndex(
+  trace: AiTrace,
+  events: TraceLogEventRecord[],
+  modelInputRefsByPlannerCall: Map<number, string>,
+) {
+  const failedEvent = [...events].reverse().find((event) => (
+    event.status === "failed" ||
+    event.kind === "terminal_failure" ||
+    typeof event.code === "string"
+  ));
+  const finalDecision = trace.finalDecision;
+  const finalDecisionCode = finalDecision?.code;
+
+  if (!failedEvent && !finalDecisionCode) {
+    return {
+      status: "none",
+      finalDecision,
+    };
+  }
+
+  const plannerCallIndex = failedEvent?.plannerCallIndex;
+
+  return {
+    status: "failed_or_recoverable",
+    finalDecision,
+    loopNumber: failedEvent?.loopNumber,
+    runtimeStep: failedEvent?.runtimeStep,
+    plannerCallIndex,
+    stepId: failedEvent?.stepId,
+    toolName: failedEvent?.toolName,
+    errorCode: failedEvent?.code ?? finalDecisionCode,
+    eventRef: failedEvent?.eventRef,
+    modelInputRef: failedEvent?.modelInputRef
+      ?? (plannerCallIndex === undefined ? undefined : modelInputRefsByPlannerCall.get(plannerCallIndex)),
+    detailRef: failedEvent?.detailRef,
+    toolResultRef: failedEvent?.outputRef,
+  };
+}
+
+function summarizeTraceResponseForIndex(value: unknown) {
+  const record = isRecord(value) ? value : {};
+
+  if (Object.keys(record).length === 0) {
+    return null;
+  }
+
+  return {
+    eventTypes: record.eventTypes,
+    done: record.done,
+    projectionType: record.projectionType,
+    visibleOutputCount: readNumber(record.visibleOutputCount),
+    suggestedQuestionCount: readNumber(record.suggestedQuestionCount),
+    contentLength: typeof record.content === "string" ? record.content.length : undefined,
+  };
+}
+
+function createTraceLogLookupGuide() {
+  return {
+    defaultEntry: "先读 codex_logs/ai_trace_log.js 的 traceSummary、loopTimeline、failureIndex。",
+    byEventRef: "rg '\"eventRef\":\"event_0001\"' codex_logs/ai_trace_events.jsonl",
+    byLoopNumber: "rg '\"loopNumber\":1' codex_logs/ai_trace_events.jsonl",
+    byStepId: "rg '\"stepId\":\"step-id\"' codex_logs/ai_trace_events.jsonl",
+    byToolName: "rg '\"toolName\":\"searchExerciseResources\"' codex_logs/ai_trace_events.jsonl",
+    byModelInputRef: "rg '\"modelInputRef\":\"model_input_0001\"' codex_logs/ai_trace_model_inputs.jsonl",
+    byContentRef: "rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl",
+    byDetailRef: "rg '\"detailRef\":\"detail_0001\"' codex_logs/ai_trace_texts.jsonl",
+    bySchemaRef: "rg '\"ref\":\"schema_0001\"' codex_logs/ai_trace_texts.jsonl",
+    byParentRef: "rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl",
+  };
+}
+
+function createTraceLogFileManifest(input: {
+  report: Record<string, unknown>;
+  events: TraceLogEventRecord[];
+  modelInputs: TraceLogModelInputRecord[];
+  texts: TraceLogDedupeTextEntry[];
+  longTexts: TraceLogLongTextEntry[];
+  details: TraceLogDetailEntry[];
+}) {
+  return {
+    schemaVersion: traceLogReportSchemaVersion,
+    files: {
+      report: "codex_logs/ai_trace_log.js",
+      events: "codex_logs/ai_trace_events.jsonl",
+      modelInputs: "codex_logs/ai_trace_model_inputs.jsonl",
+      texts: "codex_logs/ai_trace_texts.jsonl",
+    },
+    counts: {
+      events: input.events.length,
+      modelInputs: input.modelInputs.length,
+      dedupedTexts: input.texts.length,
+      longTexts: input.longTexts.length,
+      details: input.details.length,
+    },
+    dedupe: {
+      uniqueHashCount: new Set(input.texts.map((item) => item.hash)).size,
+      refs: input.texts.map((item) => ({
+        ref: item.ref,
+        refKind: item.refKind,
+        hash: item.hash,
+        path: item.path,
+      })),
+    },
+    budgets: {
+      longTextThreshold: traceLogLongTextThreshold,
+      reportLoopBudget: traceLogReportLoopBudget,
+      reportApproxBytes: safeStringifyTraceDetail(input.report).length,
+    },
+  };
 }
 
 function createTraceLogDetailEntry(

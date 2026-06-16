@@ -60,6 +60,25 @@ type SavedTraceDetailRecord = {
   content: unknown;
 };
 
+type SavedTraceDedupeTextRecord = {
+  recordType: string;
+  ref: string;
+  refKind: string;
+  path: string;
+  hash: string;
+  originalLength: number;
+  preview: unknown;
+  content: unknown;
+};
+
+type SavedTraceEventRecord = Record<string, unknown> & {
+  eventRef?: unknown;
+};
+
+type SavedTraceModelInputRecord = Record<string, unknown> & {
+  modelInputRef?: unknown;
+};
+
 const traceLogSensitiveKeyPatterns = [
   /^api[_-]?key$/i,
   /^authorization$/i,
@@ -78,6 +97,8 @@ const traceLogSensitiveKeyPatterns = [
   /tool[_-]?output/i,
 ];
 const traceLongTextFileName = "ai_trace_texts.jsonl";
+const traceEventFileName = "ai_trace_events.jsonl";
+const traceModelInputFileName = "ai_trace_model_inputs.jsonl";
 const maxSavedTraceMappingStringLength = Number.MAX_SAFE_INTEGER;
 const traceMappingChunkContentLength = 2_000;
 const blackboxDefaultExpectedOutput = "只验证本轮有用户可见返回内容。";
@@ -227,14 +248,20 @@ export async function POST(request: Request) {
   } else {
     const payload = normalizeSavedTraceLogPayload(body.payload);
     const textLogPath = path.join(logDir, traceLongTextFileName);
+    const eventLogPath = path.join(logDir, traceEventFileName);
+    const modelInputLogPath = path.join(logDir, traceModelInputFileName);
 
     await writeFile(logPath, createTraceLogContent(payload.report, savedAt), "utf8");
-    await writeFile(textLogPath, createTraceLongTextLogContent(payload.longTexts, payload.details, savedAt), "utf8");
+    await writeFile(eventLogPath, createTraceEventLogContent(payload.events, savedAt), "utf8");
+    await writeFile(modelInputLogPath, createTraceModelInputLogContent(payload.modelInputs, savedAt), "utf8");
+    await writeFile(textLogPath, createTraceLongTextLogContent(payload.longTexts, payload.details, payload.texts, savedAt), "utf8");
 
     return NextResponse.json({
       ok: true,
       path: logPath,
       textPath: textLogPath,
+      eventPath: eventLogPath,
+      modelInputPath: modelInputLogPath,
     });
   }
 }
@@ -399,14 +426,20 @@ function createBlackboxFlowGoal(title: string) {
 // normalizeSavedTraceLogPayload 将全链路导出拆成轻量报告和长文本映射，服务端再次执行脱敏兜底。
 export function normalizeSavedTraceLogPayload(payload: object) {
   const record = payload as Record<string, unknown>;
+  const isBundle = isRecord(record.report);
   const {
+    report: rawReport,
+    events: rawEvents,
+    modelInputs: rawModelInputs,
+    texts: rawTexts,
     longTexts: rawLongTexts,
     details: rawDetails,
+    manifest: _manifest,
     rawTrace: _rawTrace,
     trace: _trace,
     ...reportPayload
   } = record;
-  const safeReportPayload = redactSensitiveLongTextRefPreviews(reportPayload);
+  const safeReportPayload = redactSensitiveLongTextRefPreviews(isBundle ? rawReport : reportPayload);
   const longTexts = Array.isArray(rawLongTexts)
     ? rawLongTexts
         .filter((item): item is Record<string, unknown> => isRecord(item))
@@ -417,16 +450,36 @@ export function normalizeSavedTraceLogPayload(payload: object) {
         .filter((item): item is Record<string, unknown> => isRecord(item))
         .map(normalizeTraceDetailRecord)
     : [];
+  const texts = Array.isArray(rawTexts)
+    ? rawTexts
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map(normalizeTraceDedupeTextRecord)
+    : [];
+  const events = Array.isArray(rawEvents)
+    ? rawEvents
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map(normalizeTraceEventRecord)
+    : [];
+  const modelInputs = Array.isArray(rawModelInputs)
+    ? rawModelInputs
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map(normalizeTraceModelInputRecord)
+    : [];
   const report = redactJsonValue(
     {
       ...(isRecord(safeReportPayload) ? safeReportPayload : {}),
       exportGuide: {
         reportFile: "codex_logs/ai_trace_log.js",
+        eventFile: `codex_logs/${traceEventFileName}`,
+        modelInputFile: `codex_logs/${traceModelInputFileName}`,
         longTextFile: `codex_logs/${traceLongTextFileName}`,
+        eventLookup: `rg '"eventRef":"event_0001"' codex_logs/${traceEventFileName}`,
+        modelInputLookup: `rg '"modelInputRef":"model_input_0001"' codex_logs/${traceModelInputFileName}`,
         lookup: `rg '"contentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
         detailLookup: `rg '"detailRef":"detail_0001"' codex_logs/${traceLongTextFileName}`,
+        schemaLookup: `rg '"ref":"schema_0001"' codex_logs/${traceLongTextFileName}`,
         chunkLookup: `rg '"parentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
-        note: "默认先读本报告；contentRef/detailRef 只命中 header，需要完整内容时再用 parentRef 查 chunks。",
+        note: "默认先读本报告；eventRef/modelInputRef/contentRef/detailRef 只命中 header，需要完整内容时再用 parentRef 查 chunks。",
         modelVisibleInputBoundary: "contentRef 只表示当前 payload 已包含的长文本被外置；不能据此推断未记录的 prompt、tool description 或 schema description 已保存。模型输入完整性以 modelVisibleInputAudit.completeness 为准。",
       },
     },
@@ -437,6 +490,9 @@ export function normalizeSavedTraceLogPayload(payload: object) {
 
   return {
     report,
+    events,
+    modelInputs,
+    texts,
     longTexts,
     details,
   };
@@ -447,11 +503,15 @@ function createTraceLogContent(payload: object, savedAt: string) {
     getLogFileHeader("trace"),
     `// Saved at: ${savedAt}`,
     "// This is the lightweight AI trace report. Long prompt/model text is stored separately.",
+    `// Event file: codex_logs/${traceEventFileName}`,
+    `// Model input file: codex_logs/${traceModelInputFileName}`,
     `// Mapping file: codex_logs/${traceLongTextFileName}`,
+    `// Event example: rg '\"eventRef\":\"event_0001\"' codex_logs/${traceEventFileName}`,
+    `// Model input example: rg '\"modelInputRef\":\"model_input_0001\"' codex_logs/${traceModelInputFileName}`,
     `// Lookup example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Detail example: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Chunk example: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
-    "// Workflow: read this report first. contentRef/detailRef finds headers; parentRef finds chunk content.",
+    "// Workflow: read this report first. eventRef/modelInputRef/contentRef/detailRef finds headers; parentRef finds chunk content.",
     "// Boundary: contentRef only externalizes text already present in the payload; modelVisibleInputAudit.completeness is the source of truth for whether prompt/tool schema was captured.",
     "",
     "module.exports = ",
@@ -460,13 +520,42 @@ function createTraceLogContent(payload: object, savedAt: string) {
   ].join("\n");
 }
 
-// ai_trace_texts.jsonl 保存全链路报告外置的长文本和结构化详情映射，每次保存覆盖旧内容。
+// ai_trace_events.jsonl 保存按 loop/ref 检索的模型、tool、校验和终态事件。
+function createTraceEventLogContent(records: SavedTraceEventRecord[], savedAt: string) {
+  return [
+    "// AI trace events saved from /dev/ai-traces.",
+    `// Saved at: ${savedAt}`,
+    "// Read codex_logs/ai_trace_log.js first. Query by eventRef, loopNumber, stepId, or toolName.",
+    `// Event: rg '\"eventRef\":\"event_0001\"' codex_logs/${traceEventFileName}`,
+    `// Loop: rg '\"loopNumber\":1' codex_logs/${traceEventFileName}`,
+    `// Tool: rg '\"toolName\":\"searchExerciseResources\"' codex_logs/${traceEventFileName}`,
+    ...records.map((record) => JSON.stringify(record)),
+    "",
+  ].join("\n");
+}
+
+// ai_trace_model_inputs.jsonl 保存模型输入审计摘要和去重 schema/tool catalog 引用。
+function createTraceModelInputLogContent(records: SavedTraceModelInputRecord[], savedAt: string) {
+  return [
+    "// AI trace model inputs saved from /dev/ai-traces.",
+    `// Saved at: ${savedAt}`,
+    "// Read codex_logs/ai_trace_log.js first. Query by modelInputRef or plannerCallIndex.",
+    `// Model input: rg '\"modelInputRef\":\"model_input_0001\"' codex_logs/${traceModelInputFileName}`,
+    `// Tool catalog refs resolve in codex_logs/${traceLongTextFileName}.`,
+    ...records.map((record) => JSON.stringify(record)),
+    "",
+  ].join("\n");
+}
+
+// ai_trace_texts.jsonl 保存全链路报告外置的长文本、结构化详情和去重 prompt/schema 映射，每次保存覆盖旧内容。
 function createTraceLongTextLogContent(
   textRecords: SavedTraceLongTextRecord[],
   detailRecords: SavedTraceDetailRecord[],
+  dedupeTextRecords: SavedTraceDedupeTextRecord[],
   savedAt: string,
 ) {
   const mappingRecords = [
+    ...dedupeTextRecords.flatMap(createDedupeTextMappingRecords),
     ...textRecords.flatMap(createTextMappingRecords),
     ...detailRecords.flatMap(createDetailMappingRecords),
   ];
@@ -474,7 +563,9 @@ function createTraceLongTextLogContent(
   return [
     "// AI trace mapping saved from /dev/ai-traces.",
     `// Saved at: ${savedAt}`,
-    "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef/detailRef, query this file.",
+    "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef/detailRef/schemaRef/toolCatalogRef, query this file.",
+    `// Schema: rg '\"ref\":\"schema_0001\"' codex_logs/${traceLongTextFileName}`,
+    `// Tool catalog: rg '\"ref\":\"tool_catalog_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Detail: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Chunks: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
@@ -579,6 +670,75 @@ function normalizeTraceDetailRecord(item: Record<string, unknown>): SavedTraceDe
       : redactJsonValue(item.visibility, { sensitiveKeyPatterns: traceLogSensitiveKeyPatterns }),
     content,
   };
+}
+
+function normalizeTraceDedupeTextRecord(item: Record<string, unknown>): SavedTraceDedupeTextRecord {
+  const pathValue = getString(item.path) ?? "$";
+  const content = pathContainsSensitiveTraceKey(pathValue)
+    ? REDACTED_VALUE
+    : redactJsonValue(getString(item.content) ?? "", {
+        sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+        maxStringLength: maxSavedTraceMappingStringLength,
+      });
+  const preview = pathContainsSensitiveTraceKey(pathValue)
+    ? REDACTED_VALUE
+    : redactJsonValue(item.preview ?? "", {
+        sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+      });
+
+  return {
+    recordType: getString(item.recordType) ?? "deduped_text",
+    ref: getString(item.ref) ?? "schema_unknown",
+    refKind: getString(item.refKind) ?? "schema_description",
+    path: pathValue,
+    hash: getString(item.hash) ?? "",
+    originalLength: typeof item.originalLength === "number" ? item.originalLength : 0,
+    preview,
+    content,
+  };
+}
+
+function normalizeTraceEventRecord(item: Record<string, unknown>): SavedTraceEventRecord {
+  return redactJsonValue(item, {
+    sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+    maxStringLength: maxSavedTraceMappingStringLength,
+  }) as SavedTraceEventRecord;
+}
+
+function normalizeTraceModelInputRecord(item: Record<string, unknown>): SavedTraceModelInputRecord {
+  return redactJsonValue(item, {
+    sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+    maxStringLength: maxSavedTraceMappingStringLength,
+  }) as SavedTraceModelInputRecord;
+}
+
+function createDedupeTextMappingRecords(record: SavedTraceDedupeTextRecord) {
+  const content = typeof record.content === "string"
+    ? record.content
+    : JSON.stringify(record.content) ?? "";
+  const chunks = chunkString(content, traceMappingChunkContentLength);
+
+  return [
+    {
+      recordType: "deduped_text",
+      ref: record.ref,
+      refKind: record.refKind,
+      path: record.path,
+      hash: record.hash,
+      originalLength: record.originalLength,
+      preview: record.preview,
+      contentLength: content.length,
+      chunkSize: traceMappingChunkContentLength,
+      chunkCount: chunks.length,
+    },
+    ...chunks.map((chunk, index) => ({
+      recordType: "deduped_text_chunk",
+      parentRef: record.ref,
+      chunkIndex: index,
+      chunkCount: chunks.length,
+      content: chunk,
+    })),
+  ];
 }
 
 function createTextMappingRecords(record: SavedTraceLongTextRecord) {
