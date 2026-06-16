@@ -172,7 +172,13 @@ describe("LangChain terminal failure finalizer", () => {
     expect(prompt).toContain("系统繁忙");
     expect(prompt).toContain("稍后重试");
     expect(prompt).toContain("不要包含重试、稍后、系统、错误、繁忙、服务不可用等运维表达");
-    expect(prompt).toContain("用户下一步建议只能围绕原始健身任务本身");
+    expect(prompt).toContain("优先基于 userRequestSummary、failedToolExecutions 和 verifiedFactsSummary");
+    expect(prompt).toContain("用户已经明确提供的条件、工具已经验证成功的事实、仍然不足或未完成收口的事实");
+    expect(prompt).toContain("不得要求用户补充已经在 userRequestSummary 中明确提供的条件");
+    expect(prompt).toContain("candidateGroups、sectionsWithCandidates、sectionsWithoutCandidates、allRequestedSectionsHaveCandidates、diagnostics 或 zeroMatchMuscles");
+    expect(prompt).toContain("content 必须优先说明哪些候选已经确认、哪些候选或 section 仍不足");
+    expect(prompt).toContain("suggestedQuestions 必须围绕仍不足的事实或未完成的收口点生成");
+    expect(prompt).toContain("不得生成与失败原因无关的通用健身信息收集问题");
     expect(prompt).toContain("不得建议用户改问无关的动作解释、动作区别说明、普通知识问答或其他任务");
     expect(prompt).not.toContain("或把问题改成普通动作解释/区别说明");
     expect(prompt).toContain("只返回 JSON object");
