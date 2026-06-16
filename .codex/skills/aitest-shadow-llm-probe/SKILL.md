@@ -30,9 +30,18 @@ description: 仅当用户明确点名使用 aitest-shadow-llm-probe、$aitest-sh
 5. 写出同轮 `round-xxx-decision.json`，结构必须符合 `references/decision-output-schema.md`。
 6. 在 `evidence[]` 和 `fieldRationale[]` 中引用 input 内部 JSON path，例如 `$.messages[0].content`。
 7. 填写 `contaminationAudit`；如果某个判断来自外部记忆或源码知识，标记污染风险并改为 `contract_gap`。
-8. 运行 `npm run shadow:llm-probe -- --continue <runId>` 推进；如果生成下一轮 input，重复第 2-8 步。
+8. 使用提权运行 `npm run shadow:llm-probe -- --continue <runId>` 推进；如果生成下一轮 input，重复第 2-8 步。
 9. run 进入 `final_answer`、`contract_gap`、`budget_exhausted`、`decision_validation_failed` 或 `tool_execution_failed` 后，运行 `npm run shadow:llm-probe -- --report <runId>`。
 10. 读取 `report.md`，用中文告诉开发者诊断结论、命中的合同类别、运行阻断和不可判断项；不要只返回文件路径。
+
+## 提权运行规则
+
+- 创建 run 的 `npm run shadow:llm-probe -- --message "<用户原话>"` 通常只导出模型可见 input，不默认连接数据库；除非命令实际因沙箱权限失败，否则普通运行即可。
+- 推进 run 的 `npm run shadow:llm-probe -- --continue <runId>` 会执行 dev-safe business tool handler，可能调用 `searchExerciseResources`、`submitVisibleTrainingProposal` 或只读导入工具，并连接本地 PostgreSQL；默认直接使用 `sandbox_permissions: "require_escalated"` 运行，不要先等普通沙箱报 `connect EPERM 127.0.0.1:5432` 再补救。
+- 任何为了复现 Shadow tool handler、Prisma 查询、`pg` 直连、动作库查询、visibleTrainingProposal 校验或本地数据库连通性的命令，只要会访问 `localhost:5432`、`127.0.0.1:5432` 或 `::1:5432`，默认直接提权运行。
+- 生成报告的 `npm run shadow:llm-probe -- --report <runId>` 默认只读 run 目录文件，不需要提权；如果报告流程未来改为读取数据库，再按实际失败或实现变化提权。
+- 提权时优先使用窄前缀，例如 `["npm", "run", "shadow:llm-probe"]`；不要请求 `node`、`npm` 这类过宽前缀。
+- 提权只影响命令执行权限，不改变 Shadow 决策硬边界；Shadow 决策仍只能基于当前 `round-xxx-input.json` 和模型可见 tool result summary。
 
 ## 允许的决策
 
