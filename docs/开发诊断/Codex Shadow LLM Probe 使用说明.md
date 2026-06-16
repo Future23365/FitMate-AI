@@ -53,6 +53,8 @@ Codex Shadow LLM Probe 是一个本地开发诊断工具，用来检查生产 La
 
 ## CLI 命令
 
+Shadow Probe CLI 启动时会按 Next 本地规则自动加载项目根目录的 `.env.local`。这让 runner 在执行真实 dev-safe tool 时可以读取 `DATABASE_URL` 等运行配置，但这些环境变量不会写入 `round-xxx-input.json`，也不能作为 Shadow 决策依据。
+
 手动使用时，可以直接运行：
 
 ```bash
@@ -171,4 +173,3 @@ Shadow 决策阶段只能读取当前 `round-xxx-input.json` 和其中的模型�
 Shadow Probe 不证明 DeepSeek 一定会做出同样决策。它只说明：在一个强 LLM 只看到生产模型可见输入时，合同是否足够支撑下一步决策。
 
 真实模型最终表现仍需要用手动 LLM 黑盒测试或生产 trace 验证。
-
