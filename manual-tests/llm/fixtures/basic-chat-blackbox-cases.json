@@ -57,19 +57,19 @@
     },
     {
       "id": "F04",
-      "goal": "长期计划一次给齐后继续调整",
+      "goal": "长期计划确实信息补齐",
       "turns": [
         {
           "userInput": "给我一个每周4练增肌计划，每次45分钟，有健身房器械",
           "expectedOutput": "识别长期 plan；生成每周 4 练、每次约 45 分钟、增肌、健身房条件的长期计划卡片；不生成单次 routine。"
         },
         {
-          "userInput": "改成每周3练",
-          "expectedOutput": "修改长期计划频率；仍保持 plan 语义。"
+          "userInput": "换一批",
+          "expectedOutput": "换动作；仍保持 plan 语义。"
         },
         {
-          "userInput": "每次控制在40分钟",
-          "expectedOutput": "保留每周 3 练和增肌目标，调整单次训练时长到约 40 分钟。"
+          "userInput": "改成每周3练",
+          "expectedOutput": "plan改成每周3练"
         }
       ]
     },
@@ -154,7 +154,7 @@
           "expectedOutput": "识别长期 plan；最终可见训练结构必须是 kind=plan 且包含同一套可重复 routine template 与 schedule.assignments；不得只生成无 schedule 的单次 routine，也不得只在正文或 suggestedQuestions 里表达一周安排。"
         },
         {
-          "userInput": "热身和拉伸你自己选，适合新手就行",
+          "userInput": "第一个动作换一个",
           "expectedOutput": "保持每周 3 练 plan 语义；允许系统自行选择 warmup 和 stretch；最终 plan 必须包含 warmup、training、stretch 和 schedule.assignments。"
         },
         {
