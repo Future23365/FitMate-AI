@@ -427,6 +427,7 @@ export function normalizeSavedTraceLogPayload(payload: object) {
         detailLookup: `rg '"detailRef":"detail_0001"' codex_logs/${traceLongTextFileName}`,
         chunkLookup: `rg '"parentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
         note: "默认先读本报告；contentRef/detailRef 只命中 header，需要完整内容时再用 parentRef 查 chunks。",
+        modelVisibleInputBoundary: "contentRef 只表示当前 payload 已包含的长文本被外置；不能据此推断未记录的 prompt、tool description 或 schema description 已保存。模型输入完整性以 modelVisibleInputAudit.completeness 为准。",
       },
     },
     {
@@ -451,6 +452,7 @@ function createTraceLogContent(payload: object, savedAt: string) {
     `// Detail example: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Chunk example: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     "// Workflow: read this report first. contentRef/detailRef finds headers; parentRef finds chunk content.",
+    "// Boundary: contentRef only externalizes text already present in the payload; modelVisibleInputAudit.completeness is the source of truth for whether prompt/tool schema was captured.",
     "",
     "module.exports = ",
     JSON.stringify(payload, null, 2),
@@ -477,6 +479,7 @@ function createTraceLongTextLogContent(
     `// Detail: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Chunks: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     "// Header lookup does not print chunk content. Reassemble chunks by parentRef ordered by chunkIndex.",
+    "// Boundary: mapping records cannot recover prompt/tool schema that was never recorded in the trace payload.",
     ...mappingRecords.map((record) => JSON.stringify(record)),
     "",
   ].join("\n");

@@ -476,6 +476,7 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
       type: "model_request",
       input: {
         messages: modelCall.requestSummary.messagePreviews,
+        modelVisibleInputSnapshot: modelCall.requestSummary,
         toolNames: modelCall.requestSummary.toolNames,
       },
       output: {
@@ -488,10 +489,14 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
         messageCount: modelCall.requestSummary.messageCount,
         toolCount: modelCall.requestSummary.toolCount,
         toolNames: modelCall.requestSummary.toolNames,
+        modelVisibleInputAudit: modelCall.requestSummary.modelVisibleInputAudit,
+        budget: modelCall.requestSummary.budget,
+        toolAvailability: modelCall.requestSummary.toolAvailability,
       },
       metadata: {
         ...modelLinkage,
         toolNames: modelCall.requestSummary.toolNames,
+        modelVisibleInputCompleteness: modelCall.requestSummary.modelVisibleInputAudit.completeness,
       },
     });
 

@@ -126,20 +126,129 @@ export type LangChainAgentProviderToolCallTrace = {
   runtimeStep?: number;
 };
 
+/** LangChainTraceLongTextEnvelope 是 runtime trace 内部的长文本外壳，导出层会把它转换为 contentRef。 */
+export type LangChainTraceLongTextEnvelope = {
+  kind: "trace_long_text";
+  contentType:
+    | "model_request_system_prompt"
+    | "model_request_system_message"
+    | "model_request_message"
+    | "model_request_tool_description"
+    | "model_request_tool_schema"
+    | "model_request_tool_schema_description";
+  originalLength: number;
+  storedLength: number;
+  chunkSize: number;
+  hash: string;
+  preview: string;
+  redacted: boolean;
+  chunks: readonly {
+    index: number;
+    start: number;
+    end: number;
+    text: string;
+  }[];
+};
+
+/** LangChainModelVisibleTextTrace 记录模型可见文本的安全内容、长度和 fingerprint，不参与 provider request 改写。 */
+export type LangChainModelVisibleTextTrace = {
+  content: LangChainTraceLongTextEnvelope;
+  length: number;
+  hash: string;
+  preview: string;
+  redacted: boolean;
+  sourcePath: string;
+};
+
+/** LangChainModelRequestMessageTrace 按 provider request 顺序记录单条 message 的可审计安全快照。 */
+export type LangChainModelRequestMessageTrace = {
+  index: number;
+  role: string;
+  content: LangChainModelVisibleTextTrace;
+};
+
+/** LangChainModelRequestToolSchemaDescriptionTrace 标出 schema description 的原始 schema 路径和安全文本。 */
+export type LangChainModelRequestToolSchemaDescriptionTrace = {
+  path: string;
+  text: LangChainModelVisibleTextTrace;
+};
+
+/** LangChainModelRequestToolTrace 记录本次模型请求可见 tool 的 name、description 和 input schema 摘要。 */
+export type LangChainModelRequestToolTrace = {
+  name: string;
+  description?: LangChainModelVisibleTextTrace;
+  inputSchema?: LangChainModelVisibleTextTrace;
+  schemaDescriptions: readonly LangChainModelRequestToolSchemaDescriptionTrace[];
+  schemaHash?: string;
+};
+
+/** LangChainModelVisibleInputAuditField 描述模型可见输入某个组成部分是否被 trace 捕获。 */
+export type LangChainModelVisibleInputAuditField = {
+  path: string;
+  sourceKind: "runtime_model_request";
+  present: boolean;
+  length?: number;
+  hash?: string;
+};
+
+/** LangChainModelVisibleDuplicateMessageRisk 只标记重复 message 风险，不允许 trace 层改写 message。 */
+export type LangChainModelVisibleDuplicateMessageRisk = {
+  role: string;
+  hash: string;
+  messageIndexes: readonly number[];
+  sourceKind: "runtime_model_request";
+};
+
+/** LangChainModelVisibleInputAudit 是判断本轮模型输入快照是否完整的稳定审计对象。 */
+export type LangChainModelVisibleInputAudit = {
+  sourceKind: "runtime_model_request";
+  completeness: "complete" | "incomplete";
+  missingModelVisibleParts: readonly string[];
+  fields: readonly LangChainModelVisibleInputAuditField[];
+  duplicateMessageRisks: readonly LangChainModelVisibleDuplicateMessageRisk[];
+};
+
+/** LangChainModelRequestBudgetSummary 记录模型调用预算视角，帮助区分预算边界和模型决策问题。 */
+export type LangChainModelRequestBudgetSummary = {
+  modelCallIndex: number;
+  maxModelCalls: number;
+  remainingModelCallsBeforeCall: number;
+  exposedToolCount: number;
+  businessToolCount: number;
+};
+
+/** LangChainModelRequestToolAvailabilitySummary 记录本次请求可见 tool 集合和业务 tool 集合。 */
+export type LangChainModelRequestToolAvailabilitySummary = {
+  exposedToolNames: readonly string[];
+  businessToolNames: readonly string[];
+  finalizationToolName: string;
+};
+
+/** LangChainModelRequestSummaryTrace 是每次 LangChain model call 的模型可见输入安全快照。 */
+export type LangChainModelRequestSummaryTrace = {
+  messageCount: number;
+  messagePreviews: readonly {
+    role: string;
+    contentPreview: string;
+  }[];
+  toolCount: number;
+  toolNames: readonly string[];
+  systemPrompt?: LangChainModelVisibleTextTrace;
+  systemMessage?: LangChainModelRequestMessageTrace;
+  messages: readonly LangChainModelRequestMessageTrace[];
+  tools: readonly LangChainModelRequestToolTrace[];
+  finalizationTool?: LangChainModelRequestToolTrace;
+  budget: LangChainModelRequestBudgetSummary;
+  toolAvailability: LangChainModelRequestToolAvailabilitySummary;
+  modelVisibleInputAudit: LangChainModelVisibleInputAudit;
+};
+
 export type LangChainAgentModelCallTrace = {
   modelCallIndex: number;
   runtimeStep: number;
   status: "success" | "failed";
   durationMs?: number;
-  requestSummary: {
-    messageCount: number;
-    messagePreviews: readonly {
-      role: string;
-      contentPreview: string;
-    }[];
-    toolCount: number;
-    toolNames: readonly string[];
-  };
+  requestSummary: LangChainModelRequestSummaryTrace;
   responseSummary?: {
     contentPreview?: string;
     contentLength: number;

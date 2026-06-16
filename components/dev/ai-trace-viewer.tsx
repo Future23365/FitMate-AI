@@ -81,7 +81,12 @@ type TokenUsage = {
 };
 
 type TraceLogLongTextKind =
+  | "model_request_system_prompt"
+  | "model_request_system_message"
   | "model_request_message"
+  | "model_request_tool_description"
+  | "model_request_tool_schema"
+  | "model_request_tool_schema_description"
   | "model_response_text"
   | "trace_step_input"
   | "trace_step_output"
@@ -1944,6 +1949,10 @@ function createPlannerModelCallReport(call: Record<string, unknown>) {
   const providerToolCalls = Array.isArray(responseOutput.providerToolCalls) ? responseOutput.providerToolCalls : [];
   const responseBody = isRecord(responseOutput.response) ? responseOutput.response : {};
   const toolNames = readStringArray(requestInput.toolNames);
+  const modelVisibleInputSnapshot = isRecord(requestInput.modelVisibleInputSnapshot)
+    ? requestInput.modelVisibleInputSnapshot
+    : undefined;
+  const modelVisibleInputAudit = createPlannerModelVisibleInputAuditReport(modelVisibleInputSnapshot);
 
   return {
     plannerCallIndex: readNumber(call.plannerCallIndex),
@@ -1962,6 +1971,10 @@ function createPlannerModelCallReport(call: Record<string, unknown>) {
           messageCount: Array.isArray(requestInput.messages) ? requestInput.messages.length : undefined,
           toolCount: readNumber(requestOutput.toolCount) ?? toolNames.length,
           toolNames,
+          modelVisibleInputSnapshot,
+          modelVisibleInputAudit,
+          budget: requestOutput.budget ?? modelVisibleInputSnapshot?.budget,
+          toolAvailability: requestOutput.toolAvailability ?? modelVisibleInputSnapshot?.toolAvailability,
           thinking: requestOutput.thinking ?? requestMetadata.thinking,
         }
       : undefined,
@@ -1981,6 +1994,31 @@ function createPlannerModelCallReport(call: Record<string, unknown>) {
         }
       : undefined,
     tokenUsage: readTokenUsage(responseOutput.tokenUsage) ?? readTokenUsage(responseMetadata.tokenUsage),
+  };
+}
+
+// createPlannerModelVisibleInputAuditReport 只给导出报告标注旧 trace 的证据缺口，不补造模型输入内容。
+function createPlannerModelVisibleInputAuditReport(snapshot: Record<string, unknown> | undefined) {
+  const existingAudit = isRecord(snapshot?.modelVisibleInputAudit)
+    ? snapshot.modelVisibleInputAudit
+    : undefined;
+
+  if (existingAudit) {
+    return existingAudit;
+  }
+
+  return {
+    sourceKind: "trace_export",
+    completeness: "incomplete",
+    missingModelVisibleParts: [
+      "$.request.systemPrompt",
+      "$.request.systemMessage.content",
+      "$.request.messages",
+      "$.request.tools",
+      "$.request.finalizationTool",
+      "$.requestSummary.budget",
+    ],
+    note: "当前 trace 只有 model_request 摘要或旧格式字段，不能证明完整 prompt、messages、tool description、schema description 或 finalization tool 已进入 provider request。请重新采集包含 modelVisibleInputSnapshot 的 trace。",
   };
 }
 
@@ -2363,6 +2401,7 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       "默认先读 codex_logs/ai_trace_log.js 的结构化报告。",
       "遇到 contentRef/detailRef 时，用 rg 查 header 定位类型、路径、hash 和 chunkCount。",
       "需要完整内容时，再用 rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl 查 chunks，并按 chunkIndex 拼接。",
+      "contentRef 只表示当前 payload 已记录的长文本被外置，不代表未记录的 prompt、tool description 或 schema 已保存。",
     ],
     agentLoops: agentLoops.map((loop) => ({
       id: loop.id,
@@ -2569,6 +2608,7 @@ function replaceLongTextStrings(
   if (traceLongText) {
     return createLongTextMappingRef(traceLongText.content, path, state, {
       force: true,
+      kind: traceLongText.contentType,
       hash: traceLongText.hash,
       originalLength: traceLongText.originalLength,
       preview: traceLongText.preview,
@@ -2605,6 +2645,7 @@ function createLongTextMappingRef(
   state: TraceLogLongTextState,
   options: {
     force?: boolean;
+    kind?: TraceLogLongTextKind;
     hash?: string;
     originalLength?: number;
     preview?: string;
@@ -2634,7 +2675,7 @@ function createLongTextMappingRef(
     return {
       contentRef: existing.contentRef,
       path,
-      kind: inferLongTextKind(path),
+      kind: options.kind ?? inferLongTextKind(path),
       originalLength: existing.originalLength,
       hash: existing.hash,
       preview: existing.preview,
@@ -2647,7 +2688,7 @@ function createLongTextMappingRef(
   const ref: TraceLogLongTextRef = {
     contentRef,
     path,
-    kind: inferLongTextKind(path),
+    kind: options.kind ?? inferLongTextKind(path),
     originalLength,
     hash,
     preview: options.preview ?? createLongTextPreview(value),
@@ -2714,6 +2755,7 @@ function readTraceLongTextEnvelope(value: unknown) {
 
   return {
     content,
+    contentType: readString(value.contentType) as TraceLogLongTextKind | undefined,
     originalLength: readNumber(value.originalLength) ?? content.length,
     hash: readString(value.hash) ?? hashLongText(content),
     preview: readString(value.preview) ?? createLongTextPreview(content),
@@ -2746,8 +2788,32 @@ function hashLongText(value: string) {
 }
 
 function inferLongTextKind(path: string): TraceLogLongTextKind {
+  if (/systemPrompt\.content$/.test(path)) {
+    return "model_request_system_prompt";
+  }
+
+  if (/systemMessage\.content\.content$/.test(path)) {
+    return "model_request_system_message";
+  }
+
   if (/\.messages\[\d+\]\.content$/.test(path)) {
     return "model_request_message";
+  }
+
+  if (/\.messages\[\d+\]\.content\.content$/.test(path)) {
+    return "model_request_message";
+  }
+
+  if (/\.tools\[\d+\]\.description\.content$/.test(path) || /\.finalizationTool\.description\.content$/.test(path)) {
+    return "model_request_tool_description";
+  }
+
+  if (/\.tools\[\d+\]\.inputSchema\.content$/.test(path) || /\.finalizationTool\.inputSchema\.content$/.test(path)) {
+    return "model_request_tool_schema";
+  }
+
+  if (/\.schemaDescriptions\[\d+\]\.text\.content$/.test(path)) {
+    return "model_request_tool_schema_description";
   }
 
   if (/(\.rawText|\.rawResponse|\.model_response|modelResponse)/i.test(path)) {

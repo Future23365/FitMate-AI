@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAgent, createMiddleware, AIMessage, ToolMessage, toolStrategy } from "langchain";
 import type { ModelRequest } from "langchain";
+import { z } from "zod";
 
 import {
   agentRuntimeConfig,
@@ -18,6 +19,7 @@ import {
 } from "./final-response-schema";
 import {
   createExecutableLangChainTool,
+  getLangChainToolProviderInputSchema,
   type LangChainToolExecutionCoordinator,
   type LangChainToolExecutionResult,
   type LangChainToolWrapper,
@@ -41,6 +43,12 @@ import type {
   LangChainAgentRuntimeObserverEvent,
   LangChainAgentRuntimeErrorCode,
   LangChainAgentToolExecution,
+  LangChainModelRequestMessageTrace,
+  LangChainModelRequestSummaryTrace,
+  LangChainModelRequestToolTrace,
+  LangChainModelVisibleInputAuditField,
+  LangChainModelVisibleTextTrace,
+  LangChainTraceLongTextEnvelope,
   LangChainTokenUsage,
 } from "./types";
 
@@ -1113,7 +1121,12 @@ function createLangChainModelCallTraceRecorder(input: {
       name: "FitMateLangChainTraceMiddleware",
       wrapModelCall: async (request, handler) => {
         const currentModelCallIndex = modelCallIndex + 1;
-        const requestSummary = summarizeLangChainModelRequest(request, input.toolWrappers);
+        const requestSummary = summarizeLangChainModelRequest({
+          request,
+          toolWrappers: input.toolWrappers,
+          modelCallIndex: currentModelCallIndex,
+          maxModelCalls: input.maxModelCalls,
+        });
 
         if (currentModelCallIndex > input.maxModelCalls) {
           throw new Error(`LangChain model call budget exhausted before provider call: maxModelCalls=${input.maxModelCalls}.`);
@@ -1243,29 +1256,415 @@ function annotateToolExecutionsWithModelCalls(
   });
 }
 
-function summarizeLangChainModelRequest(
-  request: ModelRequest<Record<string, unknown>, unknown>,
-  toolWrappers: readonly LangChainToolWrapper[],
-): LangChainAgentModelCallTrace["requestSummary"] {
-  const messagePreviews = request.messages.map((message) => ({
-    role: readLangChainMessageRole(message),
-    contentPreview: messageContentToText(message.content).slice(
-      0,
-      agentRuntimeConfig.langChain.trace.modelMessagePreviewMaxLength,
-    ),
-  }));
+/** summarizeLangChainModelRequest 在 wrapModelCall 边界记录模型可见输入快照，只服务 trace 可观测性。 */
+function summarizeLangChainModelRequest(input: {
+  request: ModelRequest<Record<string, unknown>, unknown>;
+  toolWrappers: readonly LangChainToolWrapper[];
+  modelCallIndex: number;
+  maxModelCalls: number;
+}): LangChainModelRequestSummaryTrace {
+  const { request, toolWrappers, modelCallIndex, maxModelCalls } = input;
   const requestToolNames = request.tools
     .map((tool) => readLangChainToolName(tool))
     .filter((toolName): toolName is string => Boolean(toolName));
   const fallbackToolNames = toolWrappers.map((wrapper) => wrapper.name);
-  const toolNames = requestToolNames.length > 0 ? requestToolNames : fallbackToolNames;
+  const toolSchemaRegistry = createModelRequestToolSchemaRegistry(toolWrappers);
+  const systemPrompt = createModelVisibleTextTrace({
+    contentType: "model_request_system_prompt",
+    value: request.systemPrompt ?? "",
+    sourcePath: "$.request.systemPrompt",
+  });
+  const systemMessageContent = messageContentToText(request.systemMessage?.content);
+  const systemMessage = createModelRequestMessageTrace({
+    index: -1,
+    role: "system",
+    value: systemMessageContent,
+    sourcePath: "$.request.systemMessage.content",
+    contentType: "model_request_system_message",
+  });
+  const messages = request.messages.map((message, index) => createModelRequestMessageTrace({
+    index,
+    role: readLangChainMessageRole(message),
+    value: messageContentToText(message.content),
+    sourcePath: `$.request.messages[${index}].content`,
+    contentType: "model_request_message",
+  }));
+  const tools = request.tools
+    .map((tool, index) => createModelRequestToolTrace({
+      tool,
+      fallbackSchema: toolSchemaRegistry.get(readLangChainToolName(tool) ?? ""),
+      sourcePath: `$.request.tools[${index}]`,
+    }))
+    .filter((tool): tool is LangChainModelRequestToolTrace => Boolean(tool));
+  const finalizationTool = tools.find((tool) => tool.name === langChainFinalResponseToolName)
+    ?? createFinalizationToolTrace("$.request.finalizationTool");
+  const businessToolNames = toolWrappers.map((wrapper) => wrapper.name);
+  const baseToolNames = requestToolNames.length > 0 ? requestToolNames : fallbackToolNames;
+  const toolNames = baseToolNames.includes(langChainFinalResponseToolName)
+    ? baseToolNames
+    : [...baseToolNames, langChainFinalResponseToolName];
+  const messagePreviews = messages.map((message) => ({
+    role: message.role,
+    contentPreview: message.content.preview.slice(
+      0,
+      agentRuntimeConfig.langChain.trace.modelMessagePreviewMaxLength,
+    ),
+  }));
+  const audit = createModelVisibleInputAudit({
+    systemPrompt,
+    systemMessage,
+    messages,
+    tools,
+    finalizationTool,
+    budgetField: {
+      path: "$.requestSummary.budget",
+      sourceKind: "runtime_model_request",
+      present: true,
+    },
+  });
 
   return {
     messageCount: request.messages.length,
     messagePreviews,
     toolCount: toolNames.length,
     toolNames,
+    systemPrompt,
+    systemMessage,
+    messages,
+    tools,
+    finalizationTool,
+    budget: {
+      modelCallIndex,
+      maxModelCalls,
+      remainingModelCallsBeforeCall: Math.max(0, maxModelCalls - modelCallIndex + 1),
+      exposedToolCount: toolNames.length,
+      businessToolCount: businessToolNames.length,
+    },
+    toolAvailability: {
+      exposedToolNames: toolNames,
+      businessToolNames,
+      finalizationToolName: langChainFinalResponseToolName,
+    },
+    modelVisibleInputAudit: audit,
   };
+}
+
+/** createModelRequestMessageTrace 将真实 request message 投影成安全 trace 快照，保留顺序但不改写 request。 */
+function createModelRequestMessageTrace(input: {
+  index: number;
+  role: string;
+  value: string;
+  sourcePath: string;
+  contentType: LangChainTraceLongTextEnvelope["contentType"];
+}): LangChainModelRequestMessageTrace {
+  return {
+    index: input.index,
+    role: input.role,
+    content: createModelVisibleTextTrace({
+      contentType: input.contentType,
+      value: input.value,
+      sourcePath: input.sourcePath,
+    }),
+  };
+}
+
+/** createModelRequestToolSchemaRegistry 用项目 wrapper 合同补齐本轮 provider tools 的可审计 JSON schema。 */
+function createModelRequestToolSchemaRegistry(
+  toolWrappers: readonly LangChainToolWrapper[],
+) {
+  const registry = new Map<string, unknown>();
+
+  for (const wrapper of toolWrappers) {
+    registry.set(wrapper.name, z.toJSONSchema(getLangChainToolProviderInputSchema(wrapper)));
+  }
+
+  registry.set(langChainFinalResponseToolName, langChainFinalResponseJsonSchema);
+
+  return registry;
+}
+
+/** createModelRequestToolTrace 只记录 provider 可见 tool 合同摘要，不读取或保存 handler raw output。 */
+function createModelRequestToolTrace(input: {
+  tool: unknown;
+  fallbackSchema?: unknown;
+  sourcePath: string;
+}): LangChainModelRequestToolTrace | undefined {
+  const name = readLangChainToolName(input.tool);
+
+  if (!name) {
+    return undefined;
+  }
+
+  const toolRecord = readRecord(input.tool);
+  const functionRecord = readRecord(toolRecord.function);
+  const description = readStringFromRecord(toolRecord, "description")
+    ?? readStringFromRecord(functionRecord, "description");
+  const rawSchema = input.fallbackSchema
+    ?? toolRecord.schema
+    ?? toolRecord.inputSchema
+    ?? toolRecord.argsSchema
+    ?? functionRecord.parameters;
+  const schemaText = safeStringifyForModelRequestTrace(rawSchema ?? {});
+  const schemaHash = createStableLangChainInputHash(schemaText);
+
+  return {
+    name,
+    ...(description
+      ? {
+          description: createModelVisibleTextTrace({
+            contentType: "model_request_tool_description",
+            value: description,
+            sourcePath: `${input.sourcePath}.description`,
+          }),
+        }
+      : {}),
+    inputSchema: createModelVisibleTextTrace({
+      contentType: "model_request_tool_schema",
+      value: schemaText,
+      sourcePath: `${input.sourcePath}.inputSchema`,
+    }),
+    schemaDescriptions: collectSchemaDescriptionTexts(rawSchema).map((entry, index) => ({
+      path: entry.path,
+      text: createModelVisibleTextTrace({
+        contentType: "model_request_tool_schema_description",
+        value: entry.text,
+        sourcePath: `${input.sourcePath}.schemaDescriptions[${index}]`,
+      }),
+    })),
+    schemaHash,
+  };
+}
+
+/** createFinalizationToolTrace 明确记录结构化终态工具合同，避免 request.tools 缺失时 trace 误判不完整。 */
+function createFinalizationToolTrace(sourcePath: string): LangChainModelRequestToolTrace {
+  return {
+    name: langChainFinalResponseToolName,
+    description: createModelVisibleTextTrace({
+      contentType: "model_request_tool_description",
+      value: langChainFinalResponseJsonSchema.description ?? "",
+      sourcePath: `${sourcePath}.description`,
+    }),
+    inputSchema: createModelVisibleTextTrace({
+      contentType: "model_request_tool_schema",
+      value: safeStringifyForModelRequestTrace(langChainFinalResponseJsonSchema),
+      sourcePath: `${sourcePath}.inputSchema`,
+    }),
+    schemaDescriptions: collectSchemaDescriptionTexts(langChainFinalResponseJsonSchema).map((entry, index) => ({
+      path: entry.path,
+      text: createModelVisibleTextTrace({
+        contentType: "model_request_tool_schema_description",
+        value: entry.text,
+        sourcePath: `${sourcePath}.schemaDescriptions[${index}]`,
+      }),
+    })),
+    schemaHash: createStableLangChainInputHash(safeStringifyForModelRequestTrace(langChainFinalResponseJsonSchema)),
+  };
+}
+
+/** createModelVisibleInputAudit 汇总模型输入快照完整性，旧摘要缺字段时由导出层标记 incomplete。 */
+function createModelVisibleInputAudit(input: {
+  systemPrompt?: LangChainModelVisibleTextTrace;
+  systemMessage?: LangChainModelRequestMessageTrace;
+  messages: readonly LangChainModelRequestMessageTrace[];
+  tools: readonly LangChainModelRequestToolTrace[];
+  finalizationTool?: LangChainModelRequestToolTrace;
+  budgetField: LangChainModelVisibleInputAuditField;
+}) {
+  const fields: LangChainModelVisibleInputAuditField[] = [
+    createAuditField("$.request.systemPrompt", input.systemPrompt),
+    createAuditField("$.request.systemMessage.content", input.systemMessage?.content),
+    {
+      path: "$.request.messages",
+      sourceKind: "runtime_model_request",
+      present: input.messages.length > 0,
+      length: input.messages.length,
+    },
+    {
+      path: "$.request.tools",
+      sourceKind: "runtime_model_request",
+      present: input.tools.length > 0,
+      length: input.tools.length,
+    },
+    {
+      path: "$.request.finalizationTool",
+      sourceKind: "runtime_model_request",
+      present: Boolean(input.finalizationTool),
+      hash: input.finalizationTool?.schemaHash,
+    },
+    input.budgetField,
+  ];
+  const missingModelVisibleParts = fields
+    .filter((field) => !field.present)
+    .map((field) => field.path);
+  const duplicateMessageRisks = findDuplicateMessageRisks(input.messages);
+
+  return {
+    sourceKind: "runtime_model_request" as const,
+    completeness: missingModelVisibleParts.length === 0 ? "complete" as const : "incomplete" as const,
+    missingModelVisibleParts,
+    fields,
+    duplicateMessageRisks,
+  };
+}
+
+/** createAuditField 记录单个模型可见组成部分的存在性、长度和 fingerprint。 */
+function createAuditField(
+  path: string,
+  text: LangChainModelVisibleTextTrace | undefined,
+): LangChainModelVisibleInputAuditField {
+  return {
+    path,
+    sourceKind: "runtime_model_request",
+    present: Boolean(text),
+    ...(text
+      ? {
+          length: text.length,
+          hash: text.hash,
+        }
+      : {}),
+  };
+}
+
+/** findDuplicateMessageRisks 只报告重复 role/content hash 的风险，不删除、合并或重排 message。 */
+function findDuplicateMessageRisks(messages: readonly LangChainModelRequestMessageTrace[]) {
+  const byRoleAndHash = new Map<string, { role: string; hash: string; indexes: number[] }>();
+
+  for (const message of messages) {
+    const key = `${message.role}:${message.content.hash}`;
+    const existing = byRoleAndHash.get(key) ?? {
+      role: message.role,
+      hash: message.content.hash,
+      indexes: [],
+    };
+
+    existing.indexes.push(message.index);
+    byRoleAndHash.set(key, existing);
+  }
+
+  return [...byRoleAndHash.values()]
+    .filter((risk) => risk.indexes.length > 1)
+    .map((risk) => ({
+      role: risk.role,
+      hash: risk.hash,
+      messageIndexes: risk.indexes,
+      sourceKind: "runtime_model_request" as const,
+    }));
+}
+
+/** createModelVisibleTextTrace 对模型可见文本做安全 trace 包装和脱敏，不改变 provider 实际看到的内容。 */
+function createModelVisibleTextTrace(input: {
+  contentType: LangChainTraceLongTextEnvelope["contentType"];
+  value: string;
+  sourcePath: string;
+}): LangChainModelVisibleTextTrace {
+  const redactedValue = redactModelRequestTraceText(input.value);
+  const hash = createStableLangChainInputHash(redactedValue);
+  const envelope = createTraceLongTextEnvelope({
+    contentType: input.contentType,
+    value: redactedValue,
+    hash,
+    redacted: redactedValue !== input.value,
+  });
+
+  return {
+    content: envelope,
+    length: redactedValue.length,
+    hash,
+    preview: envelope.preview,
+    redacted: envelope.redacted,
+    sourcePath: input.sourcePath,
+  };
+}
+
+/** createTraceLongTextEnvelope 生成导出层可识别的长文本 envelope，便于后续外置为 contentRef。 */
+function createTraceLongTextEnvelope(input: {
+  contentType: LangChainTraceLongTextEnvelope["contentType"];
+  value: string;
+  hash: string;
+  redacted: boolean;
+}): LangChainTraceLongTextEnvelope {
+  const chunkSize = 1_600;
+  const chunks: LangChainTraceLongTextEnvelope["chunks"][number][] = [];
+
+  for (let start = 0; start < input.value.length || start === 0; start += chunkSize) {
+    const end = Math.min(input.value.length, start + chunkSize);
+    chunks.push({
+      index: chunks.length,
+      start,
+      end,
+      text: input.value.slice(start, end),
+    });
+
+    if (end >= input.value.length) {
+      break;
+    }
+  }
+
+  return {
+    kind: "trace_long_text",
+    contentType: input.contentType,
+    originalLength: input.value.length,
+    storedLength: input.value.length,
+    chunkSize,
+    hash: input.hash,
+    preview: createModelRequestTextPreview(input.value),
+    redacted: input.redacted,
+    chunks,
+  };
+}
+
+/** createModelRequestTextPreview 给轻量报告使用首尾预览，完整内容仍通过 envelope chunks 保存。 */
+function createModelRequestTextPreview(value: string) {
+  const edgeLength = 120;
+
+  if (value.length <= edgeLength * 2) {
+    return value;
+  }
+
+  return `${value.slice(0, edgeLength)}\n...[middle omitted]...\n${value.slice(-edgeLength)}`;
+}
+
+/** redactModelRequestTraceText 只清理 trace 中的明显凭证文本，不作为业务语义过滤器。 */
+function redactModelRequestTraceText(value: string) {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/\b(sk-[A-Za-z0-9_-]{6,})\b/g, "[REDACTED_API_KEY]")
+    .replace(/(authorization\s*[:=]\s*)[^\s,;}\]]+/gi, "$1[REDACTED]")
+    .replace(/(cookie\s*[:=]\s*)[^\n\r]+/gi, "$1[REDACTED]")
+    .replace(/((?:api|access|refresh|session)?token\s*[:=]\s*)[^\s,;}\]]+/gi, "$1[REDACTED]")
+    .replace(/((?:password|secret)\s*[:=]\s*)[^\s,;}\]]+/gi, "$1[REDACTED]");
+}
+
+/** safeStringifyForModelRequestTrace 序列化 schema 供 trace 审计，失败时退回安全 JSON 投影。 */
+function safeStringifyForModelRequestTrace(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(toLangChainJsonValue(value));
+  }
+}
+
+/** collectSchemaDescriptionTexts 提取 schema description 文本，便于验证模型可见字段说明是否进入 request snapshot。 */
+function collectSchemaDescriptionTexts(value: unknown, path = "$"): Array<{ path: string; text: string }> {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectSchemaDescriptionTexts(item, `${path}[${index}]`));
+  }
+
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const ownDescription = typeof record.description === "string"
+    ? [{ path: `${path}.description`, text: record.description }]
+    : [];
+
+  return [
+    ...ownDescription,
+    ...Object.entries(record).flatMap(([key, child]) => (
+      key === "description" ? [] : collectSchemaDescriptionTexts(child, `${path}.${key}`)
+    )),
+  ];
 }
 
 function summarizeLangChainModelResponse(response: AIMessage): LangChainAgentModelCallTrace["responseSummary"] {

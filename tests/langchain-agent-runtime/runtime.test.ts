@@ -541,6 +541,125 @@ describe("LangChain Agent runtime", () => {
     expect(result.traceSummary?.runtimeVersion).toBe("langchain-agent-runtime-v1");
   });
 
+  it("records a complete model-visible request snapshot for runtime trace auditing", async () => {
+    const model = fakeModel().respondWithTools([
+      createFinalResponseToolCall({
+        content: "已按当前目标整理。",
+      }),
+    ]);
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      systemPrompt: "系统提示：必须基于当前可见事实回答。",
+      messages: [
+        { role: "user", content: "我今天想练胸。" },
+        { role: "user", content: "我今天想练胸。" },
+      ],
+      model,
+      toolWrappers: [echoTool],
+    });
+    const requestSummary = result.traceSummary?.modelCalls[0]?.requestSummary;
+
+    expect(result.ok).toBe(true);
+    expect(requestSummary).toMatchObject({
+      messageCount: 2,
+      toolNames: expect.arrayContaining(["echoExerciseGoal", langChainFinalResponseToolName]),
+      systemPrompt: expect.objectContaining({
+        length: "系统提示：必须基于当前可见事实回答。".length,
+        hash: expect.stringMatching(/^fnv1a:/),
+        content: expect.objectContaining({
+          kind: "trace_long_text",
+          contentType: "model_request_system_prompt",
+        }),
+      }),
+      systemMessage: expect.objectContaining({
+        role: "system",
+        content: expect.objectContaining({
+          content: expect.objectContaining({
+            contentType: "model_request_system_message",
+          }),
+        }),
+      }),
+      budget: expect.objectContaining({
+        modelCallIndex: 1,
+        maxModelCalls: agentRuntimeConfig.langChain.runBudget.maxModelCalls,
+      }),
+      toolAvailability: expect.objectContaining({
+        businessToolNames: ["echoExerciseGoal"],
+        finalizationToolName: langChainFinalResponseToolName,
+      }),
+      modelVisibleInputAudit: expect.objectContaining({
+        sourceKind: "runtime_model_request",
+        completeness: "complete",
+        missingModelVisibleParts: [],
+      }),
+    });
+    expect(requestSummary?.messages).toHaveLength(2);
+    expect(requestSummary?.messages.map((message) => message.content.hash)).toEqual([
+      requestSummary?.messages[0]?.content.hash,
+      requestSummary?.messages[0]?.content.hash,
+    ]);
+    expect(requestSummary?.modelVisibleInputAudit.duplicateMessageRisks).toEqual([
+      expect.objectContaining({
+        role: "human",
+        messageIndexes: [0, 1],
+      }),
+    ]);
+    expect(requestSummary?.tools.find((tool) => tool.name === "echoExerciseGoal")).toMatchObject({
+      description: expect.objectContaining({
+        content: expect.objectContaining({
+          contentType: "model_request_tool_description",
+        }),
+      }),
+      inputSchema: expect.objectContaining({
+        content: expect.objectContaining({
+          contentType: "model_request_tool_schema",
+        }),
+      }),
+      schemaDescriptions: expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.objectContaining({
+            content: expect.objectContaining({
+              contentType: "model_request_tool_schema_description",
+            }),
+          }),
+        }),
+      ]),
+    });
+    expect(requestSummary?.finalizationTool).toMatchObject({
+      name: langChainFinalResponseToolName,
+      inputSchema: expect.objectContaining({
+        hash: expect.stringMatching(/^fnv1a:/),
+      }),
+    });
+    expect(requestSummary?.messages.map((message) => message.content.preview)).toEqual([
+      "我今天想练胸。",
+      "我今天想练胸。",
+    ]);
+  });
+
+  it("redacts sensitive text from model-visible request snapshots without rewriting provider messages", async () => {
+    const sensitiveMessage = "authorization: Bearer secret-token cookie: session=abc sk-secret-value token=raw-secret";
+    const model = fakeModel().respondWithTools([
+      createFinalResponseToolCall({
+        content: "已收到。",
+      }),
+    ]);
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      messages: [{ role: "user", content: sensitiveMessage }],
+      model,
+      toolWrappers: [sensitiveTool],
+    });
+    const serializedTrace = JSON.stringify(result.traceSummary?.modelCalls[0]?.requestSummary);
+
+    expect(serializedTrace).not.toContain("secret-token");
+    expect(serializedTrace).not.toContain("session=abc");
+    expect(serializedTrace).not.toContain("sk-secret-value");
+    expect(serializedTrace).not.toContain("raw-secret");
+    expect(serializedTrace).toContain("[REDACTED]");
+    expect(result.traceSummary?.modelCalls[0]?.requestSummary.messages[0]?.content.redacted).toBe(true);
+  });
+
   it("repairs unstructured final assistant text before returning a normal final response", async () => {
     const model = fakeModel()
       .respond(new AIMessage("可以，今天先做低强度胸部训练。"))

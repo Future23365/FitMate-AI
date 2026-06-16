@@ -905,6 +905,125 @@ describe("AI trace viewer step grouping", () => {
     ]);
   });
 
+  it("externalizes model-visible request snapshot fields with precise long text kinds", () => {
+    const systemPrompt = `系统提示 ${"保持 tool calling 合同。".repeat(80)}`;
+    const toolDescription = `工具说明 ${"查询可训练动作事实。".repeat(80)}`;
+    const schemaDescription = `字段说明 ${"用户明确表达的训练目标。".repeat(80)}`;
+    const schemaJson = JSON.stringify({
+      type: "object",
+      properties: {
+        goal: { type: "string", description: schemaDescription },
+      },
+    });
+
+    const payload = extractTraceLogLongTexts({
+      plannerModelCalls: [
+        {
+          request: {
+            modelVisibleInputSnapshot: {
+              systemPrompt: {
+                content: createTraceLongTextEnvelope("model_request_system_prompt", systemPrompt),
+              },
+              tools: [
+                {
+                  name: "searchExerciseResources",
+                  description: {
+                    content: createTraceLongTextEnvelope("model_request_tool_description", toolDescription),
+                  },
+                  inputSchema: {
+                    content: createTraceLongTextEnvelope("model_request_tool_schema", schemaJson),
+                  },
+                  schemaDescriptions: [
+                    {
+                      path: "$.properties.goal.description",
+                      text: {
+                        content: createTraceLongTextEnvelope("model_request_tool_schema_description", schemaDescription),
+                      },
+                    },
+                  ],
+                },
+              ],
+              modelVisibleInputAudit: {
+                sourceKind: "runtime_model_request",
+                completeness: "complete",
+                missingModelVisibleParts: [],
+              },
+            },
+          },
+        },
+      ],
+    }) as Record<string, unknown>;
+    const longTexts = payload.longTexts as Array<Record<string, unknown>>;
+
+    expect(longTexts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "model_request_system_prompt",
+          content: systemPrompt,
+        }),
+        expect.objectContaining({
+          kind: "model_request_tool_description",
+          content: toolDescription,
+        }),
+        expect.objectContaining({
+          kind: "model_request_tool_schema",
+          content: schemaJson,
+        }),
+        expect.objectContaining({
+          kind: "model_request_tool_schema_description",
+          content: schemaDescription,
+        }),
+      ]),
+    );
+  });
+
+  it("marks legacy model request summaries as incomplete instead of complete model-visible input evidence", () => {
+    const trace: AiTrace = {
+      id: "trace-legacy-model-request",
+      runId: "run-legacy-model-request",
+      route: "/api/chat",
+      title: "旧格式模型请求",
+      status: "success",
+      createdAt: "2026-06-16T05:00:00.000Z",
+      steps: [
+        createStep({
+          id: "model-request-legacy",
+          type: "model_request",
+          name: "LangChain 模型请求 #1",
+          input: {
+            messages: [{ role: "user", contentPreview: "帮我练胸" }],
+            toolNames: ["searchExerciseResources"],
+          },
+          output: {
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            messageCount: 1,
+            toolCount: 1,
+            toolNames: ["searchExerciseResources"],
+          },
+          metadata: {
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          },
+        }),
+      ],
+    };
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps));
+    const plannerModelCalls = payload.plannerModelCalls as Array<Record<string, unknown>>;
+    const request = plannerModelCalls[0].request as Record<string, unknown>;
+
+    expect(request.modelVisibleInputAudit).toMatchObject({
+      sourceKind: "trace_export",
+      completeness: "incomplete",
+      missingModelVisibleParts: expect.arrayContaining([
+        "$.request.systemPrompt",
+        "$.request.tools",
+        "$.request.finalizationTool",
+      ]),
+    });
+    expect(JSON.stringify(request.modelVisibleInputAudit)).toContain("请重新采集包含 modelVisibleInputSnapshot 的 trace");
+  });
+
   it("derives explicit visibility sections for LangChain tool execution outputs", () => {
     const sections = createToolExecutionVisibilitySections({
       toolName: "searchExerciseResources",
@@ -1236,6 +1355,27 @@ describe("AI trace viewer step grouping", () => {
     });
   });
 });
+
+function createTraceLongTextEnvelope(contentType: string, content: string) {
+  return {
+    kind: "trace_long_text",
+    contentType,
+    originalLength: content.length,
+    storedLength: content.length,
+    chunkSize: content.length,
+    hash: `fnv1a:testtrace-${contentType}-${content.length}`,
+    preview: content.slice(0, 80),
+    redacted: false,
+    chunks: [
+      {
+        index: 0,
+        start: 0,
+        end: content.length,
+        text: content,
+      },
+    ],
+  };
+}
 
 function createStep(overrides: Pick<AiTraceStep, "type" | "name"> & Partial<AiTraceStep>): AiTraceStep {
   return {
