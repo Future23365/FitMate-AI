@@ -991,6 +991,11 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不是动作 placement eligibility 或最终训练阶段指令");
     expect(modelVisibleText).toContain("candidateGroups[].exercises 是动作候选池，不是最终推荐清单");
     expect(modelVisibleText).toContain("候选动作可以被选择、跳过或用于后续结构化输出");
+    expect(modelVisibleText).toContain("training 候选用于支撑主训练动作选择");
+    expect(modelVisibleText).toContain("warmup / stretch 候选用于支撑辅助阶段选择");
+    expect(modelVisibleText).toContain("辅助阶段不要求每个目标肌群都有 primary 候选");
+    expect(modelVisibleText).toContain("辅助阶段的局部窄查询缺口");
+    expect(modelVisibleText).toContain("它不等于整体 routine 或 plan 不可提交");
     expect(modelVisibleText).toContain("本 tool 只返回动作候选事实");
     expect(modelVisibleText).toContain("不返回 prescription、schedule、routine 或 plan");
     expect(modelVisibleText).toContain("缺口是 prescription 或 schedule 时");

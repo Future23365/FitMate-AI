@@ -1848,6 +1848,12 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("当前可见事实中是否已有可选子集能满足用户目标");
     expect(prompt).toContain("不要因为仍可能存在更多匹配、候选被截断、部分候选不适合或想查看更多而继续调用同类查询工具");
     expect(prompt).toContain("不要为了移除未选候选、让候选池完全纯净或追求更理想列表而重复调用同类查询工具");
+    expect(prompt).toContain("训练编排交付判据");
+    expect(prompt).toContain("training 候选已经能覆盖本轮主要训练目标");
+    expect(prompt).toContain("辅助阶段不要求每个目标肌群都有对应 primary 候选");
+    expect(prompt).toContain("局部窄查询没有覆盖某些辅助肌群时");
+    expect(prompt).toContain("优先交付单次 routine");
+    expect(prompt).toContain("只有目标明确需要跨天安排时才构造 plan");
     expect(prompt).toContain("prescription 和 schedule 不来自动作库查询结果");
     expect(prompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
     expect(prompt).toContain("多天或周期 plan 的结构是可重复 routine template + schedule");

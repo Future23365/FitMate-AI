@@ -45,6 +45,12 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("schedule.assignments 只表达该 routine template 在周期内的 training / rest 日");
     expect(tool.description).toContain("不为每天内嵌不同完整 exerciseItems");
     expect(tool.description).toContain("fitmate_final_response.content 只解释已校验 plan");
+    expect(tool.description).toContain("Composition Boundary");
+    expect(tool.description).toContain("当前可见候选已经能组成 training 主体");
+    expect(tool.description).toContain("有可用 warmup / stretch 辅助候选");
+    expect(tool.description).toContain("应从候选池选择子集提交 routine 或 plan");
+    expect(tool.description).toContain("不需要继续扩大候选池");
+    expect(tool.description).toContain("逐个目标肌群补齐辅助候选");
     expect(tool.description).toContain("不要把这些动作塞进 exercise_selection");
     expect(tool.description).toContain("不替模型生成 prescription");
     expect(tool.description).toContain("可以从当前模型可见候选事实中选择子集构造");

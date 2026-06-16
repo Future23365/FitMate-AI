@@ -87,6 +87,7 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Plan Composition：payload.kind=plan 表示一套可重复 routine template 加周期 schedule；exerciseItems[] 承载同一套 warmup / training / stretch 编排和 prescription。",
       "Plan Composition：schedule.assignments 只表达该 routine template 在周期内的 training / rest 日；不为每天内嵌不同完整 exerciseItems，也不复制多套不同 routine。",
       "Plan Composition：当目标要交付一周、多天或周期 plan，且当前可见动作候选事实足以构造 routine template 时，应先提交 payload.kind=plan；fitmate_final_response.content 只解释已校验 plan。",
+      "Composition Boundary：当前可见候选已经能组成 training 主体，并有可用 warmup / stretch 辅助候选或用户允许当前 section 范围时，应从候选池选择子集提交 routine 或 plan；不需要继续扩大候选池、逐个目标肌群补齐辅助候选或排除未选候选。",
       "Kind Selection：当结构需要 warmup / stretch，或要交付单次可执行训练时，不要把这些动作塞进 exercise_selection；应选择能承载可执行编排的 routine 或 plan。",
       "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",

@@ -363,6 +363,8 @@ export function createSearchExerciseResourcesLangChainTool(
       "Output Meaning：candidateGroups[].exercises 只要存在能满足当前目标的可选择子集，就可以支撑动作推荐集合；候选池不要求完全纯净，也不要求先排除未选候选。",
       "Output Meaning：本 tool 只返回动作候选事实，不返回 prescription、schedule、routine 或 plan；缺口是 prescription 或 schedule 时，重复查询动作库不会新增该类事实。",
       "Output Meaning：coverage 只说明本次查询结果中哪些 suitabilities 有候选、哪些没有候选；它不是用户目标满足度、训练方案生成结果或下一步 tool 调用指令。",
+      "Output Meaning：training 候选用于支撑主训练动作选择；warmup / stretch 候选用于支撑辅助阶段选择。除非用户明确要求特定覆盖，否则辅助阶段不要求每个目标肌群都有 primary 候选。",
+      "Output Meaning：辅助阶段的局部窄查询缺口只表示当前查询口径下候选不完整；如果已有可用辅助候选和主训练候选，它不等于整体 routine 或 plan 不可提交。",
       "Resource Boundary：Exercise 动作库是 FitMate 的产品可渲染动作资源库，用于动作卡片、图片、动作详情、结构化训练结果和训练执行项；它不是现实世界训练知识全集。",
       "Resource Boundary：空候选或点名动作未命中只表示当前查询口径下产品动作库没有匹配的可渲染资源；不表示现实训练动作或训练知识不存在。",
       "Resource Boundary：不需要产品动作卡片、图片、结构化训练结果或训练执行项的普通文本知识回答，可以不依赖数据库动作条目；需要这些产品资源时，具体 exerciseId 仍必须来自数据库动作事实或受控业务事实。",

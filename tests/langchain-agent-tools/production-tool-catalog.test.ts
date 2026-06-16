@@ -130,6 +130,15 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("候选用途查询口径，不是最终训练编排命令");
     expect(descriptions).toContain("candidateGroups[].suitability 只表示该组候选来自哪个 suitabilities 查询口径");
     expect(descriptions).toContain("validator");
+    expect(descriptions).toContain("training 候选用于支撑主训练动作选择");
+    expect(descriptions).toContain("warmup / stretch 候选用于支撑辅助阶段选择");
+    expect(descriptions).toContain("辅助阶段不要求每个目标肌群都有 primary 候选");
+    expect(descriptions).toContain("辅助阶段的局部窄查询缺口");
+    expect(descriptions).toContain("它不等于整体 routine 或 plan 不可提交");
+    expect(descriptions).toContain("Composition Boundary");
+    expect(descriptions).toContain("当前可见候选已经能组成 training 主体");
+    expect(descriptions).toContain("应从候选池选择子集提交 routine 或 plan");
+    expect(descriptions).toContain("逐个目标肌群补齐辅助候选");
     expect(schemaDescriptions).toContain("Kind Selection");
     expect(schemaDescriptions).toContain("exercise_selection 只用于纯主训练动作推荐集合");
     expect(schemaDescriptions).toContain("routine 用于单次可执行训练");
@@ -158,6 +167,12 @@ describe("production LangChain tool catalog", () => {
     expect(systemPrompt).toContain("不先做无执行场景的宽泛查询");
     expect(systemPrompt).toContain("才把这些条件纳入动作查询口径");
     expect(systemPrompt).toContain("不要因为输出类型从 routine 派生成 plan，就默认重新查询动作");
+    expect(systemPrompt).toContain("训练编排交付判据");
+    expect(systemPrompt).toContain("training 候选已经能覆盖本轮主要训练目标");
+    expect(systemPrompt).toContain("辅助阶段不要求每个目标肌群都有对应 primary 候选");
+    expect(systemPrompt).toContain("局部窄查询没有覆盖某些辅助肌群时");
+    expect(systemPrompt).toContain("优先交付单次 routine");
+    expect(systemPrompt).toContain("只有目标明确需要跨天安排时才构造 plan");
     expect(systemPrompt).toContain("schedule 是 plan 的日程结构字段，不是动作库查询结果");
     expect(systemPrompt).toContain("prescription 和 schedule 不来自动作库查询结果");
     expect(systemPrompt).toContain("缺少 prescription 或 schedule 不等价于缺少动作候选事实");
